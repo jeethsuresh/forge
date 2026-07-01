@@ -3,8 +3,9 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { deployments, projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
-import { getComposeContainerStatus } from "@/lib/docker";
+import { getComposeContainerStatus, projectHasComposeFile } from "@/lib/docker";
 import { isDeploymentActive } from "@/lib/deployer";
+import { deriveRuntimeStatus } from "@/lib/project-status";
 
 async function requireLogin() {
   const session = await getSession();
@@ -40,13 +41,23 @@ export async function GET(
     history.find((d) => d.status === "success") ?? history[0] ?? null;
 
   const containers = await getComposeContainerStatus(project.clonePath);
+  const isDeploying = isDeploymentActive(id);
+  const hasSuccessfulDeploy = history.some((d) => d.status === "success");
+  const runtimeStatus = deriveRuntimeStatus(containers, {
+    isDeploying,
+    hasSuccessfulDeploy,
+    hasComposeFile: projectHasComposeFile(project.clonePath),
+  });
+  const hasComposeFile = projectHasComposeFile(project.clonePath);
 
   return NextResponse.json({
     project,
     deployments: history,
     currentDeployment,
     containers,
-    isDeploying: isDeploymentActive(id),
+    isDeploying,
+    runtimeStatus,
+    hasComposeFile,
   });
 }
 

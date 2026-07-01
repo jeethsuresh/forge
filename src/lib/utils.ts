@@ -1,3 +1,5 @@
+import type { RuntimeStatus } from "@/lib/project-status";
+
 export function formatRelativeTime(date: Date | string | number): string {
   const d = new Date(date);
   const seconds = Math.floor((Date.now() - d.getTime()) / 1000);
@@ -45,5 +47,68 @@ export function statusColor(status: string): string {
       return "text-amber-400 bg-amber-400/10 border-amber-400/20";
     default:
       return "text-zinc-400 bg-zinc-400/10 border-zinc-400/20";
+  }
+}
+
+export function runtimeStatusLabel(status: RuntimeStatus): string {
+  switch (status) {
+    case "running":
+      return "Running";
+    case "stopped":
+      return "Stopped";
+    case "partial":
+      return "Partially running";
+    case "deploying":
+      return "Deploying";
+    case "not_deployed":
+      return "Not deployed";
+    case "unknown":
+      return "Unknown";
+    default: {
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
+  }
+}
+
+export function runtimeStatusColor(status: RuntimeStatus): string {
+  switch (status) {
+    case "running":
+      return "text-emerald-400";
+    case "stopped":
+      return "text-zinc-400";
+    case "partial":
+      return "text-amber-400";
+    case "deploying":
+      return "text-amber-400";
+    case "not_deployed":
+      return "text-zinc-500";
+    case "unknown":
+      return "text-zinc-500";
+    default: {
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
+  }
+}
+
+export function runtimeStatusBadgeColor(status: RuntimeStatus): string {
+  switch (status) {
+    case "running":
+      return "text-emerald-400 bg-emerald-400/10 border-emerald-400/20";
+    case "stopped":
+      return "text-zinc-400 bg-zinc-400/10 border-zinc-400/20";
+    case "partial":
+      return "text-amber-400 bg-amber-400/10 border-amber-400/20";
+    case "deploying":
+      return "text-amber-400 bg-amber-400/10 border-amber-400/20";
+    case "not_deployed":
+      return "text-zinc-500 bg-zinc-500/10 border-zinc-500/20";
+    case "unknown":
+      return "text-zinc-500 bg-zinc-500/10 border-zinc-500/20";
+    default: {
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
   }
 }

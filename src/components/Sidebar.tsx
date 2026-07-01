@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { RuntimeStatus } from "@/lib/project-status";
 
 interface ProjectSummary {
   id: string;
@@ -10,7 +11,33 @@ interface ProjectSummary {
   branch: string;
   enabled: boolean;
   isDeploying: boolean;
+  runtimeStatus: RuntimeStatus;
   latestDeployment: { status: string } | null;
+}
+
+function sidebarDotClass(
+  enabled: boolean,
+  runtimeStatus: RuntimeStatus,
+): string {
+  if (!enabled) return "bg-zinc-600";
+  switch (runtimeStatus) {
+    case "running":
+      return "bg-emerald-400";
+    case "stopped":
+      return "bg-zinc-500";
+    case "partial":
+      return "bg-amber-400";
+    case "deploying":
+      return "bg-amber-400 animate-pulse";
+    case "not_deployed":
+      return "bg-zinc-600";
+    case "unknown":
+      return "bg-zinc-600";
+    default: {
+      const _exhaustive: never = runtimeStatus;
+      return _exhaustive;
+    }
+  }
 }
 
 export function Sidebar() {
@@ -18,12 +45,18 @@ export function Sidebar() {
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
 
-  useEffect(() => {
+  const fetchProjects = useCallback(() => {
     fetch("/api/projects")
       .then((r) => r.json())
       .then(setProjects)
       .catch(() => setProjects([]));
-  }, [pathname]);
+  }, []);
+
+  useEffect(() => {
+    fetchProjects();
+    const interval = setInterval(fetchProjects, 5000);
+    return () => clearInterval(interval);
+  }, [fetchProjects, pathname]);
 
   async function logout() {
     await fetch("/api/auth/login", { method: "DELETE" });
@@ -64,9 +97,6 @@ export function Sidebar() {
           <ul className="space-y-1">
             {projects.map((project) => {
               const active = pathname === `/projects/${project.id}`;
-              const status = project.isDeploying
-                ? "deploying"
-                : (project.latestDeployment?.status ?? "unknown");
 
               return (
                 <li key={project.id}>
@@ -79,15 +109,7 @@ export function Sidebar() {
                     }`}
                   >
                     <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${
-                        !project.enabled
-                          ? "bg-zinc-600"
-                          : status === "success"
-                            ? "bg-emerald-400"
-                            : status === "failed"
-                              ? "bg-red-400"
-                              : "bg-amber-400 animate-pulse"
-                      }`}
+                      className={`h-2 w-2 shrink-0 rounded-full ${sidebarDotClass(project.enabled, project.runtimeStatus)}`}
                     />
                     <span className="min-w-0 flex-1 truncate font-medium">
                       {project.name}

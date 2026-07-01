@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
 import {
@@ -6,8 +6,14 @@ import {
   projects,
   type DeploymentStatus,
   type DeploymentTrigger,
+  type Project,
 } from "@/lib/db/schema";
-import { cloneOrPull, getRemoteCommitSha, runScript } from "@/lib/github";
+import {
+  cloneOrPull,
+  getLocalCommitSha,
+  getRemoteCommitSha,
+  runScript,
+} from "@/lib/github";
 
 const activeDeployments = new Set<string>();
 
@@ -64,16 +70,75 @@ export async function runDeployment(
     })
     .run();
 
-  void executeDeployment(deploymentId, project.id).finally(() => {
+  void executeDeployment(deploymentId, project.id, trigger).finally(() => {
     activeDeployments.delete(projectId);
   });
 
   return deploymentId;
 }
 
+function getLatestSuccessfulDeploymentCommit(projectId: string): string | null {
+  const row = db
+    .select({ commitSha: deployments.commitSha })
+    .from(deployments)
+    .where(
+      and(
+        eq(deployments.projectId, projectId),
+        eq(deployments.status, "success"),
+      ),
+    )
+    .orderBy(desc(deployments.completedAt))
+    .limit(1)
+    .get();
+  return row?.commitSha ?? null;
+}
+
+async function getRecordedDeployedCommitSha(project: Project): Promise<string | null> {
+  if (project.lastSeenCommit) return project.lastSeenCommit;
+  return getLatestSuccessfulDeploymentCommit(project.id);
+}
+
+async function getEffectiveDeployedCommitSha(project: Project): Promise<string | null> {
+  const recorded = await getRecordedDeployedCommitSha(project);
+  if (recorded) return recorded;
+  return getLocalCommitSha(project.clonePath);
+}
+
+function syncLastSeenCommit(projectId: string, commitSha: string): void {
+  db.update(projects)
+    .set({ lastSeenCommit: commitSha, updatedAt: new Date() })
+    .where(eq(projects.id, projectId))
+    .run();
+}
+
+async function shouldSkipAutoDeploy(
+  project: Project,
+  remoteSha: string,
+): Promise<boolean> {
+  const deployedSha = await getEffectiveDeployedCommitSha(project);
+  if (deployedSha !== remoteSha) return false;
+  if (project.lastSeenCommit !== remoteSha) {
+    syncLastSeenCommit(project.id, remoteSha);
+  }
+  return true;
+}
+
+async function shouldSkipAutoBuild(
+  project: Project,
+  commitSha: string,
+): Promise<boolean> {
+  const deployedSha = await getRecordedDeployedCommitSha(project);
+  if (deployedSha !== commitSha) return false;
+  if (project.lastSeenCommit !== commitSha) {
+    syncLastSeenCommit(project.id, commitSha);
+  }
+  return true;
+}
+
 async function executeDeployment(
   deploymentId: string,
   projectId: string,
+  trigger: DeploymentTrigger,
 ): Promise<void> {
   const project = db
     .select()
@@ -105,6 +170,12 @@ async function executeDeployment(
       .where(eq(deployments.id, deploymentId))
       .run();
 
+    if (trigger === "auto" && (await shouldSkipAutoBuild(project, commitSha))) {
+      log(`Already deployed at ${commitSha.slice(0, 7)}, skipping build.`);
+      updateStatus(deploymentId, "success", { completedAt: new Date() });
+      return;
+    }
+
     updateStatus(deploymentId, "building");
     await runScript("build.sh", project.clonePath, log);
 
@@ -113,13 +184,7 @@ async function executeDeployment(
 
     updateStatus(deploymentId, "success", { completedAt: new Date() });
 
-    db.update(projects)
-      .set({
-        lastSeenCommit: commitSha,
-        updatedAt: new Date(),
-      })
-      .where(eq(projects.id, projectId))
-      .run();
+    syncLastSeenCommit(projectId, commitSha);
 
     log(`Deployment successful (${commitSha.slice(0, 7)}).`);
   } catch (err) {
@@ -140,10 +205,11 @@ export async function checkProjectForChanges(projectId: string): Promise<boolean
     .get();
 
   if (!project || !project.enabled) return false;
+  if (activeDeployments.has(projectId)) return false;
 
   try {
     const remoteSha = await getRemoteCommitSha(project.githubRepo, project.branch);
-    if (project.lastSeenCommit === remoteSha) return false;
+    if (await shouldSkipAutoDeploy(project, remoteSha)) return false;
     await runDeployment(projectId, "auto");
     return true;
   } catch (err) {

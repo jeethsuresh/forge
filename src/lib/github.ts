@@ -1,6 +1,7 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { existsSync } from "fs";
+import { join, resolve } from "path";
 
 const execFileAsync = promisify(execFile);
 
@@ -58,23 +59,24 @@ export async function cloneOrPull(
   onLog: (line: string) => void,
 ): Promise<string> {
   const url = githubCloneUrl(repo);
+  const resolvedPath = resolve(clonePath);
 
-  if (!existsSync(clonePath)) {
+  if (!existsSync(resolvedPath)) {
     onLog(`Cloning ${url} (branch: ${branch})...`);
-    await execFileAsync("git", ["clone", "--branch", branch, url, clonePath]);
+    await execFileAsync("git", ["clone", "--branch", branch, url, resolvedPath]);
     onLog("Clone complete.");
   } else {
     onLog("Fetching latest changes...");
-    await execFileAsync("git", ["fetch", "origin", branch], { cwd: clonePath });
+    await execFileAsync("git", ["fetch", "origin", branch], { cwd: resolvedPath });
     onLog(`Checking out ${branch}...`);
-    await execFileAsync("git", ["checkout", branch], { cwd: clonePath });
+    await execFileAsync("git", ["checkout", branch], { cwd: resolvedPath });
     await execFileAsync("git", ["reset", "--hard", `origin/${branch}`], {
-      cwd: clonePath,
+      cwd: resolvedPath,
     });
     onLog("Pull complete.");
   }
 
-  const sha = await getLocalCommitSha(clonePath);
+  const sha = await getLocalCommitSha(resolvedPath);
   if (!sha) throw new Error("Failed to resolve local commit after pull");
   return sha;
 }
@@ -84,14 +86,15 @@ export async function runScript(
   cwd: string,
   onLog: (line: string) => void,
 ): Promise<void> {
-  const scriptPath = `${cwd}/${scriptName}`;
+  const resolvedCwd = resolve(cwd);
+  const scriptPath = join(resolvedCwd, scriptName);
   if (!existsSync(scriptPath)) {
     throw new Error(`${scriptName} not found in repository root`);
   }
 
   onLog(`Running ./${scriptName}...`);
-  const { stdout, stderr } = await execFileAsync("bash", [scriptPath], {
-    cwd,
+  const { stdout, stderr } = await execFileAsync("bash", [scriptName], {
+    cwd: resolvedCwd,
     maxBuffer: 10 * 1024 * 1024,
   });
   if (stdout) onLog(stdout.trimEnd());

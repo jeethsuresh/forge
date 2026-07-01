@@ -5,9 +5,13 @@ import { useCallback, useEffect, useState } from "react";
 import {
   formatDuration,
   formatRelativeTime,
+  runtimeStatusBadgeColor,
+  runtimeStatusColor,
+  runtimeStatusLabel,
   shortSha,
   statusColor,
 } from "@/lib/utils";
+import type { RuntimeStatus } from "@/lib/project-status";
 
 interface ContainerInfo {
   name: string;
@@ -45,6 +49,8 @@ interface ProjectDetail {
   currentDeployment: Deployment | null;
   containers: ContainerInfo[];
   isDeploying: boolean;
+  runtimeStatus: RuntimeStatus;
+  hasComposeFile: boolean;
 }
 
 export default function ProjectDetailPage() {
@@ -100,6 +106,28 @@ export default function ProjectDetailPage() {
     }
   }
 
+  async function stopProject() {
+    if (
+      !confirm(
+        "Stop all containers for this project? This runs docker compose down.",
+      )
+    ) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/projects/${id}/stop`, { method: "POST" });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Failed to stop project");
+        return;
+      }
+      await fetchData();
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   async function deleteProject() {
     if (!confirm("Remove this project from Forge? This will not stop running containers.")) {
       return;
@@ -123,7 +151,7 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const { project, deployments, currentDeployment, containers, isDeploying } =
+  const { project, deployments, currentDeployment, containers, isDeploying, runtimeStatus, hasComposeFile } =
     data;
 
   const deployedAt = currentDeployment?.completedAt ?? currentDeployment?.startedAt;
@@ -132,7 +160,14 @@ export default function ProjectDetailPage() {
     <div className="p-8">
       <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-zinc-100">{project.name}</h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold text-zinc-100">{project.name}</h1>
+            <span
+              className={`inline-flex rounded border px-2.5 py-0.5 text-xs font-medium ${runtimeStatusBadgeColor(runtimeStatus)}`}
+            >
+              {runtimeStatusLabel(runtimeStatus)}
+            </span>
+          </div>
           <p className="mt-1 font-mono text-sm text-zinc-500">
             {project.githubRepo} · branch{" "}
             <span className="text-orange-400">{project.branch}</span>
@@ -154,6 +189,13 @@ export default function ProjectDetailPage() {
             {project.enabled ? "Pause watching" : "Resume watching"}
           </button>
           <button
+            onClick={stopProject}
+            disabled={actionLoading || isDeploying}
+            className="rounded-lg border border-amber-400/20 px-4 py-2 text-sm text-amber-400 hover:bg-amber-400/10 disabled:opacity-50"
+          >
+            Stop containers
+          </button>
+          <button
             onClick={deleteProject}
             className="rounded-lg border border-red-400/20 px-4 py-2 text-sm text-red-400 hover:bg-red-400/10"
           >
@@ -173,18 +215,33 @@ export default function ProjectDetailPage() {
           mono
         />
         <StatCard
-          label="Deployed"
+          label="Last deployed"
           value={deployedAt ? formatRelativeTime(deployedAt) : "Never"}
         />
         <StatCard
-          label="Uptime"
-          value={
-            deployedAt && currentDeployment?.status === "success"
-              ? formatDuration(deployedAt)
-              : "—"
+          label="Status"
+          value={runtimeStatusLabel(runtimeStatus)}
+          valueClassName={runtimeStatusColor(runtimeStatus)}
+          subtitle={
+            runtimeStatus === "running" && deployedAt
+              ? `Up ${formatDuration(deployedAt)}`
+              : runtimeStatus === "stopped"
+                ? "Containers are down"
+                : runtimeStatus === "partial"
+                  ? `${containers.filter((c) => c.state === "running").length}/${containers.length} services running`
+                  : undefined
           }
         />
       </div>
+
+      {hasComposeFile && runtimeStatus === "stopped" && (
+        <section className="mb-8 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-6 text-center">
+          <p className="text-sm text-zinc-400">
+            All containers are stopped. Use{" "}
+            <span className="text-orange-400">Deploy now</span> to start them again.
+          </p>
+        </section>
+      )}
 
       {containers.length > 0 && (
         <section className="mb-8">
@@ -203,7 +260,7 @@ export default function ProjectDetailPage() {
               </thead>
               <tbody className="divide-y divide-zinc-800 bg-zinc-900">
                 {containers.map((c) => (
-                  <tr key={c.name}>
+                  <tr key={`${c.service}-${c.name}`}>
                     <td className="px-4 py-3 font-medium text-zinc-200">
                       {c.service}
                     </td>
@@ -303,11 +360,15 @@ export default function ProjectDetailPage() {
 function StatCard({
   label,
   value,
+  subtitle,
   mono,
+  valueClassName,
 }: {
   label: string;
   value: string;
+  subtitle?: string;
   mono?: boolean;
+  valueClassName?: string;
 }) {
   return (
     <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3">
@@ -315,10 +376,13 @@ function StatCard({
         {label}
       </div>
       <div
-        className={`mt-1 text-lg font-semibold text-zinc-100 ${mono ? "font-mono text-base" : ""}`}
+        className={`mt-1 text-lg font-semibold text-zinc-100 ${mono ? "font-mono text-base" : ""} ${valueClassName ?? ""}`}
       >
         {value}
       </div>
+      {subtitle && (
+        <div className="mt-0.5 text-xs text-zinc-500">{subtitle}</div>
+      )}
     </div>
   );
 }

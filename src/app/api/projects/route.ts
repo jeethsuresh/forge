@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { desc, eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { mkdirSync } from "fs";
-import { join } from "path";
+import { join, resolve } from "path";
 import { db } from "@/lib/db";
 import { deployments, projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
 import { parseGithubRepo } from "@/lib/github";
 import { isDeploymentActive } from "@/lib/deployer";
+import { getComposeContainerStatus, projectHasComposeFile } from "@/lib/docker";
+import { deriveRuntimeStatus } from "@/lib/project-status";
 
 async function requireLogin() {
   const session = await getSession();
@@ -27,21 +29,40 @@ export async function GET() {
     .orderBy(projects.name)
     .all();
 
-  const enriched = allProjects.map((project) => {
-    const latest = db
-      .select()
-      .from(deployments)
-      .where(eq(deployments.projectId, project.id))
-      .orderBy(desc(deployments.startedAt))
-      .limit(1)
-      .get();
+  const enriched = await Promise.all(
+    allProjects.map(async (project) => {
+      const latest = db
+        .select()
+        .from(deployments)
+        .where(eq(deployments.projectId, project.id))
+        .orderBy(desc(deployments.startedAt))
+        .limit(1)
+        .get();
 
-    return {
-      ...project,
-      latestDeployment: latest ?? null,
-      isDeploying: isDeploymentActive(project.id),
-    };
-  });
+      const latestSuccess = db
+        .select()
+        .from(deployments)
+        .where(eq(deployments.projectId, project.id))
+        .orderBy(desc(deployments.completedAt))
+        .all()
+        .find((d) => d.status === "success");
+
+      const isDeploying = isDeploymentActive(project.id);
+      const containers = await getComposeContainerStatus(project.clonePath);
+      const runtimeStatus = deriveRuntimeStatus(containers, {
+        isDeploying,
+        hasSuccessfulDeploy: latestSuccess !== undefined,
+        hasComposeFile: projectHasComposeFile(project.clonePath),
+      });
+
+      return {
+        ...project,
+        latestDeployment: latest ?? null,
+        isDeploying,
+        runtimeStatus,
+      };
+    }),
+  );
 
   return NextResponse.json(enriched);
 }
@@ -74,7 +95,7 @@ export async function POST(request: Request) {
   }
 
   const branch = body.branch?.trim() || "main";
-  const reposDir = process.env.FORGE_REPOS_DIR ?? "./data/repos";
+  const reposDir = resolve(process.env.FORGE_REPOS_DIR ?? "./data/repos");
   mkdirSync(reposDir, { recursive: true });
   const slug = githubRepo.replace("/", "-");
   const clonePath = join(reposDir, `${slug}-${branch}`);
