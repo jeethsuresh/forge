@@ -25,17 +25,17 @@ export default function ProjectsPage() {
   });
 
   return (
-    <div className="p-8">
-      <div className="mb-8 flex items-center justify-between">
+    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:p-8">
+      <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-zinc-100">Projects</h1>
+          <h1 className="text-xl font-semibold text-zinc-100 sm:text-2xl">Projects</h1>
           <p className="mt-1 text-sm text-zinc-500">
             Monitored repositories and their deployment status
           </p>
         </div>
         <Link
           href="/projects/new"
-          className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-400"
+          className="inline-flex min-h-11 items-center justify-center rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-400"
         >
           Add project
         </Link>

@@ -23,11 +23,20 @@ export type DeploymentStatus =
   | "pending"
   | "pulling"
   | "building"
+  | "testing"
   | "deploying"
   | "success"
   | "failed";
 
-export type DeploymentTrigger = "auto" | "manual";
+export type DeploymentTrigger = "auto" | "manual" | "agent";
+
+export type AgentSessionStatus =
+  | "pending"
+  | "running"
+  | "deploying"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export const deployments = sqliteTable("deployments", {
   id: text("id").primaryKey(),
@@ -44,6 +53,35 @@ export const deployments = sqliteTable("deployments", {
   completedAt: integer("completed_at", { mode: "timestamp" }),
 });
 
+export const agentSessions = sqliteTable("agent_sessions", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  branch: text("branch").notNull(),
+  status: text("status").$type<AgentSessionStatus>().notNull(),
+  cursorSessionId: text("cursor_session_id"),
+  initialPrompt: text("initial_prompt").notNull(),
+  logs: text("logs").notNull().default(""),
+  errorMessage: text("error_message"),
+  deploymentId: text("deployment_id"),
+  startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+});
+
+export const agentEvents = sqliteTable("agent_events", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id")
+    .notNull()
+    .references(() => agentSessions.id, { onDelete: "cascade" }),
+  seq: integer("seq").notNull(),
+  eventType: text("event_type").notNull(),
+  payload: text("payload").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
+export type AgentSession = typeof agentSessions.$inferSelect;
+export type AgentEvent = typeof agentEvents.$inferSelect;

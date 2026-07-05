@@ -40,16 +40,28 @@ function sidebarDotClass(
   }
 }
 
-export function Sidebar() {
+interface SidebarProps {
+  className?: string;
+  onNavigate?: () => void;
+}
+
+export function Sidebar({ className = "", onNavigate }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [loaded, setLoaded] = useState(false);
 
   const fetchProjects = useCallback(() => {
     fetch("/api/projects")
       .then((r) => r.json())
-      .then(setProjects)
-      .catch(() => setProjects([]));
+      .then((data) => {
+        setProjects(data);
+        setLoaded(true);
+      })
+      .catch(() => {
+        setProjects([]);
+        setLoaded(true);
+      });
   }, []);
 
   useEffect(() => {
@@ -65,10 +77,16 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
+    <aside
+      className={`flex w-64 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950 ${className}`}
+    >
       <div className="border-b border-zinc-800 px-5 py-4">
-        <Link href="/projects" className="flex items-center gap-2">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/20 text-orange-400 font-bold text-sm">
+        <Link
+          href="/projects"
+          onClick={onNavigate}
+          className="flex items-center gap-2"
+        >
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/20 text-sm font-bold text-orange-400">
             F
           </span>
           <div>
@@ -84,6 +102,7 @@ export function Sidebar() {
         </span>
         <Link
           href="/projects/new"
+          onClick={onNavigate}
           className="rounded-md px-2 py-1 text-xs font-medium text-orange-400 hover:bg-orange-400/10"
         >
           + Add
@@ -91,7 +110,16 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 pb-4">
-        {projects.length === 0 ? (
+        {!loaded ? (
+          <div className="space-y-2 px-2 py-1">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="h-11 animate-pulse rounded-lg bg-zinc-800/60"
+              />
+            ))}
+          </div>
+        ) : projects.length === 0 ? (
           <p className="px-2 text-sm text-zinc-600">No projects yet</p>
         ) : (
           <ul className="space-y-1">
@@ -102,7 +130,8 @@ export function Sidebar() {
                 <li key={project.id}>
                   <Link
                     href={`/projects/${project.id}`}
-                    className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+                    onClick={onNavigate}
+                    className={`flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
                       active
                         ? "bg-zinc-800 text-zinc-100"
                         : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
@@ -125,7 +154,7 @@ export function Sidebar() {
       <div className="border-t border-zinc-800 p-4">
         <button
           onClick={logout}
-          className="w-full rounded-lg px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+          className="min-h-11 w-full rounded-lg px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
         >
           Sign out
         </button>

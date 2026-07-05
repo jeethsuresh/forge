@@ -49,6 +49,34 @@ CREATE TABLE IF NOT EXISTS deployments (
 
 CREATE INDEX IF NOT EXISTS idx_deployments_project_id ON deployments(project_id);
 CREATE INDEX IF NOT EXISTS idx_deployments_started_at ON deployments(started_at);
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  branch TEXT NOT NULL,
+  status TEXT NOT NULL,
+  cursor_session_id TEXT,
+  initial_prompt TEXT NOT NULL,
+  logs TEXT NOT NULL DEFAULT '',
+  error_message TEXT,
+  deployment_id TEXT,
+  started_at INTEGER NOT NULL,
+  completed_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS agent_events (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+  seq INTEGER NOT NULL,
+  event_type TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_project_id ON agent_sessions(project_id);
+CREATE INDEX IF NOT EXISTS idx_agent_events_session_id ON agent_events(session_id);
+CREATE INDEX IF NOT EXISTS idx_agent_events_seq ON agent_events(session_id, seq);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_sessions_project_branch ON agent_sessions(project_id, branch);
 `;
 
 sqlite.exec(INIT_SQL);

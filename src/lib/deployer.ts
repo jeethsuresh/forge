@@ -10,10 +10,12 @@ import {
 } from "@/lib/db/schema";
 import {
   cloneOrPull,
+  checkoutLocalBranch,
   getLocalCommitSha,
   getRemoteCommitSha,
   runScript,
 } from "@/lib/github";
+import { isAgentSessionActive } from "@/lib/agent-state";
 
 const activeDeployments = new Set<string>();
 
@@ -42,6 +44,7 @@ function updateStatus(
 export async function runDeployment(
   projectId: string,
   trigger: DeploymentTrigger,
+  options?: { branch?: string; skipPull?: boolean },
 ): Promise<string> {
   if (activeDeployments.has(projectId)) {
     throw new Error("A deployment is already in progress for this project");
@@ -58,11 +61,13 @@ export async function runDeployment(
   const deploymentId = randomUUID();
   activeDeployments.add(projectId);
 
+  const deployBranch = options?.branch ?? project.branch;
+
   db.insert(deployments)
     .values({
       id: deploymentId,
       projectId,
-      branch: project.branch,
+      branch: deployBranch,
       status: "pending",
       trigger,
       logs: "",
@@ -70,7 +75,7 @@ export async function runDeployment(
     })
     .run();
 
-  void executeDeployment(deploymentId, project.id, trigger).finally(() => {
+  void executeDeployment(deploymentId, project.id, trigger, options).finally(() => {
     activeDeployments.delete(projectId);
   });
 
@@ -139,6 +144,7 @@ async function executeDeployment(
   deploymentId: string,
   projectId: string,
   trigger: DeploymentTrigger,
+  options?: { branch?: string; skipPull?: boolean },
 ): Promise<void> {
   const project = db
     .select()
@@ -155,15 +161,27 @@ async function executeDeployment(
   }
 
   const log = (msg: string) => appendLog(deploymentId, msg);
+  const deployBranch = options?.branch ?? project.branch;
 
   try {
     updateStatus(deploymentId, "pulling");
-    const commitSha = await cloneOrPull(
-      project.githubRepo,
-      project.branch,
-      project.clonePath,
-      log,
-    );
+    let commitSha: string;
+
+    if (options?.skipPull) {
+      log(`Using local branch ${deployBranch} (agent changes preserved).`);
+      commitSha = await checkoutLocalBranch(
+        project.clonePath,
+        deployBranch,
+        log,
+      );
+    } else {
+      commitSha = await cloneOrPull(
+        project.githubRepo,
+        deployBranch,
+        project.clonePath,
+        log,
+      );
+    }
 
     db.update(deployments)
       .set({ commitSha })
@@ -178,6 +196,9 @@ async function executeDeployment(
 
     updateStatus(deploymentId, "building");
     await runScript("build.sh", project.clonePath, log);
+
+    updateStatus(deploymentId, "testing");
+    await runScript("test.sh", project.clonePath, log);
 
     updateStatus(deploymentId, "deploying");
     await runScript("deploy.sh", project.clonePath, log);
@@ -206,6 +227,7 @@ export async function checkProjectForChanges(projectId: string): Promise<boolean
 
   if (!project || !project.enabled) return false;
   if (activeDeployments.has(projectId)) return false;
+  if (isAgentSessionActive(projectId)) return false;
 
   try {
     const remoteSha = await getRemoteCommitSha(project.githubRepo, project.branch);

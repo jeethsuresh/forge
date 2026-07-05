@@ -17,6 +17,12 @@ export const metadata: Metadata = {
   description: "Local Docker deployment orchestrator",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{

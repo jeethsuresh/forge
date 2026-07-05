@@ -101,3 +101,122 @@ export async function runScript(
   if (stderr) onLog(stderr.trimEnd());
   onLog(`${scriptName} finished.`);
 }
+
+export async function ensureRepoCloned(
+  repo: string,
+  branch: string,
+  clonePath: string,
+  onLog: (line: string) => void,
+): Promise<void> {
+  const url = githubCloneUrl(repo);
+  const resolvedPath = resolve(clonePath);
+
+  if (!existsSync(resolvedPath)) {
+    onLog(`Cloning ${url} (branch: ${branch})...`);
+    await execFileAsync("git", ["clone", "--branch", branch, url, resolvedPath]);
+    onLog("Clone complete.");
+    return;
+  }
+
+  onLog("Fetching latest changes...");
+  await execFileAsync("git", ["fetch", "origin"], { cwd: resolvedPath });
+}
+
+export async function checkoutBranch(
+  clonePath: string,
+  branch: string,
+  onLog?: (line: string) => void,
+): Promise<void> {
+  const resolvedPath = resolve(clonePath);
+  const log = onLog ?? (() => {});
+
+  try {
+    await execFileAsync("git", ["checkout", branch], { cwd: resolvedPath });
+  } catch {
+    await execFileAsync("git", ["checkout", "-b", branch], { cwd: resolvedPath });
+  }
+  log(`Checked out branch ${branch}.`);
+}
+
+export async function createBranchFromBase(
+  repo: string,
+  baseBranch: string,
+  clonePath: string,
+  newBranch: string,
+  onLog: (line: string) => void,
+): Promise<void> {
+  const resolvedPath = resolve(clonePath);
+  await ensureRepoCloned(repo, baseBranch, clonePath, onLog);
+
+  onLog(`Syncing base branch ${baseBranch}...`);
+  await execFileAsync("git", ["fetch", "origin", baseBranch], {
+    cwd: resolvedPath,
+  });
+  await execFileAsync("git", ["checkout", baseBranch], { cwd: resolvedPath });
+  await execFileAsync("git", ["reset", "--hard", `origin/${baseBranch}`], {
+    cwd: resolvedPath,
+  });
+
+  onLog(`Creating agent branch ${newBranch}...`);
+  try {
+    await execFileAsync("git", ["branch", "-D", newBranch], { cwd: resolvedPath });
+  } catch {
+    // branch may not exist
+  }
+  await execFileAsync("git", ["checkout", "-b", newBranch], { cwd: resolvedPath });
+  onLog(`Agent branch ${newBranch} ready.`);
+}
+
+export async function checkoutLocalBranch(
+  clonePath: string,
+  branch: string,
+  onLog: (line: string) => void,
+): Promise<string> {
+  const resolvedPath = resolve(clonePath);
+  await checkoutBranch(resolvedPath, branch, onLog);
+  const sha = await getLocalCommitSha(resolvedPath);
+  if (!sha) throw new Error("Failed to resolve local commit after checkout");
+  return sha;
+}
+
+export async function listLocalBranches(clonePath: string): Promise<string[]> {
+  const resolvedPath = resolve(clonePath);
+  if (!existsSync(resolvedPath)) return [];
+
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+      { cwd: resolvedPath },
+    );
+    return stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return [];
+  }
+}
+
+export async function prepareAgentWorkspace(
+  repo: string,
+  defaultBranch: string,
+  clonePath: string,
+  branch: string,
+  onLog: (line: string) => void,
+): Promise<void> {
+  const resolvedPath = resolve(clonePath);
+  await ensureRepoCloned(repo, defaultBranch, clonePath, onLog);
+
+  const branches = await listLocalBranches(clonePath);
+  if (!branches.includes(branch)) {
+    throw new Error(
+      `Branch "${branch}" does not exist locally. Create it with git first.`,
+    );
+  }
+
+  onLog(`Checking out branch ${branch} (local changes preserved)...`);
+  await execFileAsync("git", ["checkout", branch], { cwd: resolvedPath });
+  onLog(`Ready on branch ${branch}.`);
+}

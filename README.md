@@ -1,11 +1,11 @@
 # Forge
 
-A local Docker deployment orchestrator with a web dashboard. Forge watches GitHub repositories, detects changes every minute, and automatically builds and deploys them using each repo's `build.sh` and `deploy.sh` scripts.
+A local Docker deployment orchestrator with a web dashboard. Forge watches GitHub repositories, detects changes every minute, and automatically builds, tests, and deploys them using each repo's root scripts.
 
 ## Features
 
 - **GitHub monitoring** — polls remote branches every 60 seconds for new commits
-- **Automated pipeline** — clones/pulls, runs `build.sh`, then `deploy.sh`
+- **Automated pipeline** — clones/pulls, runs `build.sh`, `test.sh`, then `deploy.sh`
 - **Web dashboard** — login-protected UI with project sidebar, deployment history, container status, and live logs
 - **SQLite tracking** — persists projects, deployments, and state locally
 - **Manual controls** — trigger deploys, pause/resume watching, remove projects
@@ -23,25 +23,42 @@ A local Docker deployment orchestrator with a web dashboard. Forge watches GitHu
 npm install
 cp .env.example .env.local
 # Edit .env.local — set FORGE_SESSION_SECRET and admin credentials
+./build.sh --skip-install
+./test.sh
 npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) and sign in with your configured credentials (default: `admin` / `admin`).
 
-## Watched Repository Requirements
+## Repository Scripts
 
-Each repository you add must have these files in its root:
+Forge and every watched repository should provide executable root scripts with CLI flags:
 
-- `build.sh` — builds Docker image(s)
-- `deploy.sh` — runs `docker compose` (or equivalent) to deploy
-- `docker-compose.yml` (optional) — enables container status in the dashboard
+| Script | Purpose |
+|--------|---------|
+| `build.sh` | Build the app or Docker image(s) |
+| `test.sh` | Run unit tests |
+| `deploy.sh` | Deploy (compose up or production server) |
+| `teardown.sh` | Stop containers/processes and clean up |
 
-Example `build.sh`:
+Common flags (see `./build.sh --help`): `--project-name`, `--compose-file`, `--host-port`.
+
+Example `build.sh` for a compose-based project:
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-docker compose build
+cd "$(dirname "$0")"
+docker compose build "$@"
+```
+
+Example `test.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+npm test
 ```
 
 Example `deploy.sh`:
@@ -49,10 +66,30 @@ Example `deploy.sh`:
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
-docker compose up -d
+cd "$(dirname "$0")"
+docker compose up -d "$@"
 ```
 
-Make sure both scripts are executable (`chmod +x build.sh deploy.sh`).
+Example `teardown.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+docker compose down -v --remove-orphans "$@"
+```
+
+Make all four scripts executable (`chmod +x build.sh test.sh deploy.sh teardown.sh`).
+
+## Watched Repository Requirements
+
+Each repository you add must have these files in its root:
+
+- `build.sh` — builds Docker image(s) or app artifacts
+- `test.sh` — runs unit tests (pipeline fails if tests fail)
+- `deploy.sh` — runs `docker compose up` (or equivalent) to deploy
+- `teardown.sh` — stops containers and removes resources
+- `docker-compose.yml` (optional) — enables container status in the dashboard
 
 ## Adding a Project
 
@@ -76,6 +113,14 @@ On the first detected change (or a manual **Deploy now**), Forge runs the full p
 ## Production
 
 ```bash
+./build.sh
+./test.sh
+./deploy.sh --host-port 3000
+```
+
+Or manually:
+
+```bash
 npm run build
 npm start
 ```
@@ -93,6 +138,7 @@ The background watcher starts automatically via Next.js instrumentation when the
        ▼
 ┌─────────────┐   build.sh    ┌──────────────┐
 │  Deployer   │ ────────────▶ │ Docker build │
+│             │   test.sh     │ unit tests   │
 │             │   deploy.sh   │ compose up   │
 └──────┬──────┘ ────────────▶ └──────────────┘
        │

@@ -12,6 +12,9 @@ import {
   statusColor,
 } from "@/lib/utils";
 import type { RuntimeStatus } from "@/lib/project-status";
+import { AgentWorkspace } from "@/components/AgentWorkspace";
+
+type ProjectTab = "deploy" | "agents";
 
 interface ContainerInfo {
   name: string;
@@ -59,21 +62,37 @@ export default function ProjectDetailPage() {
   const [data, setData] = useState<ProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-  const [selectedDeployment, setSelectedDeployment] = useState<Deployment | null>(
+  const [expandedDeploymentId, setExpandedDeploymentId] = useState<string | null>(
     null,
   );
+  const [activeTab, setActiveTab] = useState<ProjectTab>("deploy");
 
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch(`/api/projects/${id}`);
       if (!res.ok) return;
-      const json = await res.json();
+      const json = (await res.json()) as ProjectDetail;
       setData(json);
-      setSelectedDeployment((prev) => prev ?? json.deployments[0] ?? null);
+      setExpandedDeploymentId((prev) => {
+        if (prev && json.deployments.some((d) => d.id === prev)) return prev;
+        const inProgress = json.deployments.find(
+          (d) =>
+            d.status === "pending" ||
+            d.status === "pulling" ||
+            d.status === "building" ||
+            d.status === "testing" ||
+            d.status === "deploying",
+        );
+        return inProgress?.id ?? prev ?? json.deployments[0]?.id ?? null;
+      });
     } finally {
       setLoading(false);
     }
   }, [id]);
+
+  function toggleDeployment(deploymentId: string) {
+    setExpandedDeploymentId((prev) => (prev === deploymentId ? null : deploymentId));
+  }
 
   useEffect(() => {
     fetchData();
@@ -109,7 +128,7 @@ export default function ProjectDetailPage() {
   async function stopProject() {
     if (
       !confirm(
-        "Stop all containers for this project? This runs docker compose down.",
+        "Stop all containers for this project? This runs teardown.sh.",
       )
     ) {
       return;
@@ -157,203 +176,248 @@ export default function ProjectDetailPage() {
   const deployedAt = currentDeployment?.completedAt ?? currentDeployment?.startedAt;
 
   return (
-    <div className="p-8">
-      <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold text-zinc-100">{project.name}</h1>
+    <div className="flex min-h-full flex-col px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-6 lg:p-8">
+      <div className="mb-6 flex flex-col gap-4 sm:mb-8">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <h1 className="text-xl font-semibold text-zinc-100 sm:text-2xl">
+              {project.name}
+            </h1>
             <span
               className={`inline-flex rounded border px-2.5 py-0.5 text-xs font-medium ${runtimeStatusBadgeColor(runtimeStatus)}`}
             >
               {runtimeStatusLabel(runtimeStatus)}
             </span>
           </div>
-          <p className="mt-1 font-mono text-sm text-zinc-500">
+          <p className="mt-1 break-all font-mono text-xs text-zinc-500 sm:text-sm">
             {project.githubRepo} · branch{" "}
             <span className="text-orange-400">{project.branch}</span>
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={deployNow}
-            disabled={actionLoading || isDeploying}
-            className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+
+        <div className="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-1">
+          <TabButton
+            active={activeTab === "deploy"}
+            onClick={() => setActiveTab("deploy")}
           >
-            {isDeploying ? "Deploying…" : "Deploy now"}
-          </button>
-          <button
-            onClick={toggleEnabled}
-            disabled={actionLoading}
-            className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+            Deploy
+          </TabButton>
+          <TabButton
+            active={activeTab === "agents"}
+            onClick={() => setActiveTab("agents")}
           >
-            {project.enabled ? "Pause watching" : "Resume watching"}
-          </button>
-          <button
-            onClick={stopProject}
-            disabled={actionLoading || isDeploying}
-            className="rounded-lg border border-amber-400/20 px-4 py-2 text-sm text-amber-400 hover:bg-amber-400/10 disabled:opacity-50"
-          >
-            Stop containers
-          </button>
-          <button
-            onClick={deleteProject}
-            className="rounded-lg border border-red-400/20 px-4 py-2 text-sm text-red-400 hover:bg-red-400/10"
-          >
-            Remove
-          </button>
+            Agents
+          </TabButton>
         </div>
       </div>
 
-      <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="Current branch"
-          value={project.branch}
-        />
-        <StatCard
-          label="Deployed commit"
-          value={shortSha(currentDeployment?.commitSha ?? project.lastSeenCommit)}
-          mono
-        />
-        <StatCard
-          label="Last deployed"
-          value={deployedAt ? formatRelativeTime(deployedAt) : "Never"}
-        />
-        <StatCard
-          label="Status"
-          value={runtimeStatusLabel(runtimeStatus)}
-          valueClassName={runtimeStatusColor(runtimeStatus)}
-          subtitle={
-            runtimeStatus === "running" && deployedAt
-              ? `Up ${formatDuration(deployedAt)}`
-              : runtimeStatus === "stopped"
-                ? "Containers are down"
-                : runtimeStatus === "partial"
-                  ? `${containers.filter((c) => c.state === "running").length}/${containers.length} services running`
-                  : undefined
-          }
-        />
-      </div>
-
-      {hasComposeFile && runtimeStatus === "stopped" && (
-        <section className="mb-8 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-6 text-center">
-          <p className="text-sm text-zinc-400">
-            All containers are stopped. Use{" "}
-            <span className="text-orange-400">Deploy now</span> to start them again.
-          </p>
-        </section>
-      )}
-
-      {containers.length > 0 && (
-        <section className="mb-8">
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
-            Containers
-          </h2>
-          <div className="overflow-hidden rounded-xl border border-zinc-800">
-            <table className="w-full text-sm">
-              <thead className="bg-zinc-950 text-left text-zinc-500">
-                <tr>
-                  <th className="px-4 py-3 font-medium">Service</th>
-                  <th className="px-4 py-3 font-medium">State</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium">Ports</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-800 bg-zinc-900">
-                {containers.map((c) => (
-                  <tr key={`${c.service}-${c.name}`}>
-                    <td className="px-4 py-3 font-medium text-zinc-200">
-                      {c.service}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex rounded border px-2 py-0.5 text-xs capitalize ${
-                          c.state === "running"
-                            ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20"
-                            : "text-zinc-400 bg-zinc-400/10 border-zinc-400/20"
-                        }`}
-                      >
-                        {c.state}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-zinc-400">{c.status}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-zinc-500">
-                      {c.ports || "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {activeTab === "deploy" ? (
+        <>
+          <div className="mb-6 flex flex-wrap gap-2">
+            <button
+              onClick={deployNow}
+              disabled={actionLoading || isDeploying}
+              className="min-h-11 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+            >
+              {isDeploying ? "Deploying…" : "Deploy now"}
+            </button>
+            <button
+              onClick={toggleEnabled}
+              disabled={actionLoading}
+              className="min-h-11 rounded-lg border border-zinc-700 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+            >
+              {project.enabled ? "Pause watching" : "Resume watching"}
+            </button>
+            <button
+              onClick={stopProject}
+              disabled={actionLoading || isDeploying}
+              className="min-h-11 rounded-lg border border-amber-400/20 px-4 py-2.5 text-sm text-amber-400 hover:bg-amber-400/10 disabled:opacity-50"
+            >
+              Stop containers
+            </button>
+            <button
+              onClick={deleteProject}
+              className="min-h-11 rounded-lg border border-red-400/20 px-4 py-2.5 text-sm text-red-400 hover:bg-red-400/10"
+            >
+              Remove project
+            </button>
           </div>
-        </section>
-      )}
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <section>
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
-            Deployment history
-          </h2>
-          <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
-            {deployments.length === 0 ? (
-              <p className="px-4 py-8 text-center text-sm text-zinc-600">
-                No deployments yet
+          <div className="mb-6 grid grid-cols-2 gap-3 sm:mb-8 sm:gap-4 lg:grid-cols-4">
+            <StatCard label="Current branch" value={project.branch} />
+            <StatCard
+              label="Deployed commit"
+              value={shortSha(currentDeployment?.commitSha ?? project.lastSeenCommit)}
+              mono
+            />
+            <StatCard
+              label="Last deployed"
+              value={deployedAt ? formatRelativeTime(deployedAt) : "Never"}
+            />
+            <StatCard
+              label="Status"
+              value={runtimeStatusLabel(runtimeStatus)}
+              valueClassName={runtimeStatusColor(runtimeStatus)}
+              subtitle={
+                runtimeStatus === "running" && deployedAt
+                  ? `Up ${formatDuration(deployedAt)}`
+                  : runtimeStatus === "stopped"
+                    ? "Containers are down"
+                    : runtimeStatus === "partial"
+                      ? `${containers.filter((c) => c.state === "running").length}/${containers.length} services running`
+                      : undefined
+              }
+            />
+          </div>
+
+          {hasComposeFile && runtimeStatus === "stopped" && (
+            <section className="mb-8 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-6 text-center">
+              <p className="text-sm text-zinc-400">
+                All containers are stopped. Use{" "}
+                <span className="text-orange-400">Deploy now</span> to start them again.
               </p>
-            ) : (
-              <ul className="divide-y divide-zinc-800">
-                {deployments.map((d) => (
-                  <li key={d.id}>
-                    <button
-                      onClick={() => setSelectedDeployment(d)}
-                      className={`flex w-full items-center justify-between px-4 py-3 text-left text-sm transition-colors hover:bg-zinc-800/50 ${
-                        selectedDeployment?.id === d.id ? "bg-zinc-800/80" : ""
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span
-                          className={`rounded border px-2 py-0.5 text-xs font-medium capitalize ${statusColor(d.status)}`}
+            </section>
+          )}
+
+          {containers.length > 0 && (
+            <section className="mb-8">
+              <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
+                Containers
+              </h2>
+              <div className="overflow-x-auto rounded-xl border border-zinc-800">
+                <table className="w-full min-w-[36rem] text-sm">
+                  <thead className="bg-zinc-950 text-left text-zinc-500">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Service</th>
+                      <th className="px-4 py-3 font-medium">State</th>
+                      <th className="px-4 py-3 font-medium">Status</th>
+                      <th className="px-4 py-3 font-medium">Ports</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800 bg-zinc-900">
+                    {containers.map((c) => (
+                      <tr key={`${c.service}-${c.name}`}>
+                        <td className="px-4 py-3 font-medium text-zinc-200">
+                          {c.service}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex rounded border px-2 py-0.5 text-xs capitalize ${
+                              c.state === "running"
+                                ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20"
+                                : "text-zinc-400 bg-zinc-400/10 border-zinc-400/20"
+                            }`}
+                          >
+                            {c.state}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-zinc-400">{c.status}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-zinc-500">
+                          {c.ports || "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          <section>
+            <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
+              Deployment history
+            </h2>
+            <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
+              {deployments.length === 0 ? (
+                <p className="px-4 py-8 text-center text-sm text-zinc-600">
+                  No deployments yet
+                </p>
+              ) : (
+                <ul className="divide-y divide-zinc-800">
+                  {deployments.map((d) => {
+                    const expanded = expandedDeploymentId === d.id;
+                    return (
+                      <li key={d.id}>
+                        <button
+                          type="button"
+                          onClick={() => toggleDeployment(d.id)}
+                          aria-expanded={expanded}
+                          className={`flex min-h-11 w-full flex-col gap-2 px-4 py-3 text-left text-sm transition-colors hover:bg-zinc-800/50 sm:flex-row sm:items-center sm:justify-between ${
+                            expanded ? "bg-zinc-800/80" : ""
+                          }`}
                         >
-                          {d.status}
-                        </span>
-                        <span className="font-mono text-zinc-400">
-                          {shortSha(d.commitSha)}
-                        </span>
-                        <span className="text-zinc-600">{d.trigger}</span>
-                      </div>
-                      <span className="text-zinc-500">
-                        {formatRelativeTime(d.startedAt)}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </section>
-
-        <section>
-          <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
-            Deployment logs
-          </h2>
-          <div className="h-96 overflow-auto rounded-xl border border-zinc-800 bg-zinc-950 p-4">
-            {selectedDeployment ? (
-              <>
-                {selectedDeployment.errorMessage && (
-                  <p className="mb-3 text-sm text-red-400">
-                    {selectedDeployment.errorMessage}
-                  </p>
-                )}
-                <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-zinc-400">
-                  {selectedDeployment.logs || "No logs recorded."}
-                </pre>
-              </>
-            ) : (
-              <p className="text-sm text-zinc-600">
-                Select a deployment to view logs
-              </p>
-            )}
-          </div>
-        </section>
-      </div>
+                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
+                            <span
+                              className={`shrink-0 text-zinc-500 transition-transform ${expanded ? "rotate-90" : ""}`}
+                              aria-hidden
+                            >
+                              ›
+                            </span>
+                            <span
+                              className={`rounded border px-2 py-0.5 text-xs font-medium capitalize ${statusColor(d.status)}`}
+                            >
+                              {d.status}
+                            </span>
+                            <span className="font-mono text-zinc-400">
+                              {shortSha(d.commitSha)}
+                            </span>
+                            <span className="text-zinc-600">{d.trigger}</span>
+                            {d.branch !== project.branch && (
+                              <span className="truncate font-mono text-xs text-orange-400/80">
+                                {d.branch}
+                              </span>
+                            )}
+                          </div>
+                          <span className="shrink-0 text-zinc-500">
+                            {formatRelativeTime(d.startedAt)}
+                          </span>
+                        </button>
+                        {expanded && (
+                          <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-4">
+                            {d.errorMessage && (
+                              <p className="mb-3 text-sm text-red-400">{d.errorMessage}</p>
+                            )}
+                            <pre className="max-h-80 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-zinc-400 sm:max-h-96">
+                              {d.logs || "No logs recorded."}
+                            </pre>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </section>
+        </>
+      ) : (
+        <AgentWorkspace projectId={id} />
+      )}
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`min-h-10 flex-1 rounded-md px-4 text-sm font-medium transition-colors ${
+        active
+          ? "bg-zinc-800 text-zinc-100"
+          : "text-zinc-500 hover:text-zinc-300"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
