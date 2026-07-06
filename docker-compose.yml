@@ -1,0 +1,45 @@
+services:
+  app:
+    network_mode: host
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      FORGE_DB_PATH: /data/forge.db
+      FORGE_REPOS_DIR: /data/repos
+      FORGE_SESSION_SECRET: ${FORGE_SESSION_SECRET:-forge-dev-secret-change-me-32chars}
+      FORGE_ADMIN_USERNAME: ${FORGE_ADMIN_USERNAME:-admin}
+      FORGE_ADMIN_PASSWORD: ${FORGE_ADMIN_PASSWORD:-admin}
+      FORGE_CURSOR_API_KEY: ${FORGE_CURSOR_API_KEY:-}
+      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
+      FORGE_AGENT_BIN: /usr/local/bin/agent
+      FORGE_GIT_USER_NAME: ${FORGE_GIT_USER_NAME:-Forge Agent}
+      FORGE_GIT_USER_EMAIL: ${FORGE_GIT_USER_EMAIL:-forge-agent@localhost}
+      FORGE_GITHUB_TOKEN: ${FORGE_GITHUB_TOKEN:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      FORGE_GIT_PASSWORD: ${FORGE_GIT_PASSWORD:-}
+      FORGE_GIT_USERNAME: ${FORGE_GIT_USERNAME:-}
+      HOME: /data/agent-home
+      PORT: ${HOST_PORT:-3000}
+      DOCKER_HOST: tcp://127.0.0.1:${FORGE_PODMAN_API_PORT:-18765}
+    volumes:
+      - forge-data:/data
+      - ${FORGE_CURSOR_AGENT_DIR}:/opt/cursor-agent:ro,z
+      - ${FORGE_CURSOR_CONFIG_DIR}:/opt/cursor-config:ro,z
+    restart: unless-stopped
+
+  test:
+    profiles:
+      - test
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: test
+
+volumes:
+  forge-data:

@@ -49,15 +49,20 @@ done
 
 stop_pid_file
 
-if has_compose_file; then
-  down_args=(down)
-  if [[ "$REMOVE_VOLUMES" -eq 1 ]]; then
-    down_args+=(-v)
-  fi
-  if [[ "$REMOVE_ORPHANS" -eq 1 ]]; then
-    down_args+=(--remove-orphans)
-  fi
-  compose_cmd "${down_args[@]}"
+if ! has_compose_file; then
+  echo "No compose file found" >&2
+  exit 1
 fi
+
+down_args=(down)
+if [[ "$REMOVE_VOLUMES" -eq 1 ]]; then
+  down_args+=(-v)
+fi
+if [[ "$REMOVE_ORPHANS" -eq 1 ]]; then
+  down_args+=(--remove-orphans)
+fi
+compose_cmd "${down_args[@]}"
+
+stop_podman_api_service
 
 echo "Teardown complete."

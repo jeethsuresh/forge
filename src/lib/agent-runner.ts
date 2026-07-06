@@ -14,6 +14,7 @@ import { parseStreamEventLine } from "@/lib/agent-stream";
 import { activeAgentProjects, getActiveSessionForProject, isAgentSessionActive } from "@/lib/agent-state";
 import { listLocalBranches, prepareAgentWorkspace, commitAllChanges, buildAgentCommitMessage } from "@/lib/github";
 import { runDeployment } from "@/lib/deployer";
+import { resolveClonePath } from "@/lib/paths";
 
 const activeAgentProcesses = new Map<string, ChildProcess>();
 
@@ -205,7 +206,7 @@ async function runAgentTurn(
 
   return new Promise((resolve, reject) => {
     const proc = spawn(agentBin(), args, {
-      cwd: project.clonePath,
+      cwd: resolveClonePath(project.clonePath),
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });

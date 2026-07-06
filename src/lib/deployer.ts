@@ -1,5 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
+import { existsSync } from "fs";
+import { join } from "path";
 import { db } from "@/lib/db";
 import {
   deployments,
@@ -16,6 +18,7 @@ import {
   runScript,
 } from "@/lib/github";
 import { isAgentSessionActive } from "@/lib/agent-state";
+import { resolveClonePath } from "@/lib/paths";
 
 const activeDeployments = new Set<string>();
 
@@ -106,7 +109,7 @@ async function getRecordedDeployedCommitSha(project: Project): Promise<string | 
 async function getEffectiveDeployedCommitSha(project: Project): Promise<string | null> {
   const recorded = await getRecordedDeployedCommitSha(project);
   if (recorded) return recorded;
-  return getLocalCommitSha(project.clonePath);
+  return getLocalCommitSha(resolveClonePath(project.clonePath));
 }
 
 function syncLastSeenCommit(projectId: string, commitSha: string): void {
@@ -167,18 +170,16 @@ async function executeDeployment(
     updateStatus(deploymentId, "pulling");
     let commitSha: string;
 
+    const repoPath = resolveClonePath(project.clonePath);
+
     if (options?.skipPull) {
       log(`Using local branch ${deployBranch} (agent changes preserved).`);
-      commitSha = await checkoutLocalBranch(
-        project.clonePath,
-        deployBranch,
-        log,
-      );
+      commitSha = await checkoutLocalBranch(repoPath, deployBranch, log);
     } else {
       commitSha = await cloneOrPull(
         project.githubRepo,
         deployBranch,
-        project.clonePath,
+        repoPath,
         log,
       );
     }
@@ -195,13 +196,17 @@ async function executeDeployment(
     }
 
     updateStatus(deploymentId, "building");
-    await runScript("build.sh", project.clonePath, log);
+    await runScript("build.sh", repoPath, log);
 
     updateStatus(deploymentId, "testing");
-    await runScript("test.sh", project.clonePath, log);
+    if (existsSync(join(repoPath, "test.sh"))) {
+      await runScript("test.sh", repoPath, log);
+    } else {
+      log("test.sh not found, skipping tests.");
+    }
 
     updateStatus(deploymentId, "deploying");
-    await runScript("deploy.sh", project.clonePath, log);
+    await runScript("deploy.sh", repoPath, log);
 
     updateStatus(deploymentId, "success", { completedAt: new Date() });
 

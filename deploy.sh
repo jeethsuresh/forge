@@ -9,13 +9,13 @@ usage() {
   cat <<EOF
 Usage: ./deploy.sh [options]
 
-Deploy Forge or a compose-based project.
+Deploy via Docker Compose (docker compose up).
 
 $(common_usage)
 
 Options:
-  --detach              Run in background (default for npm start)
-  --no-detach           Run in foreground
+  --detach              Run containers in the background (default)
+  --no-detach           Run in the foreground
 EOF
 }
 
@@ -47,21 +47,12 @@ while [[ ${#REMAINING_ARGS[@]} -gt 0 ]]; do
   esac
 done
 
-if has_compose_file; then
-  compose_cmd up -d
-  exit 0
-fi
+start_podman_api_service
 
-mkdir -p "$(dirname "$PID_FILE")"
-stop_pid_file
-
-export PORT="$HOST_PORT"
-npm run build
+require_cursor_agent
 
 if [[ "$DETACH" -eq 1 ]]; then
-  nohup npm start > ./data/forge.log 2>&1 &
-  echo $! > "$PID_FILE"
-  echo "Forge started on port ${HOST_PORT} (pid $(cat "$PID_FILE"))"
+  compose_cmd up -d
 else
-  npm start
+  compose_cmd up
 fi

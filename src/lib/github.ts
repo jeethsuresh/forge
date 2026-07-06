@@ -1,9 +1,25 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { chmod, writeFile } from "fs/promises";
 import { existsSync } from "fs";
-import { join, resolve } from "path";
+import { homedir } from "os";
+import { join } from "path";
+import { resolveClonePath } from "@/lib/paths";
 
 const execFileAsync = promisify(execFile);
+
+let gitCredentialsConfigured = false;
+
+function gitEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+}
+
+async function execGit(
+  args: string[],
+  options: { cwd?: string } = {},
+): Promise<{ stdout: string; stderr: string }> {
+  return execFileAsync("git", args, { ...options, env: gitEnv() });
+}
 
 export function parseGithubRepo(input: string): string {
   const trimmed = input.trim().replace(/\.git$/, "");
@@ -27,8 +43,9 @@ export async function getRemoteCommitSha(
   repo: string,
   branch: string,
 ): Promise<string> {
+  await ensureGitCredentialStore();
   const url = githubCloneUrl(repo);
-  const { stdout } = await execFileAsync("git", [
+  const { stdout } = await execGit([
     "ls-remote",
     url,
     `refs/heads/${branch}`,
@@ -43,7 +60,7 @@ export async function getRemoteCommitSha(
 export async function getLocalCommitSha(repoPath: string): Promise<string | null> {
   if (!existsSync(repoPath)) return null;
   try {
-    const { stdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
+    const { stdout } = await execGit(["rev-parse", "HEAD"], {
       cwd: repoPath,
     });
     return stdout.trim();
@@ -59,18 +76,20 @@ export async function cloneOrPull(
   onLog: (line: string) => void,
 ): Promise<string> {
   const url = githubCloneUrl(repo);
-  const resolvedPath = resolve(clonePath);
+  const resolvedPath = resolveClonePath(clonePath);
+
+  await ensureGitCredentialStore();
 
   if (!existsSync(resolvedPath)) {
     onLog(`Cloning ${url} (branch: ${branch})...`);
-    await execFileAsync("git", ["clone", "--branch", branch, url, resolvedPath]);
+    await execGit(["clone", "--branch", branch, url, resolvedPath]);
     onLog("Clone complete.");
   } else {
     onLog("Fetching latest changes...");
-    await execFileAsync("git", ["fetch", "origin", branch], { cwd: resolvedPath });
+    await execGit(["fetch", "origin", branch], { cwd: resolvedPath });
     onLog(`Checking out ${branch}...`);
-    await execFileAsync("git", ["checkout", branch], { cwd: resolvedPath });
-    await execFileAsync("git", ["reset", "--hard", `origin/${branch}`], {
+    await execGit(["checkout", branch], { cwd: resolvedPath });
+    await execGit(["reset", "--hard", `origin/${branch}`], {
       cwd: resolvedPath,
     });
     onLog("Pull complete.");
@@ -86,7 +105,7 @@ export async function runScript(
   cwd: string,
   onLog: (line: string) => void,
 ): Promise<void> {
-  const resolvedCwd = resolve(cwd);
+  const resolvedCwd = resolveClonePath(cwd);
   const scriptPath = join(resolvedCwd, scriptName);
   if (!existsSync(scriptPath)) {
     throw new Error(`${scriptName} not found in repository root`);
@@ -109,17 +128,19 @@ export async function ensureRepoCloned(
   onLog: (line: string) => void,
 ): Promise<void> {
   const url = githubCloneUrl(repo);
-  const resolvedPath = resolve(clonePath);
+  const resolvedPath = resolveClonePath(clonePath);
+
+  await ensureGitCredentialStore();
 
   if (!existsSync(resolvedPath)) {
     onLog(`Cloning ${url} (branch: ${branch})...`);
-    await execFileAsync("git", ["clone", "--branch", branch, url, resolvedPath]);
+    await execGit(["clone", "--branch", branch, url, resolvedPath]);
     onLog("Clone complete.");
     return;
   }
 
   onLog("Fetching latest changes...");
-  await execFileAsync("git", ["fetch", "origin"], { cwd: resolvedPath });
+  await execGit(["fetch", "origin"], { cwd: resolvedPath });
 }
 
 export async function checkoutBranch(
@@ -127,13 +148,13 @@ export async function checkoutBranch(
   branch: string,
   onLog?: (line: string) => void,
 ): Promise<void> {
-  const resolvedPath = resolve(clonePath);
+  const resolvedPath = resolveClonePath(clonePath);
   const log = onLog ?? (() => {});
 
   try {
-    await execFileAsync("git", ["checkout", branch], { cwd: resolvedPath });
+    await execGit(["checkout", branch], { cwd: resolvedPath });
   } catch {
-    await execFileAsync("git", ["checkout", "-b", branch], { cwd: resolvedPath });
+    await execGit(["checkout", "-b", branch], { cwd: resolvedPath });
   }
   log(`Checked out branch ${branch}.`);
 }
@@ -145,25 +166,25 @@ export async function createBranchFromBase(
   newBranch: string,
   onLog: (line: string) => void,
 ): Promise<void> {
-  const resolvedPath = resolve(clonePath);
+  const resolvedPath = resolveClonePath(clonePath);
   await ensureRepoCloned(repo, baseBranch, clonePath, onLog);
 
   onLog(`Syncing base branch ${baseBranch}...`);
-  await execFileAsync("git", ["fetch", "origin", baseBranch], {
+  await execGit(["fetch", "origin", baseBranch], {
     cwd: resolvedPath,
   });
-  await execFileAsync("git", ["checkout", baseBranch], { cwd: resolvedPath });
-  await execFileAsync("git", ["reset", "--hard", `origin/${baseBranch}`], {
+  await execGit(["checkout", baseBranch], { cwd: resolvedPath });
+  await execGit(["reset", "--hard", `origin/${baseBranch}`], {
     cwd: resolvedPath,
   });
 
   onLog(`Creating agent branch ${newBranch}...`);
   try {
-    await execFileAsync("git", ["branch", "-D", newBranch], { cwd: resolvedPath });
+    await execGit(["branch", "-D", newBranch], { cwd: resolvedPath });
   } catch {
     // branch may not exist
   }
-  await execFileAsync("git", ["checkout", "-b", newBranch], { cwd: resolvedPath });
+  await execGit(["checkout", "-b", newBranch], { cwd: resolvedPath });
   onLog(`Agent branch ${newBranch} ready.`);
 }
 
@@ -172,7 +193,7 @@ export async function checkoutLocalBranch(
   branch: string,
   onLog: (line: string) => void,
 ): Promise<string> {
-  const resolvedPath = resolve(clonePath);
+  const resolvedPath = resolveClonePath(clonePath);
   await checkoutBranch(resolvedPath, branch, onLog);
   const sha = await getLocalCommitSha(resolvedPath);
   if (!sha) throw new Error("Failed to resolve local commit after checkout");
@@ -180,12 +201,11 @@ export async function checkoutLocalBranch(
 }
 
 export async function listLocalBranches(clonePath: string): Promise<string[]> {
-  const resolvedPath = resolve(clonePath);
+  const resolvedPath = resolveClonePath(clonePath);
   if (!existsSync(resolvedPath)) return [];
 
   try {
-    const { stdout } = await execFileAsync(
-      "git",
+    const { stdout } = await execGit(
       ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
       { cwd: resolvedPath },
     );
@@ -200,10 +220,10 @@ export async function listLocalBranches(clonePath: string): Promise<string[]> {
 }
 
 export async function hasUncommittedChanges(clonePath: string): Promise<boolean> {
-  const resolvedPath = resolve(clonePath);
+  const resolvedPath = resolveClonePath(clonePath);
   if (!existsSync(resolvedPath)) return false;
 
-  const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
+  const { stdout } = await execGit(["status", "--porcelain"], {
     cwd: resolvedPath,
   });
   return stdout.trim().length > 0;
@@ -215,12 +235,65 @@ export function buildAgentCommitMessage(initialPrompt: string): string {
   return `Agent: ${summary}`;
 }
 
+export function gitAuthorIdentity(): { name: string; email: string } {
+  const name = process.env.FORGE_GIT_USER_NAME?.trim() || "Forge Agent";
+  const email = process.env.FORGE_GIT_USER_EMAIL?.trim() || "forge-agent@localhost";
+  return { name, email };
+}
+
+export function gitHubCredentials(): { username: string; password: string } | null {
+  const password =
+    process.env.FORGE_GITHUB_TOKEN?.trim() ||
+    process.env.GITHUB_TOKEN?.trim() ||
+    process.env.FORGE_GIT_PASSWORD?.trim() ||
+    "";
+  if (!password) return null;
+
+  const username =
+    process.env.FORGE_GIT_USERNAME?.trim() ||
+    process.env.FORGE_GIT_USER_NAME?.trim() ||
+    "git";
+  return { username, password };
+}
+
+async function ensureGitCredentialStore(): Promise<void> {
+  if (gitCredentialsConfigured) return;
+
+  await execGit(["config", "--global", "--add", "safe.directory", "*"]);
+
+  const creds = gitHubCredentials();
+  if (!creds) {
+    gitCredentialsConfigured = true;
+    return;
+  }
+
+  const home = process.env.HOME ?? homedir();
+  const credPath = join(home, ".git-credentials");
+  const line = `https://${encodeURIComponent(creds.username)}:${encodeURIComponent(creds.password)}@github.com\n`;
+  await writeFile(credPath, line, { mode: 0o600 });
+  await chmod(credPath, 0o600);
+  await execGit([
+    "config",
+    "--global",
+    "credential.helper",
+    `store --file ${credPath}`,
+  ]);
+  gitCredentialsConfigured = true;
+}
+
+async function ensureRepoGitIdentity(clonePath: string): Promise<void> {
+  await ensureGitCredentialStore();
+  const { name, email } = gitAuthorIdentity();
+  await execGit(["config", "user.name", name], { cwd: clonePath });
+  await execGit(["config", "user.email", email], { cwd: clonePath });
+}
+
 export async function commitAllChanges(
   clonePath: string,
   message: string,
   onLog?: (line: string) => void,
 ): Promise<string | null> {
-  const resolvedPath = resolve(clonePath);
+  const resolvedPath = resolveClonePath(clonePath);
   const log = onLog ?? (() => {});
 
   if (!(await hasUncommittedChanges(resolvedPath))) {
@@ -229,10 +302,12 @@ export async function commitAllChanges(
   }
 
   log("Staging agent changes…");
-  await execFileAsync("git", ["add", "-A"], { cwd: resolvedPath });
+  await execGit(["add", "-A"], { cwd: resolvedPath });
+
+  await ensureRepoGitIdentity(resolvedPath);
 
   log(`Committing: ${message}`);
-  await execFileAsync("git", ["commit", "-m", message], { cwd: resolvedPath });
+  await execGit(["commit", "-m", message], { cwd: resolvedPath });
 
   const sha = await getLocalCommitSha(resolvedPath);
   if (!sha) throw new Error("Failed to resolve commit after commit");
@@ -247,7 +322,7 @@ export async function prepareAgentWorkspace(
   branch: string,
   onLog: (line: string) => void,
 ): Promise<void> {
-  const resolvedPath = resolve(clonePath);
+  const resolvedPath = resolveClonePath(clonePath);
   await ensureRepoCloned(repo, defaultBranch, clonePath, onLog);
 
   const branches = await listLocalBranches(clonePath);
@@ -258,6 +333,6 @@ export async function prepareAgentWorkspace(
   }
 
   onLog(`Checking out branch ${branch} (local changes preserved)...`);
-  await execFileAsync("git", ["checkout", branch], { cwd: resolvedPath });
+  await execGit(["checkout", branch], { cwd: resolvedPath });
   onLog(`Ready on branch ${branch}.`);
 }

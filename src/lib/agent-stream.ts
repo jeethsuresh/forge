@@ -7,6 +7,15 @@ export interface AgentDisplayMessage {
   timestamp: number;
 }
 
+export type AgentDisplayItem =
+  | { kind: "message"; message: AgentDisplayMessage }
+  | {
+      kind: "tool-cluster";
+      id: string;
+      tools: AgentDisplayMessage[];
+      hasActive: boolean;
+    };
+
 interface StreamEvent {
   type?: string;
   subtype?: string;
@@ -46,15 +55,23 @@ function extractAssistantText(event: StreamEvent): string | null {
   const content = event.message?.content?.[0]?.text;
   if (content) return content;
 
-  if (
-    event.subtype === "delta" &&
-    event.timestamp_ms &&
-    !("model_call_id" in event)
-  ) {
-    return event.text ?? null;
+  if (event.subtype === "delta" && event.text) {
+    return event.text;
   }
 
   return null;
+}
+
+/** Partial stream-json chunks include timestamp_ms; the final snapshot omits it. */
+function isAssistantPartialDelta(event: StreamEvent): boolean {
+  return event.type === "assistant" && event.timestamp_ms != null;
+}
+
+function mergeAssistantContent(existing: string, incoming: string): string {
+  if (!existing) return incoming;
+  if (incoming.startsWith(existing)) return incoming;
+  if (existing.startsWith(incoming)) return existing;
+  return existing + incoming;
 }
 
 export function parseStreamEventLine(line: string): StreamEvent | null {
@@ -136,12 +153,39 @@ export function mergeAssistantDeltas(
 
     const last = merged[merged.length - 1];
     if (last?.role === "assistant" && last.id.startsWith("assistant-")) {
-      last.content += msg.content;
+      last.content = mergeAssistantContent(last.content, msg.content);
     } else {
       merged.push({ ...msg });
     }
   }
 
+  return merged;
+}
+
+export function mergeIncomingMessages(
+  prev: AgentDisplayMessage[],
+  incoming: AgentDisplayMessage[],
+): AgentDisplayMessage[] {
+  const merged = [...prev];
+  for (const msg of incoming) {
+    if (msg.role === "user") {
+      const last = merged[merged.length - 1];
+      if (last?.role === "user" && last.content === msg.content) continue;
+    }
+
+    if (msg.role === "assistant") {
+      const last = merged[merged.length - 1];
+      if (last?.role === "assistant") {
+        merged[merged.length - 1] = {
+          ...last,
+          content: mergeAssistantContent(last.content, msg.content),
+        };
+        continue;
+      }
+    }
+
+    merged.push(msg);
+  }
   return merged;
 }
 
@@ -158,9 +202,69 @@ export function eventsToDisplayMessages(
       continue;
     }
 
+    if (parsed.type === "assistant" && isAssistantPartialDelta(parsed)) {
+      const text = extractAssistantText(parsed);
+      if (text) {
+        raw.push({
+          id: `assistant-${event.seq}`,
+          role: "assistant",
+          content: text,
+          timestamp: parsed.timestamp_ms ?? Date.now(),
+        });
+      }
+      continue;
+    }
+
     const display = streamEventToDisplay(parsed, event.seq);
     if (display) raw.push(display);
   }
 
   return mergeAssistantDeltas(raw);
+}
+
+function clusterHasActiveTool(tools: AgentDisplayMessage[]): boolean {
+  return tools.some((t) => t.toolStatus === "started");
+}
+
+/** Group consecutive tool messages into collapsible clusters for the UI. */
+export function groupMessagesForDisplay(
+  messages: AgentDisplayMessage[],
+): AgentDisplayItem[] {
+  const items: AgentDisplayItem[] = [];
+  let toolBuffer: AgentDisplayMessage[] = [];
+
+  const flushTools = () => {
+    if (toolBuffer.length === 0) return;
+    if (toolBuffer.length === 1) {
+      items.push({ kind: "message", message: toolBuffer[0]! });
+    } else {
+      items.push({
+        kind: "tool-cluster",
+        id: `cluster-${toolBuffer[0]!.id}`,
+        tools: [...toolBuffer],
+        hasActive: clusterHasActiveTool(toolBuffer),
+      });
+    }
+    toolBuffer = [];
+  };
+
+  for (const msg of messages) {
+    if (msg.role === "tool") {
+      toolBuffer.push(msg);
+      continue;
+    }
+    flushTools();
+    items.push({ kind: "message", message: msg });
+  }
+
+  flushTools();
+  return items;
+}
+
+/** Short summary of tool names for cluster headers (e.g. "read, write +2"). */
+export function summarizeToolCluster(tools: AgentDisplayMessage[]): string {
+  const names = tools.map((t) => t.toolName ?? t.content.split(":")[0] ?? "tool");
+  const unique = [...new Set(names)];
+  if (unique.length <= 3) return unique.join(", ");
+  return `${unique.slice(0, 2).join(", ")} +${unique.length - 2}`;
 }

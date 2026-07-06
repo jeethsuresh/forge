@@ -1,7 +1,8 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { existsSync } from "fs";
-import { join, resolve } from "path";
+import { join } from "path";
+import { resolveClonePath } from "@/lib/paths";
 
 const execFileAsync = promisify(execFile);
 
@@ -20,7 +21,7 @@ function findComposeFile(repoPath: string): string | null {
 }
 
 export function projectHasComposeFile(repoPath: string): boolean {
-  return findComposeFile(resolve(repoPath)) !== null;
+  return findComposeFile(resolveClonePath(repoPath)) !== null;
 }
 
 type ComposePsRecord = Record<string, unknown>;
@@ -131,7 +132,7 @@ function normalizeContainer(record: ComposePsRecord): ContainerInfo | null {
 export async function getComposeContainerStatus(
   repoPath: string,
 ): Promise<ContainerInfo[]> {
-  const resolvedPath = resolve(repoPath);
+  const resolvedPath = resolveClonePath(repoPath);
   if (!existsSync(resolvedPath)) return [];
 
   const composeFile = findComposeFile(resolvedPath);
@@ -153,7 +154,7 @@ export async function getComposeContainerStatus(
 }
 
 export async function stopComposeProject(repoPath: string): Promise<string> {
-  const resolvedPath = resolve(repoPath);
+  const resolvedPath = resolveClonePath(repoPath);
   if (!existsSync(resolvedPath)) {
     throw new Error("Project directory not found");
   }

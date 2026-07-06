@@ -3,11 +3,12 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { projects } from "@/lib/db/schema";
 import { existsSync } from "fs";
-import { join, resolve } from "path";
+import { join } from "path";
 import { getSession } from "@/lib/auth/session";
 import { stopComposeProject } from "@/lib/docker";
 import { isDeploymentActive } from "@/lib/deployer";
 import { runScript } from "@/lib/github";
+import { resolveClonePath } from "@/lib/paths";
 
 export async function POST(
   _request: Request,
@@ -32,14 +33,15 @@ export async function POST(
   }
 
   try {
-    const teardownPath = join(resolve(project.clonePath), "teardown.sh");
+    const repoPath = resolveClonePath(project.clonePath);
+    const teardownPath = join(repoPath, "teardown.sh");
     if (existsSync(teardownPath)) {
       const lines: string[] = [];
-      await runScript("teardown.sh", project.clonePath, (line) => lines.push(line));
+      await runScript("teardown.sh", repoPath, (line) => lines.push(line));
       return NextResponse.json({ ok: true, output: lines.join("\n") });
     }
 
-    const output = await stopComposeProject(project.clonePath);
+    const output = await stopComposeProject(repoPath);
     return NextResponse.json({ ok: true, output });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Stop failed";

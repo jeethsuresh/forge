@@ -9,6 +9,8 @@ import {
 } from "react";
 import { shortSha, statusColor } from "@/lib/utils";
 import type { AgentDisplayMessage } from "@/lib/agent-stream";
+import { mergeIncomingMessages } from "@/lib/agent-stream";
+import { AgentMessageList } from "@/components/AgentMessageList";
 
 interface AgentSession {
   id: string;
@@ -45,27 +47,6 @@ interface SessionDetailResponse {
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
-function mergeIncomingMessages(
-  prev: AgentDisplayMessage[],
-  incoming: AgentDisplayMessage[],
-): AgentDisplayMessage[] {
-  const merged = [...prev];
-  for (const msg of incoming) {
-    if (msg.role === "assistant") {
-      const last = merged[merged.length - 1];
-      if (last?.role === "assistant") {
-        merged[merged.length - 1] = {
-          ...last,
-          content: last.content + msg.content,
-        };
-        continue;
-      }
-    }
-    merged.push(msg);
-  }
-  return merged;
-}
-
 function sessionForBranch(
   sessions: AgentSession[],
   branch: string,
@@ -89,6 +70,10 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const sseConnectedRef = useRef(false);
   const shouldAutoScrollRef = useRef(true);
+
+  const branches = useMemo(() => data?.branches ?? [], [data?.branches]);
+  const sessions = useMemo(() => data?.sessions ?? [], [data?.sessions]);
+  const activeBranch = data?.activeSession?.branch ?? null;
 
   const fetchSessions = useCallback(async () => {
     const res = await fetch(`/api/projects/${projectId}/agent-sessions`);
@@ -143,14 +128,21 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     if (!selectedId) return;
-    queueMicrotask(() => {
-      void fetchSessionDetail(selectedId);
-    });
-  }, [selectedId, fetchSessionDetail]);
+
+    const sessionMeta = sessions.find((s) => s.id === selectedId);
+    if (sessionMeta && TERMINAL_STATUSES.has(sessionMeta.status)) {
+      queueMicrotask(() => {
+        void fetchSessionDetail(selectedId);
+      });
+    }
+  }, [selectedId, sessions, fetchSessionDetail]);
 
   useEffect(() => {
     if (!selectedId) return;
 
+    queueMicrotask(() => {
+      setMessages([]);
+    });
     eventSourceRef.current?.close();
     sseConnectedRef.current = false;
 
@@ -170,7 +162,14 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
       };
       setMessages((prev) => mergeIncomingMessages(prev, payload.messages));
       setSessionDetail(payload.session);
-      setAgentBusy(false);
+      if (
+        payload.messages.some(
+          (m) =>
+            m.role === "system" && m.content.includes("Agent turn completed"),
+        )
+      ) {
+        setAgentBusy(false);
+      }
     });
 
     es.addEventListener("heartbeat", (e) => {
@@ -248,18 +247,8 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
         return;
       }
       const json = (await res.json()) as { sessionId: string };
-      const userPrompt = prompt.trim();
       setPrompt("");
       setSelectedId(json.sessionId);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `user-${Date.now()}`,
-          role: "user" as const,
-          content: userPrompt,
-          timestamp: Date.now(),
-        },
-      ]);
       await fetchSessions();
     } finally {
       setLoading(false);
@@ -379,9 +368,6 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
     }
   }
 
-  const branches = data?.branches ?? [];
-  const sessions = data?.sessions ?? [];
-  const activeBranch = data?.activeSession?.branch ?? null;
   const selectedBranchInfo = branches.find((b) => b.name === selectedBranch);
   const selectedSessionMeta = sessionForBranch(sessions, selectedBranch);
 
@@ -628,9 +614,7 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
                     Waiting for agent output…
                   </p>
                 )}
-                {messages.map((msg) => (
-                  <MessageBubble key={msg.id} message={msg} />
-                ))}
+                <AgentMessageList messages={messages} />
                 {statusHint && (
                   <div className="flex items-center gap-2 text-xs text-amber-400">
                     <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-400" />
@@ -709,43 +693,3 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
   );
 }
 
-function MessageBubble({ message }: { message: AgentDisplayMessage }) {
-  if (message.role === "tool") {
-    const icon = message.toolStatus === "completed" ? "✓" : "…";
-    const busy = message.toolStatus === "started";
-    return (
-      <div
-        className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${
-          busy
-            ? "border-amber-400/20 bg-amber-400/5 text-amber-200/80"
-            : "border-zinc-800 bg-zinc-950/50 text-zinc-500"
-        }`}
-      >
-        <span className="mt-0.5 shrink-0 font-mono">{icon}</span>
-        <span className="break-all font-mono">{message.content}</span>
-      </div>
-    );
-  }
-
-  if (message.role === "system") {
-    return (
-      <p className="text-center text-xs text-zinc-600">{message.content}</p>
-    );
-  }
-
-  const isUser = message.role === "user";
-
-  return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed sm:max-w-[85%] ${
-          isUser
-            ? "bg-orange-500/20 text-orange-100"
-            : "bg-zinc-800 text-zinc-200"
-        }`}
-      >
-        <p className="whitespace-pre-wrap break-words">{message.content}</p>
-      </div>
-    </div>
-  );
-}

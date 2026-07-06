@@ -50,7 +50,7 @@ while [[ ${#REMAINING_ARGS[@]} -gt 0 ]]; do
 done
 
 if has_compose_file; then
-  compose_cmd run --rm test
+  compose_cmd --profile test run --rm test
   exit 0
 fi
 

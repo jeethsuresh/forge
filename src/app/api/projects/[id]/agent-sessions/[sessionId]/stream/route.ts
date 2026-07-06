@@ -9,6 +9,7 @@ import {
 } from "@/lib/agent-runner";
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
+const STREAM_POLL_MS = 200;
 
 export async function GET(
   request: Request,
@@ -61,7 +62,7 @@ export async function GET(
           break;
         }
 
-        await new Promise((r) => setTimeout(r, 1000));
+        await new Promise((r) => setTimeout(r, STREAM_POLL_MS));
       }
 
       controller.close();

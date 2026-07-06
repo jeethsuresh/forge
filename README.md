@@ -38,7 +38,7 @@ Forge and every watched repository should provide executable root scripts with C
 |--------|---------|
 | `build.sh` | Build the app or Docker image(s) |
 | `test.sh` | Run unit tests |
-| `deploy.sh` | Deploy (compose up or production server) |
+| `deploy.sh` | Deploy via `docker compose up` (containers only) |
 | `teardown.sh` | Stop containers/processes and clean up |
 
 Common flags (see `./build.sh --help`): `--project-name`, `--compose-file`, `--host-port`.
@@ -89,7 +89,7 @@ Each repository you add must have these files in its root:
 - `test.sh` — runs unit tests (pipeline fails if tests fail)
 - `deploy.sh` — runs `docker compose up` (or equivalent) to deploy
 - `teardown.sh` — stops containers and removes resources
-- `docker-compose.yml` (optional) — enables container status in the dashboard
+- `docker-compose.yml` — required for `deploy.sh` / `teardown.sh`
 
 ## Adding a Project
 
@@ -113,19 +113,14 @@ On the first detected change (or a manual **Deploy now**), Forge runs the full p
 ## Production
 
 ```bash
+cp .env.example .env
+# Edit .env — set FORGE_SESSION_SECRET and admin credentials
 ./build.sh
 ./test.sh
 ./deploy.sh --host-port 3000
 ```
 
-Or manually:
-
-```bash
-npm run build
-npm start
-```
-
-The background watcher starts automatically via Next.js instrumentation when the server boots.
+Forge runs in Docker with the host container socket mounted so it can deploy watched repositories. On Podman rootless hosts, `deploy.sh` auto-starts `podman.socket` when needed; override with `DOCKER_SOCKET` if required.
 
 ## Architecture
 
