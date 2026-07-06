@@ -10,6 +10,22 @@ A local Docker deployment orchestrator with a web dashboard. Forge watches GitHu
 - **SQLite tracking** — persists projects, deployments, and state locally
 - **Manual controls** — trigger deploys, pause/resume watching, remove projects
 
+## Dashboard
+
+Each project has two tabs in the main workspace.
+
+### Deploy
+
+![Deploy tab](deploy_window.png)
+
+Branch selector, deploy/pause/stop controls, container status, and deployment history with expandable build logs.
+
+### Agents
+
+![Agents tab](agents_window.png)
+
+Cursor agent sessions per branch: prompt the agent, review tool output, commit changes, and deploy from the chat UI.
+
 ## Prerequisites
 
 - Node.js 20+

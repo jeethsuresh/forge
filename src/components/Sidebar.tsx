@@ -151,10 +151,21 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
         )}
       </nav>
 
-      <div className="border-t border-zinc-800 p-4">
+      <div className="space-y-1 border-t border-zinc-800 p-4">
+        <Link
+          href="/settings"
+          onClick={onNavigate}
+          className={`flex min-h-11 items-center rounded-lg px-3 py-2 text-sm transition-colors ${
+            pathname === "/settings"
+              ? "bg-zinc-800 text-zinc-100"
+              : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+          }`}
+        >
+          Global settings
+        </Link>
         <button
           onClick={logout}
-          className="min-h-11 w-full rounded-lg px-3 py-2 text-sm text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+          className="min-h-11 w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
         >
           Sign out
         </button>
