@@ -3,8 +3,10 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
-import { runDeployment } from "@/lib/deployer";
-import { isAgentSessionActive } from "@/lib/agent-state";
+import {
+  createAgentBranch,
+  createAgentSession,
+} from "@/lib/agent-runner";
 import { validateBranchName } from "@/lib/github";
 
 export async function POST(
@@ -22,25 +24,25 @@ export async function POST(
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  if (isAgentSessionActive(id)) {
-    return NextResponse.json(
-      { error: "An agent session is active. Finish or cancel it before deploying." },
-      { status: 409 },
-    );
-  }
+  const body = (await request.json()) as { name?: string; prompt?: string };
+  const branchName = body.name?.trim() ?? "";
+  const prompt = body.prompt?.trim() ?? "";
 
-  const body = (await request.json().catch(() => ({}))) as { branch?: string };
-  const branch = body.branch?.trim() || project.branch;
-  const validationError = validateBranchName(branch);
+  const validationError = validateBranchName(branchName);
   if (validationError) {
     return NextResponse.json({ error: validationError }, { status: 400 });
   }
+  if (!prompt) {
+    return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
+  }
 
   try {
-    const deploymentId = await runDeployment(id, "manual", { branch });
-    return NextResponse.json({ deploymentId, branch }, { status: 202 });
+    await createAgentBranch(id, branchName);
+    const sessionId = await createAgentSession(id, branchName, prompt);
+    return NextResponse.json({ branch: branchName, sessionId }, { status: 201 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Deploy failed";
-    return NextResponse.json({ error: message }, { status: 409 });
+    const message = err instanceof Error ? err.message : "Failed to create branch";
+    const status = message.includes("already active") ? 409 : 500;
+    return NextResponse.json({ error: message }, { status });
   }
 }

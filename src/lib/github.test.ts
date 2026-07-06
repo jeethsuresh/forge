@@ -267,6 +267,89 @@ describe("hasUnpushedCommits", () => {
   });
 });
 
+describe("validateBranchName", () => {
+  it("accepts common branch names", async () => {
+    const { validateBranchName } = await import("@/lib/github");
+    expect(validateBranchName("agent/my-feature")).toBeNull();
+    expect(validateBranchName("feature-123")).toBeNull();
+  });
+
+  it("rejects invalid branch names", async () => {
+    const { validateBranchName } = await import("@/lib/github");
+    expect(validateBranchName("")).toBeTruthy();
+    expect(validateBranchName("has space")).toBeTruthy();
+    expect(validateBranchName("../escape")).toBeTruthy();
+    expect(validateBranchName("/leading")).toBeTruthy();
+    expect(validateBranchName("trailing/")).toBeTruthy();
+    expect(validateBranchName("ends-with-dot.")).toBeTruthy();
+  });
+});
+
+describe("createLocalBranchFromBase", () => {
+  it("creates a new branch from the base branch", async () => {
+    const root = await mkdtemp(join(tmpdir(), "forge-git-new-branch-"));
+    const bareDir = join(root, "remote.git");
+    const workDir = join(root, "work");
+    try {
+      await runGit(root, ["init", "--bare", bareDir]);
+      await runGit(root, ["clone", bareDir, workDir]);
+      await runGit(workDir, ["checkout", "-b", "main"]);
+      await runGit(workDir, ["config", "user.email", "test@example.com"]);
+      await runGit(workDir, ["config", "user.name", "Test"]);
+      await writeFile(join(workDir, "README"), "hello\n");
+      await runGit(workDir, ["add", "README"]);
+      await runGit(workDir, ["commit", "-m", "init"]);
+      await runGit(workDir, ["push", "-u", "origin", "main"]);
+
+      const { createLocalBranchFromBase, listLocalBranches } = await import(
+        "@/lib/github"
+      );
+      const logs: string[] = [];
+      await createLocalBranchFromBase(
+        "acme/repo",
+        "main",
+        workDir,
+        "agent/test",
+        (line) => logs.push(line),
+      );
+
+      const branches = await listLocalBranches(workDir);
+      expect(branches).toContain("agent/test");
+      expect(branches).toContain("main");
+      expect(logs.some((line) => line.includes("agent/test"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("throws when the branch already exists", async () => {
+    const root = await mkdtemp(join(tmpdir(), "forge-git-dup-branch-"));
+    const workDir = join(root, "work");
+    try {
+      await mkdir(workDir, { recursive: true });
+      await runGit(workDir, ["init"]);
+      await runGit(workDir, ["checkout", "-b", "main"]);
+      await runGit(workDir, ["config", "user.email", "test@example.com"]);
+      await runGit(workDir, ["config", "user.name", "Test"]);
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "init"]);
+      await runGit(workDir, ["branch", "agent/existing"]);
+
+      const { createLocalBranchFromBase } = await import("@/lib/github");
+      await expect(
+        createLocalBranchFromBase(
+          "acme/repo",
+          "main",
+          workDir,
+          "agent/existing",
+          () => {},
+        ),
+      ).rejects.toThrow(/already exists/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("pushBranch", () => {
   it("pushes local commits to origin", async () => {
     const root = await mkdtemp(join(tmpdir(), "forge-git-push-"));
@@ -309,6 +392,71 @@ describe("pushBranch", () => {
       await expect(pushBranch(workDir, "main")).rejects.toThrow(
         /Failed to push main to origin:/,
       );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("listAvailableBranches", () => {
+  it("includes local and remote branches plus the default branch", async () => {
+    const root = await mkdtemp(join(tmpdir(), "forge-git-branches-"));
+    const bareDir = join(root, "remote.git");
+    const workDir = join(root, "work");
+    try {
+      await runGit(root, ["init", "--bare", bareDir]);
+      await runGit(root, ["clone", bareDir, workDir]);
+      await runGit(workDir, ["checkout", "-b", "main"]);
+      await runGit(workDir, ["config", "user.email", "test@example.com"]);
+      await runGit(workDir, ["config", "user.name", "Test"]);
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "init"]);
+      await runGit(workDir, ["push", "-u", "origin", "main"]);
+      await runGit(workDir, ["checkout", "-b", "feature/x"]);
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "feature"]);
+      await runGit(workDir, ["push", "-u", "origin", "feature/x"]);
+      await runGit(workDir, ["checkout", "main"]);
+      await runGit(workDir, ["branch", "local-only"]);
+      await runGit(bareDir, ["branch", "remote-only", "main"]);
+      await runGit(workDir, ["fetch", "origin"]);
+
+      const { listAvailableBranches } = await import("@/lib/github");
+      const branches = await listAvailableBranches("main", workDir);
+
+      expect(branches).toContain("main");
+      expect(branches).toContain("feature/x");
+      expect(branches).toContain("local-only");
+      expect(branches).toContain("remote-only");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("isCommitAncestor", () => {
+  it("detects ancestor relationships in a linear history", async () => {
+    const root = await mkdtemp(join(tmpdir(), "forge-git-ancestor-"));
+    const workDir = join(root, "work");
+    try {
+      await mkdir(workDir, { recursive: true });
+      await runGit(workDir, ["init"]);
+      await runGit(workDir, ["config", "user.email", "test@example.com"]);
+      await runGit(workDir, ["config", "user.name", "Test"]);
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "first"]);
+      const { stdout: olderStdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
+        cwd: workDir,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      });
+      const older = olderStdout.trim();
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "second"]);
+      const { stdout: newerStdout } = await execFileAsync("git", ["rev-parse", "HEAD"], {
+        cwd: workDir,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      });
+      const newer = newerStdout.trim();
+
+      const { isCommitAncestor } = await import("@/lib/github");
+      expect(await isCommitAncestor(older, newer, workDir)).toBe(true);
+      expect(await isCommitAncestor(newer, older, workDir)).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

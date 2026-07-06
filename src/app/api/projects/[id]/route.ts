@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth/session";
 import { getComposeContainerStatus, projectHasComposeFile } from "@/lib/docker";
 import { isDeploymentActive } from "@/lib/deployer";
 import { deriveRuntimeStatus } from "@/lib/project-status";
+import { listAvailableBranches } from "@/lib/github";
 
 async function requireLogin() {
   const session = await getSession();
@@ -49,6 +50,7 @@ export async function GET(
     hasComposeFile: projectHasComposeFile(project.clonePath),
   });
   const hasComposeFile = projectHasComposeFile(project.clonePath);
+  const branches = await listAvailableBranches(project.branch, project.clonePath);
 
   return NextResponse.json({
     project,
@@ -58,6 +60,7 @@ export async function GET(
     isDeploying,
     runtimeStatus,
     hasComposeFile,
+    branches,
   });
 }
 

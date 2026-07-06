@@ -79,6 +79,27 @@ export async function getLocalCommitSha(repoPath: string): Promise<string | null
   }
 }
 
+export async function isCommitAncestor(
+  ancestorSha: string,
+  descendantSha: string,
+  clonePath: string,
+): Promise<boolean> {
+  if (ancestorSha === descendantSha) return true;
+
+  const resolvedPath = resolveClonePath(clonePath);
+  if (!existsSync(resolvedPath)) return false;
+
+  try {
+    await execGit(
+      ["merge-base", "--is-ancestor", ancestorSha, descendantSha],
+      { cwd: resolvedPath },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function cloneOrPull(
   repo: string,
   branch: string,
@@ -98,7 +119,13 @@ export async function cloneOrPull(
     onLog("Fetching latest changes...");
     await execGit(["fetch", "origin", branch], { cwd: resolvedPath });
     onLog(`Checking out ${branch}...`);
-    await execGit(["checkout", branch], { cwd: resolvedPath });
+    try {
+      await execGit(["checkout", branch], { cwd: resolvedPath });
+    } catch {
+      await execGit(["checkout", "-B", branch, `origin/${branch}`], {
+        cwd: resolvedPath,
+      });
+    }
     await execGit(["reset", "--hard", `origin/${branch}`], {
       cwd: resolvedPath,
     });
@@ -169,6 +196,65 @@ export async function checkoutBranch(
   log(`Checked out branch ${branch}.`);
 }
 
+export function validateBranchName(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return "Branch name is required";
+  if (trimmed.includes(" ")) return "Branch name cannot contain spaces";
+  if (trimmed.includes("..")) return "Branch name cannot contain ..";
+  if (trimmed.startsWith("/") || trimmed.endsWith("/")) {
+    return "Branch name cannot start or end with /";
+  }
+  if (trimmed.endsWith(".")) return "Branch name cannot end with .";
+  if (trimmed.includes("@{")) return "Invalid branch name";
+  if (trimmed.startsWith("-")) return "Branch name cannot start with -";
+  return null;
+}
+
+async function syncToBaseBranch(
+  repo: string,
+  baseBranch: string,
+  clonePath: string,
+  onLog: (line: string) => void,
+): Promise<void> {
+  const resolvedPath = resolveClonePath(clonePath);
+  await ensureRepoCloned(repo, baseBranch, clonePath, onLog);
+
+  onLog(`Syncing base branch ${baseBranch}...`);
+  await execGit(["fetch", "origin", baseBranch], { cwd: resolvedPath });
+  await execGit(["checkout", baseBranch], { cwd: resolvedPath });
+  await execGit(["reset", "--hard", `origin/${baseBranch}`], {
+    cwd: resolvedPath,
+  });
+}
+
+export async function createLocalBranchFromBase(
+  repo: string,
+  baseBranch: string,
+  clonePath: string,
+  newBranch: string,
+  onLog: (line: string) => void,
+): Promise<void> {
+  const validationError = validateBranchName(newBranch);
+  if (validationError) throw new Error(validationError);
+
+  const localBranches = await listLocalBranches(clonePath);
+  if (localBranches.includes(newBranch)) {
+    throw new Error(`Branch "${newBranch}" already exists`);
+  }
+  if (newBranch === baseBranch) {
+    throw new Error(
+      `Cannot create a branch named "${newBranch}" — that is the deploy branch`,
+    );
+  }
+
+  await syncToBaseBranch(repo, baseBranch, clonePath, onLog);
+
+  onLog(`Creating branch ${newBranch}...`);
+  const resolvedPath = resolveClonePath(clonePath);
+  await execGit(["checkout", "-b", newBranch], { cwd: resolvedPath });
+  onLog(`Branch ${newBranch} ready.`);
+}
+
 export async function createBranchFromBase(
   repo: string,
   baseBranch: string,
@@ -177,16 +263,7 @@ export async function createBranchFromBase(
   onLog: (line: string) => void,
 ): Promise<void> {
   const resolvedPath = resolveClonePath(clonePath);
-  await ensureRepoCloned(repo, baseBranch, clonePath, onLog);
-
-  onLog(`Syncing base branch ${baseBranch}...`);
-  await execGit(["fetch", "origin", baseBranch], {
-    cwd: resolvedPath,
-  });
-  await execGit(["checkout", baseBranch], { cwd: resolvedPath });
-  await execGit(["reset", "--hard", `origin/${baseBranch}`], {
-    cwd: resolvedPath,
-  });
+  await syncToBaseBranch(repo, baseBranch, clonePath, onLog);
 
   onLog(`Creating agent branch ${newBranch}...`);
   try {
@@ -227,6 +304,43 @@ export async function listLocalBranches(clonePath: string): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+export async function listAvailableBranches(
+  defaultBranch: string,
+  clonePath: string,
+): Promise<string[]> {
+  const resolvedPath = resolveClonePath(clonePath);
+  const names = new Set<string>([defaultBranch]);
+
+  if (!existsSync(resolvedPath)) {
+    return [defaultBranch];
+  }
+
+  try {
+    await execGit(["fetch", "--prune", "origin"], { cwd: resolvedPath });
+  } catch {
+    // Best-effort: still list local branches if fetch fails.
+  }
+
+  for (const branch of await listLocalBranches(clonePath)) {
+    names.add(branch);
+  }
+
+  try {
+    const { stdout } = await execGit(
+      ["for-each-ref", "--format=%(refname:short)", "refs/remotes/origin"],
+      { cwd: resolvedPath },
+    );
+    for (const ref of stdout.trim().split("\n").filter(Boolean)) {
+      const name = ref.replace(/^origin\//, "");
+      if (name !== "HEAD") names.add(name);
+    }
+  } catch {
+    // Ignore missing remotes.
+  }
+
+  return [...names].sort((a, b) => a.localeCompare(b));
 }
 
 export async function hasUncommittedChanges(clonePath: string): Promise<boolean> {

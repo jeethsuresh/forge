@@ -103,6 +103,8 @@ export function AgentWorkspace({
   const [streamEpoch, setStreamEpoch] = useState(0);
   const [historyReady, setHistoryReady] = useState(false);
   const [loadedSessionTerminal, setLoadedSessionTerminal] = useState(false);
+  const [showNewBranchForm, setShowNewBranchForm] = useState(false);
+  const [newBranchName, setNewBranchName] = useState("");
 
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -356,6 +358,8 @@ export function AgentWorkspace({
   }
 
   function selectBranch(branch: BranchAgentInfo) {
+    setShowNewBranchForm(false);
+    setNewBranchName("");
     openBranch(branch, data?.sessions ?? [], true);
   }
 
@@ -386,6 +390,39 @@ export function AgentWorkspace({
       if (json.sessionId === previousSessionId) {
         setStreamEpoch((epoch) => epoch + 1);
       }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function createNewBranchAndAgent(e: React.FormEvent) {
+    e.preventDefault();
+    const branchName = newBranchName.trim();
+    if (!branchName || !prompt.trim()) return;
+    setLoading(true);
+    setMobileShowChat(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/branches`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: branchName,
+          prompt: prompt.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Failed to create branch");
+        return;
+      }
+      const json = (await res.json()) as { branch: string; sessionId: string };
+      setPrompt("");
+      setNewBranchName("");
+      setShowNewBranchForm(false);
+      setSelectedBranch(json.branch);
+      setSelectedId(json.sessionId);
+      await fetchSessions();
+      setStreamEpoch((epoch) => epoch + 1);
     } finally {
       setLoading(false);
     }
@@ -450,6 +487,33 @@ export function AgentWorkspace({
       } else {
         alert("No uncommitted changes to commit.");
       }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function deploySession() {
+    if (!selectedId) return;
+    if (
+      !confirm(
+        "Rebuild and release containers from this branch? Uncommitted changes will be included if present.",
+      )
+    ) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/agent-sessions/${selectedId}/deploy`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Failed to deploy session");
+        return;
+      }
+      await fetchSessions();
+      await fetchSessionDetail(selectedId);
     } finally {
       setLoading(false);
     }
@@ -561,6 +625,8 @@ export function AgentWorkspace({
 
   const selectedBranchInfo = branches.find((b) => b.name === selectedBranch);
   const selectedSessionMeta = sessionForBranch(sessions, selectedBranch);
+  const deployBranchName =
+    branches.find((b) => b.isDeployBranch)?.name ?? null;
 
   const blockedByOtherBranch = Boolean(
     data?.hasActiveSession && activeBranch && activeBranch !== selectedBranch,
@@ -582,6 +648,18 @@ export function AgentWorkspace({
     sessionDetail && TERMINAL_STATUSES.has(sessionDetail.status),
   );
   const showFollowUp = Boolean(isActiveSession && !isDeploying && selectedId);
+  const canCommitOrDeploy = Boolean(
+    sessionDetail &&
+      ["running", "completed", "failed"].includes(sessionDetail.status) &&
+      !hasActiveProcess &&
+      !isDeploying,
+  );
+  const showActiveAgentActions =
+    canCommitOrDeploy && sessionDetail?.status === "running";
+  const showFinishedAgentActions =
+    canCommitOrDeploy && sessionDetail?.status === "completed";
+  const showFailedAgentActions =
+    canCommitOrDeploy && sessionDetail?.status === "failed";
   const showContinueForm = Boolean(canStartOnBranch && isTerminalSession);
   const showNewAgentForm = Boolean(canStartOnBranch && !selectedId);
 
@@ -605,10 +683,34 @@ export function AgentWorkspace({
       }`}
     >
       <div className="border-b border-zinc-800 px-4 py-3">
-        <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-          Agents
-        </p>
-        <p className="mt-0.5 text-xs text-zinc-600">One agent per branch</p>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+              Agents
+            </p>
+            <p className="mt-0.5 text-xs text-zinc-600">One agent per branch</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setShowNewBranchForm(true);
+              setMobileShowChat(true);
+              setSelectedBranch("");
+              setSelectedId(null);
+              setSessionDetail(null);
+              setMessages([]);
+            }}
+            disabled={loading || blockedByOtherBranch}
+            className="min-h-8 shrink-0 rounded-lg border border-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
+            title={
+              blockedByOtherBranch
+                ? "Finish or cancel the active agent first"
+                : "Create a new branch and agent"
+            }
+          >
+            + New
+          </button>
+        </div>
       </div>
 
       <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -681,9 +783,88 @@ export function AgentWorkspace({
         !mobileShowChat ? "hidden md:flex" : "flex"
       }`}
     >
-      {!selectedBranch ? (
+      {!selectedBranch && !showNewBranchForm ? (
         <div className="flex flex-1 items-center justify-center p-8 text-sm text-zinc-600">
           Select a branch to start or open an agent
+        </div>
+      ) : showNewBranchForm ? (
+        <div className="flex flex-1 flex-col p-4">
+          <div className="mb-4 flex items-start justify-between gap-2">
+            <div>
+              <button
+                type="button"
+                onClick={() => setMobileShowChat(false)}
+                className="mb-1 inline-flex min-h-8 items-center gap-1 text-sm text-orange-400 hover:text-orange-300 md:hidden"
+              >
+                ← Agents
+              </button>
+              <h3 className="text-sm font-medium text-zinc-100">New branch &amp; agent</h3>
+              <p className="mt-1 text-xs text-zinc-500">
+                Creates a branch from{" "}
+                <span className="font-mono text-orange-400/90">
+                  {deployBranchName ?? "deploy branch"}
+                </span>{" "}
+                and starts an agent on it.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setShowNewBranchForm(false);
+                setNewBranchName("");
+                setPrompt("");
+              }}
+              className="min-h-8 rounded-lg px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+            >
+              Cancel
+            </button>
+          </div>
+          {blockedByOtherBranch && (
+            <p className="mb-4 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-xs text-amber-400">
+              Agent is active on{" "}
+              <span className="font-mono">{activeBranch}</span>. Finish or cancel
+              it before creating a new branch.
+            </p>
+          )}
+          <form onSubmit={createNewBranchAndAgent} className="flex flex-1 flex-col">
+            <label className="mb-3 block">
+              <span className="mb-1.5 block text-xs font-medium text-zinc-500">
+                Branch name
+              </span>
+              <input
+                type="text"
+                value={newBranchName}
+                onChange={(e) => setNewBranchName(e.target.value)}
+                placeholder="agent/my-feature"
+                autoFocus
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-orange-500 focus:outline-none"
+              />
+            </label>
+            <label className="mb-3 block flex-1">
+              <span className="mb-1.5 block text-xs font-medium text-zinc-500">
+                Initial instruction
+              </span>
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="Describe what you want the agent to change…"
+                rows={4}
+                className="h-full min-h-32 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-base text-zinc-200 placeholder:text-zinc-600 focus:border-orange-500 focus:outline-none sm:text-sm"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={
+                loading ||
+                blockedByOtherBranch ||
+                !newBranchName.trim() ||
+                !prompt.trim()
+              }
+              className="min-h-11 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+            >
+              Create branch &amp; start agent
+            </button>
+          </form>
         </div>
       ) : (
         <>
@@ -731,20 +912,28 @@ export function AgentWorkspace({
                   Stop
                 </button>
               )}
-              {showFollowUp && (
+              {showActiveAgentActions && (
                 <>
                   <button
                     type="button"
                     onClick={commitSession}
-                    disabled={loading || hasActiveProcess}
+                    disabled={loading}
                     className="min-h-9 rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
                   >
                     Commit
                   </button>
                   <button
                     type="button"
+                    onClick={deploySession}
+                    disabled={loading}
+                    className="min-h-9 rounded-lg border border-orange-400/30 bg-orange-400/10 px-2.5 py-1.5 text-xs font-medium text-orange-300 hover:bg-orange-400/20 disabled:opacity-50"
+                  >
+                    Deploy
+                  </button>
+                  <button
+                    type="button"
                     onClick={finishSession}
-                    disabled={loading || hasActiveProcess}
+                    disabled={loading}
                     className="min-h-9 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
                   >
                     Finish &amp; deploy
@@ -756,6 +945,46 @@ export function AgentWorkspace({
                     className="min-h-9 rounded-lg border border-red-400/20 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-400/10 disabled:opacity-50"
                   >
                     Cancel
+                  </button>
+                </>
+              )}
+              {showFinishedAgentActions && (
+                <>
+                  <button
+                    type="button"
+                    onClick={commitSession}
+                    disabled={loading}
+                    className="min-h-9 rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                  >
+                    Commit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deploySession}
+                    disabled={loading}
+                    className="min-h-9 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+                  >
+                    Deploy
+                  </button>
+                </>
+              )}
+              {showFailedAgentActions && (
+                <>
+                  <button
+                    type="button"
+                    onClick={commitSession}
+                    disabled={loading}
+                    className="min-h-9 rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                  >
+                    Commit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={deploySession}
+                    disabled={loading}
+                    className="min-h-9 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+                  >
+                    Deploy
                   </button>
                 </>
               )}

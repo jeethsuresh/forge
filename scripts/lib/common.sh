@@ -165,8 +165,12 @@ compose_cmd() {
 
 resolve_docker_socket() {
   if [[ -n "${DOCKER_SOCKET:-}" ]]; then
-    echo "$DOCKER_SOCKET"
-    return
+    if [[ -S "$DOCKER_SOCKET" ]]; then
+      echo "$DOCKER_SOCKET"
+      return
+    fi
+    echo "DOCKER_SOCKET is set but not a socket: $DOCKER_SOCKET" >&2
+    exit 1
   fi
 
   local candidates=(
@@ -187,7 +191,13 @@ resolve_docker_socket() {
     return
   fi
 
-  echo "/var/run/docker.sock"
+  echo "No container socket found. Start podman.socket (systemctl --user start podman.socket) or set DOCKER_SOCKET." >&2
+  exit 1
+}
+
+export_docker_socket() {
+  DOCKER_SOCKET="$(resolve_docker_socket)"
+  export DOCKER_SOCKET
 }
 
 common_usage() {

@@ -14,6 +14,8 @@ if [[ -f /opt/cursor-config/auth.json ]]; then
   chmod 600 /data/agent-home/.config/cursor/auth.json
 fi
 
+chown -R node:node /data
+
 AGENT_HOME="/data/agent-home"
 export HOME="$AGENT_HOME"
 
@@ -28,7 +30,7 @@ if [[ -n "$GIT_PASSWORD" ]]; then
   GIT_USERNAME="${FORGE_GIT_USERNAME:-${FORGE_GIT_USER_NAME:-git}}"
   CRED_FILE="${AGENT_HOME}/.git-credentials"
   export GIT_USERNAME GIT_PASSWORD CRED_FILE
-  python3 - <<'PY'
+  gosu node env HOME="$AGENT_HOME" python3 - <<'PY'
 import os
 from urllib.parse import quote
 user = quote(os.environ["GIT_USERNAME"], safe="")
@@ -36,16 +38,9 @@ password = quote(os.environ["GIT_PASSWORD"], safe="")
 path = os.environ["CRED_FILE"]
 with open(path, "w", encoding="utf-8") as f:
     f.write(f"https://{user}:{password}@github.com\n")
+os.chmod(path, 0o600)
 PY
-  chmod 600 "$CRED_FILE"
   gosu node env HOME="$AGENT_HOME" git config --global credential.helper "store --file ${CRED_FILE}"
 fi
-
-chown -R node:node /data/repos /data/agent-home
-for db_file in /data/forge.db /data/forge.db-shm /data/forge.db-wal; do
-  if [[ -e "$db_file" ]]; then
-    chown node:node "$db_file"
-  fi
-done
 
 exec gosu node env HOME="$AGENT_HOME" "$@"

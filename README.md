@@ -120,7 +120,7 @@ cp .env.example .env
 ./deploy.sh --host-port 3000
 ```
 
-Forge runs in Docker with the host container socket mounted so it can deploy watched repositories. On Podman rootless hosts, `deploy.sh` auto-starts `podman.socket` when needed; override with `DOCKER_SOCKET` if required.
+Forge runs in Docker with the host container socket mounted so it can deploy watched repositories. `deploy.sh` auto-detects Podman/Docker sockets (and starts `podman.socket` on rootless hosts when needed); override with `DOCKER_SOCKET` if required.
 
 ## Architecture
 

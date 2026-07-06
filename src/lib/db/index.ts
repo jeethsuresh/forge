@@ -82,18 +82,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_sessions_project_branch ON agent_ses
 
 sqlite.exec(INIT_SQL);
 
-const AGENT_SESSION_COLUMNS = sqlite
-  .prepare("PRAGMA table_info(agent_sessions)")
-  .all() as { name: string }[];
+function addColumnIfMissing(
+  table: string,
+  column: string,
+  definition: string,
+): void {
+  const columns = sqlite
+    .prepare(`PRAGMA table_info(${table})`)
+    .all() as { name: string }[];
+  if (columns.some((col) => col.name === column)) return;
 
-if (!AGENT_SESSION_COLUMNS.some((col) => col.name === "commit_sha")) {
-  sqlite.exec("ALTER TABLE agent_sessions ADD COLUMN commit_sha TEXT");
+  try {
+    sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!message.includes("duplicate column name")) {
+      throw err;
+    }
+  }
 }
 
-if (!AGENT_SESSION_COLUMNS.some((col) => col.name === "resume_cursor_session_id")) {
-  sqlite.exec("ALTER TABLE agent_sessions ADD COLUMN resume_cursor_session_id TEXT");
-}
-
-if (!AGENT_SESSION_COLUMNS.some((col) => col.name === "failed_turn_start_seq")) {
-  sqlite.exec("ALTER TABLE agent_sessions ADD COLUMN failed_turn_start_seq INTEGER");
-}
+addColumnIfMissing("agent_sessions", "commit_sha", "TEXT");
+addColumnIfMissing("agent_sessions", "resume_cursor_session_id", "TEXT");
+addColumnIfMissing("agent_sessions", "failed_turn_start_seq", "INTEGER");

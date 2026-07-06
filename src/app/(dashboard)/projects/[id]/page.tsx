@@ -56,6 +56,7 @@ interface ProjectDetail {
   isDeploying: boolean;
   runtimeStatus: RuntimeStatus;
   hasComposeFile: boolean;
+  branches: string[];
 }
 
 export default function ProjectDetailPage() {
@@ -69,6 +70,7 @@ export default function ProjectDetailPage() {
   );
   const [activeTab, setActiveTab] = useState<ProjectTab>("deploy");
   const [deploymentPage, setDeploymentPage] = useState(0);
+  const [deployBranch, setDeployBranch] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -76,6 +78,10 @@ export default function ProjectDetailPage() {
       if (!res.ok) return;
       const json = (await res.json()) as ProjectDetail;
       setData(json);
+      setDeployBranch((prev) => {
+        if (prev && json.branches.includes(prev)) return prev;
+        return json.project.branch;
+      });
       setExpandedDeploymentId((prev) => {
         if (prev && json.deployments.some((d) => d.id === prev)) return prev;
         const inProgress = json.deployments.find(
@@ -104,9 +110,19 @@ export default function ProjectDetailPage() {
   }, [fetchData]);
 
   async function deployNow() {
+    if (!deployBranch) return;
     setActionLoading(true);
     try {
-      await fetch(`/api/projects/${id}/deploy`, { method: "POST" });
+      const res = await fetch(`/api/projects/${id}/deploy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ branch: deployBranch }),
+      });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Deploy failed");
+        return;
+      }
       await fetchData();
     } finally {
       setActionLoading(false);
@@ -173,8 +189,10 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const { project, deployments, currentDeployment, containers, isDeploying, runtimeStatus, hasComposeFile } =
+  const { project, deployments, currentDeployment, containers, isDeploying, runtimeStatus, hasComposeFile, branches } =
     data;
+
+  const selectedDeployBranch = deployBranch ?? project.branch;
 
   const deployedAt = currentDeployment?.completedAt ?? currentDeployment?.startedAt;
 
@@ -209,7 +227,7 @@ export default function ProjectDetailPage() {
             </span>
           </div>
           <p className="mt-1 break-all font-mono text-xs text-zinc-500 sm:text-sm">
-            {project.githubRepo} · branch{" "}
+            {project.githubRepo} · watch branch{" "}
             <span className="text-orange-400">{project.branch}</span>
           </p>
         </div>
@@ -232,7 +250,25 @@ export default function ProjectDetailPage() {
 
       {activeTab === "deploy" ? (
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <div className="mb-6 flex flex-wrap gap-2">
+          <div className="mb-6 flex flex-wrap items-end gap-2">
+            <label className="flex min-w-[12rem] flex-col gap-1.5">
+              <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Deploy branch
+              </span>
+              <select
+                value={selectedDeployBranch}
+                onChange={(e) => setDeployBranch(e.target.value)}
+                disabled={actionLoading || isDeploying}
+                className="min-h-11 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-200 disabled:opacity-50"
+              >
+                {branches.map((branch) => (
+                  <option key={branch} value={branch}>
+                    {branch}
+                    {branch === project.branch ? " (watch)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               onClick={deployNow}
               disabled={actionLoading || isDeploying}
@@ -263,7 +299,7 @@ export default function ProjectDetailPage() {
           </div>
 
           <div className="mb-6 grid grid-cols-2 gap-3 sm:mb-8 sm:gap-4 lg:grid-cols-4">
-            <StatCard label="Current branch" value={project.branch} />
+            <StatCard label="Watch branch" value={project.branch} />
             <StatCard
               label="Deployed commit"
               value={shortSha(currentDeployment?.commitSha ?? project.lastSeenCommit)}

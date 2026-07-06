@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 import { join } from "path";
@@ -13,8 +13,8 @@ import {
 import {
   cloneOrPull,
   checkoutLocalBranch,
-  getLocalCommitSha,
   getRemoteCommitSha,
+  isCommitAncestor,
   runScript,
 } from "@/lib/github";
 import { isAgentSessionActive } from "@/lib/agent-state";
@@ -64,7 +64,10 @@ export async function runDeployment(
   const deploymentId = randomUUID();
   activeDeployments.add(projectId);
 
-  const deployBranch = options?.branch ?? project.branch;
+  const deployBranch =
+    trigger === "auto"
+      ? resolveAutoDeployBranch(project.branch, getLatestDeploymentBranch(project.id))
+      : (options?.branch ?? project.branch);
 
   db.insert(deployments)
     .values({
@@ -85,7 +88,40 @@ export async function runDeployment(
   return deploymentId;
 }
 
-function getLatestSuccessfulDeploymentCommit(projectId: string): string | null {
+function getLatestBuiltCommitSha(
+  projectId: string,
+  excludeDeploymentId?: string,
+): string | null {
+  const conditions = [
+    eq(deployments.projectId, projectId),
+    isNotNull(deployments.commitSha),
+  ];
+  if (excludeDeploymentId) {
+    conditions.push(ne(deployments.id, excludeDeploymentId));
+  }
+
+  const row = db
+    .select({ commitSha: deployments.commitSha })
+    .from(deployments)
+    .where(and(...conditions))
+    .orderBy(desc(deployments.startedAt))
+    .limit(1)
+    .get();
+  return row?.commitSha ?? null;
+}
+
+function getLatestDeploymentBranch(projectId: string): string | null {
+  const row = db
+    .select({ branch: deployments.branch })
+    .from(deployments)
+    .where(eq(deployments.projectId, projectId))
+    .orderBy(desc(deployments.startedAt))
+    .limit(1)
+    .get();
+  return row?.branch ?? null;
+}
+
+function getCurrentlyRunningCommitSha(projectId: string): string | null {
   const row = db
     .select({ commitSha: deployments.commitSha })
     .from(deployments)
@@ -93,6 +129,7 @@ function getLatestSuccessfulDeploymentCommit(projectId: string): string | null {
       and(
         eq(deployments.projectId, projectId),
         eq(deployments.status, "success"),
+        isNotNull(deployments.commitSha),
       ),
     )
     .orderBy(desc(deployments.completedAt))
@@ -101,15 +138,21 @@ function getLatestSuccessfulDeploymentCommit(projectId: string): string | null {
   return row?.commitSha ?? null;
 }
 
-async function getRecordedDeployedCommitSha(project: Project): Promise<string | null> {
-  if (project.lastSeenCommit) return project.lastSeenCommit;
-  return getLatestSuccessfulDeploymentCommit(project.id);
+export function resolveAutoDeployBranch(
+  watchBranch: string,
+  previousDeploymentBranch: string | null | undefined,
+): string {
+  return previousDeploymentBranch ?? watchBranch;
 }
 
-async function getEffectiveDeployedCommitSha(project: Project): Promise<string | null> {
-  const recorded = await getRecordedDeployedCommitSha(project);
-  if (recorded) return recorded;
-  return getLocalCommitSha(resolveClonePath(project.clonePath));
+export function isOlderThanRunningCommit(
+  candidateSha: string,
+  runningSha: string | null | undefined,
+  candidateIsAncestorOfRunning: boolean,
+): boolean {
+  if (!runningSha) return false;
+  if (candidateSha === runningSha) return false;
+  return candidateIsAncestorOfRunning;
 }
 
 function syncLastSeenCommit(projectId: string, commitSha: string): void {
@@ -119,35 +162,32 @@ function syncLastSeenCommit(projectId: string, commitSha: string): void {
     .run();
 }
 
-async function shouldSkipAutoDeploy(
+async function shouldSkipAutoWatcherPoll(
   project: Project,
   remoteSha: string,
 ): Promise<boolean> {
-  const deployedSha = await getEffectiveDeployedCommitSha(project);
-  if (deployedSha !== remoteSha) return false;
-  if (project.lastSeenCommit !== remoteSha) {
-    syncLastSeenCommit(project.id, remoteSha);
-  }
-  return true;
+  if (project.lastSeenCommit !== remoteSha) return false;
+  const previousBuildSha = getLatestBuiltCommitSha(project.id);
+  return previousBuildSha === remoteSha;
 }
 
-async function shouldSkipAutoBuild(
+async function shouldSkipStaleAutoCommit(
   project: Project,
-  commitSha: string,
+  candidateSha: string,
+  runningSha: string | null,
 ): Promise<boolean> {
-  const deployedSha = await getRecordedDeployedCommitSha(project);
-  if (!isAlreadyDeployedCommit(deployedSha, commitSha)) return false;
-  if (project.lastSeenCommit !== commitSha) {
-    syncLastSeenCommit(project.id, commitSha);
+  if (!isOlderThanRunningCommit(
+    candidateSha,
+    runningSha,
+    await isCommitAncestor(candidateSha, runningSha ?? "", project.clonePath),
+  )) {
+    return false;
+  }
+
+  if (project.lastSeenCommit !== candidateSha) {
+    syncLastSeenCommit(project.id, candidateSha);
   }
   return true;
-}
-
-export function isAlreadyDeployedCommit(
-  deployedSha: string | null | undefined,
-  commitSha: string,
-): boolean {
-  return Boolean(deployedSha && deployedSha === commitSha);
 }
 
 function completeDuplicateDeploy(
@@ -155,6 +195,7 @@ function completeDuplicateDeploy(
   project: Project,
   commitSha: string,
   log: (msg: string) => void,
+  reason: string,
 ): void {
   db.update(deployments)
     .set({ commitSha })
@@ -165,8 +206,15 @@ function completeDuplicateDeploy(
     syncLastSeenCommit(project.id, commitSha);
   }
 
-  log(`Commit ${commitSha.slice(0, 7)} is already deployed; marking as duplicate.`);
+  log(reason);
   updateStatus(deploymentId, "duplicate", { completedAt: new Date() });
+}
+
+export function isSameAsPreviousBuild(
+  previousBuildSha: string | null | undefined,
+  commitSha: string,
+): boolean {
+  return Boolean(previousBuildSha && previousBuildSha === commitSha);
 }
 
 async function finishAutoDeployIfDuplicate(
@@ -175,11 +223,57 @@ async function finishAutoDeployIfDuplicate(
   commitSha: string,
   log: (msg: string) => void,
 ): Promise<boolean> {
-  if (!(await shouldSkipAutoBuild(project, commitSha))) {
+  const previousBuildSha = getLatestBuiltCommitSha(project.id, deploymentId);
+  if (!isSameAsPreviousBuild(previousBuildSha, commitSha)) {
     return false;
   }
-  completeDuplicateDeploy(deploymentId, project, commitSha, log);
+  completeDuplicateDeploy(
+    deploymentId,
+    project,
+    commitSha,
+    log,
+    `Commit ${commitSha.slice(0, 7)} matches the previous build; marking as duplicate.`,
+  );
   return true;
+}
+
+async function finishAutoDeployIfStale(
+  deploymentId: string,
+  project: Project,
+  commitSha: string,
+  runningSha: string,
+  log: (msg: string) => void,
+): Promise<boolean> {
+  if (!isOlderThanRunningCommit(
+    commitSha,
+    runningSha,
+    await isCommitAncestor(commitSha, runningSha, project.clonePath),
+  )) {
+    return false;
+  }
+
+  completeDuplicateDeploy(
+    deploymentId,
+    project,
+    commitSha,
+    log,
+    `Commit ${commitSha.slice(0, 7)} is older than the currently running ${runningSha.slice(0, 7)}; marking as duplicate.`,
+  );
+  return true;
+}
+
+function resolveDeploymentBranch(
+  project: Project,
+  trigger: DeploymentTrigger,
+  options?: { branch?: string },
+): string {
+  if (trigger === "auto") {
+    return resolveAutoDeployBranch(
+      project.branch,
+      getLatestDeploymentBranch(project.id),
+    );
+  }
+  return options?.branch ?? project.branch;
 }
 
 async function executeDeployment(
@@ -203,7 +297,8 @@ async function executeDeployment(
   }
 
   const log = (msg: string) => appendLog(deploymentId, msg);
-  const deployBranch = options?.branch ?? project.branch;
+  const deployBranch = resolveDeploymentBranch(project, trigger, options);
+  const runningSha = getCurrentlyRunningCommitSha(projectId);
 
   try {
     const repoPath = resolveClonePath(project.clonePath);
@@ -213,6 +308,13 @@ async function executeDeployment(
         project.githubRepo,
         deployBranch,
       );
+
+      if (
+        runningSha &&
+        (await finishAutoDeployIfStale(deploymentId, project, remoteSha, runningSha, log))
+      ) {
+        return;
+      }
       if (await finishAutoDeployIfDuplicate(deploymentId, project, remoteSha, log)) {
         return;
       }
@@ -238,8 +340,13 @@ async function executeDeployment(
       .where(eq(deployments.id, deploymentId))
       .run();
 
-    if (trigger === "auto" && (await finishAutoDeployIfDuplicate(deploymentId, project, commitSha, log))) {
-      return;
+    if (trigger === "auto") {
+      if (runningSha && (await finishAutoDeployIfStale(deploymentId, project, commitSha, runningSha, log))) {
+        return;
+      }
+      if (await finishAutoDeployIfDuplicate(deploymentId, project, commitSha, log)) {
+        return;
+      }
     }
 
     updateStatus(deploymentId, "building");
@@ -282,9 +389,19 @@ export async function checkProjectForChanges(projectId: string): Promise<boolean
   if (isAgentSessionActive(projectId)) return false;
 
   try {
-    const remoteSha = await getRemoteCommitSha(project.githubRepo, project.branch);
-    if (await shouldSkipAutoDeploy(project, remoteSha)) return false;
-    await runDeployment(projectId, "auto");
+    const autoBranch = resolveAutoDeployBranch(
+      project.branch,
+      getLatestDeploymentBranch(projectId),
+    );
+    const remoteSha = await getRemoteCommitSha(project.githubRepo, autoBranch);
+    const runningSha = getCurrentlyRunningCommitSha(projectId);
+
+    if (await shouldSkipStaleAutoCommit(project, remoteSha, runningSha)) {
+      return false;
+    }
+    if (await shouldSkipAutoWatcherPoll(project, remoteSha)) return false;
+
+    await runDeployment(projectId, "auto", { branch: autoBranch });
     return true;
   } catch (err) {
     console.error(`[watcher] Error checking project ${project.name}:`, err);

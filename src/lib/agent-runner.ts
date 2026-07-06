@@ -26,6 +26,8 @@ import {
   buildAgentCommitMessage,
   hasUnpushedCommits,
   pushBranch,
+  createLocalBranchFromBase,
+  validateBranchName,
 } from "@/lib/github";
 import { runDeployment } from "@/lib/deployer";
 import { resolveClonePath } from "@/lib/paths";
@@ -569,6 +571,44 @@ async function executeAgentTurn(
   }
 }
 
+export async function createAgentBranch(
+  projectId: string,
+  newBranch: string,
+): Promise<void> {
+  const trimmedBranch = newBranch.trim();
+  const validationError = validateBranchName(trimmedBranch);
+  if (validationError) throw new Error(validationError);
+
+  const project = db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .get();
+
+  if (!project) throw new Error("Project not found");
+
+  if (trimmedBranch === project.branch) {
+    throw new Error(
+      `Cannot create a branch named "${trimmedBranch}" — that is the deploy branch`,
+    );
+  }
+
+  assertNoConflictingActiveSession(projectId, trimmedBranch);
+
+  const localBranches = await listLocalBranches(project.clonePath);
+  if (localBranches.includes(trimmedBranch)) {
+    throw new Error(`Branch "${trimmedBranch}" already exists`);
+  }
+
+  await createLocalBranchFromBase(
+    project.githubRepo,
+    project.branch,
+    project.clonePath,
+    trimmedBranch,
+    () => {},
+  );
+}
+
 export async function createAgentSession(
   projectId: string,
   branch: string,
@@ -630,7 +670,7 @@ export async function createAgentSession(
   return sessionId;
 }
 
-function assertSessionReadyForCommit(sessionId: string) {
+function assertSessionReadyForPostAgentAction(sessionId: string) {
   const session = db
     .select()
     .from(agentSessions)
@@ -638,8 +678,10 @@ function assertSessionReadyForCommit(sessionId: string) {
     .get();
 
   if (!session) throw new Error("Session not found");
-  if (TERMINAL_STATUSES.includes(session.status)) {
-    throw new Error("Session is no longer active");
+
+  const allowedStatuses: AgentSessionStatus[] = ["running", "completed", "failed"];
+  if (!allowedStatuses.includes(session.status)) {
+    throw new Error("Session is not ready for commit or deploy");
   }
   if (activeAgentProcesses.has(sessionId)) {
     throw new Error("Agent is still processing; wait for the current turn to finish");
@@ -651,11 +693,21 @@ function assertSessionReadyForCommit(sessionId: string) {
   return session;
 }
 
+function assertSessionReadyForFinish(sessionId: string) {
+  const session = assertSessionReadyForPostAgentAction(sessionId);
+  if (session.status !== "running") {
+    throw new Error(
+      "Use Commit or Deploy on a finished session; Finish is only for an active agent that has stopped working",
+    );
+  }
+  return session;
+}
+
 export async function commitAgentSessionChanges(
   sessionId: string,
   options?: { message?: string },
 ): Promise<{ commitSha: string | null; committed: boolean; pushed: boolean }> {
-  const session = assertSessionReadyForCommit(sessionId);
+  const session = assertSessionReadyForPostAgentAction(sessionId);
 
   const project = db
     .select()
@@ -706,8 +758,33 @@ export async function commitAgentSessionChanges(
   };
 }
 
+export async function deployAgentSession(sessionId: string): Promise<void> {
+  const session = assertSessionReadyForPostAgentAction(sessionId);
+
+  const project = db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, session.projectId))
+    .get();
+
+  if (!project) throw new Error("Project not found");
+
+  const log = (msg: string) => appendSessionLog(sessionId, msg);
+
+  await prepareAgentWorkspace(
+    project.githubRepo,
+    project.branch,
+    project.clonePath,
+    session.branch,
+    log,
+  );
+
+  await deployAfterAgent(sessionId, session.projectId, session.branch);
+  await waitForDeploymentAndFinalize(sessionId, session.projectId);
+}
+
 export async function finishAgentSession(sessionId: string): Promise<void> {
-  const session = assertSessionReadyForCommit(sessionId);
+  const session = assertSessionReadyForFinish(sessionId);
 
   await commitAgentSessionChanges(sessionId);
   await deployAfterAgent(sessionId, session.projectId, session.branch);
