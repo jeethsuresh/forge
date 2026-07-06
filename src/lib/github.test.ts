@@ -25,3 +25,19 @@ describe("parseGithubRepo", () => {
     expect(() => parseGithubRepo("not-a-repo")).toThrow(/Invalid GitHub/);
   });
 });
+
+describe("buildAgentCommitMessage", () => {
+  it("prefixes the initial prompt", async () => {
+    const { buildAgentCommitMessage } = await import("@/lib/github");
+    expect(buildAgentCommitMessage("Add login page")).toBe("Agent: Add login page");
+  });
+
+  it("truncates long prompts", async () => {
+    const { buildAgentCommitMessage } = await import("@/lib/github");
+    const long = "x".repeat(100);
+    const message = buildAgentCommitMessage(long);
+    expect(message.startsWith("Agent: ")).toBe(true);
+    expect(message.endsWith("…")).toBe(true);
+    expect(message.length).toBeLessThan(100);
+  });
+});

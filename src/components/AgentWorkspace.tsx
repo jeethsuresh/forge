@@ -18,6 +18,7 @@ interface AgentSession {
   logs: string;
   errorMessage: string | null;
   deploymentId: string | null;
+  commitSha: string | null;
   startedAt: string;
   completedAt: string | null;
 }
@@ -110,7 +111,9 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
   );
 
   useEffect(() => {
-    void fetchSessions();
+    queueMicrotask(() => {
+      void fetchSessions();
+    });
     const interval = setInterval(() => {
       if (!sseConnectedRef.current) void fetchSessions();
     }, 8000);
@@ -128,17 +131,21 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
     const branch = data.branches.find((b) => b.name === initial);
     if (!branch) return;
 
-    setSelectedBranch(branch.name);
-    if (branch.sessionId) {
-      setSelectedId(branch.sessionId);
-      const session = sessionForBranch(data.sessions, branch.name);
-      if (session) setSessionDetail(session);
-    }
+    queueMicrotask(() => {
+      setSelectedBranch(branch.name);
+      if (branch.sessionId) {
+        setSelectedId(branch.sessionId);
+        const session = sessionForBranch(data.sessions, branch.name);
+        if (session) setSessionDetail(session);
+      }
+    });
   }, [data, selectedBranch]);
 
   useEffect(() => {
     if (!selectedId) return;
-    void fetchSessionDetail(selectedId);
+    queueMicrotask(() => {
+      void fetchSessionDetail(selectedId);
+    });
   }, [selectedId, fetchSessionDetail]);
 
   useEffect(() => {
@@ -296,11 +303,39 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
     }
   }
 
+  async function commitSession() {
+    if (!selectedId) return;
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/agent-sessions/${selectedId}/commit`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+      );
+      const json = (await res.json()) as {
+        error?: string;
+        committed?: boolean;
+        commitSha?: string | null;
+      };
+      if (!res.ok) {
+        alert(json.error ?? "Failed to commit changes");
+        return;
+      }
+      if (json.committed) {
+        await fetchSessions();
+        await fetchSessionDetail(selectedId);
+      } else {
+        alert("No uncommitted changes to commit.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function finishSession() {
     if (!selectedId) return;
     if (
       !confirm(
-        "Finish this agent session and rebuild/re-release containers?",
+        "Commit agent changes, then rebuild and release containers?",
       )
     ) {
       return;
@@ -484,6 +519,11 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
               <h3 className="truncate font-mono text-sm font-medium text-zinc-100">
                 {selectedBranch}
               </h3>
+              {sessionDetail?.commitSha && (
+                <p className="text-xs text-zinc-500">
+                  Commit {shortSha(sessionDetail.commitSha)}
+                </p>
+              )}
               {sessionDetail?.deploymentId && (
                 <p className="text-xs text-zinc-500">
                   Deploy {shortSha(sessionDetail.deploymentId)}
@@ -493,6 +533,14 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
             <div className="flex shrink-0 gap-1">
               {showFollowUp && (
                 <>
+                  <button
+                    type="button"
+                    onClick={commitSession}
+                    disabled={loading || agentBusy}
+                    className="min-h-9 rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                  >
+                    Commit
+                  </button>
                   <button
                     type="button"
                     onClick={finishSession}

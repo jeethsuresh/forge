@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
   logs TEXT NOT NULL DEFAULT '',
   error_message TEXT,
   deployment_id TEXT,
+  commit_sha TEXT,
   started_at INTEGER NOT NULL,
   completed_at INTEGER
 );
@@ -80,3 +81,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_sessions_project_branch ON agent_ses
 `;
 
 sqlite.exec(INIT_SQL);
+
+const AGENT_SESSION_COLUMNS = sqlite
+  .prepare("PRAGMA table_info(agent_sessions)")
+  .all() as { name: string }[];
+
+if (!AGENT_SESSION_COLUMNS.some((col) => col.name === "commit_sha")) {
+  sqlite.exec("ALTER TABLE agent_sessions ADD COLUMN commit_sha TEXT");
+}

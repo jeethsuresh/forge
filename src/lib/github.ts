@@ -199,6 +199,47 @@ export async function listLocalBranches(clonePath: string): Promise<string[]> {
   }
 }
 
+export async function hasUncommittedChanges(clonePath: string): Promise<boolean> {
+  const resolvedPath = resolve(clonePath);
+  if (!existsSync(resolvedPath)) return false;
+
+  const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
+    cwd: resolvedPath,
+  });
+  return stdout.trim().length > 0;
+}
+
+export function buildAgentCommitMessage(initialPrompt: string): string {
+  const prompt = initialPrompt.trim();
+  const summary = prompt.length > 72 ? `${prompt.slice(0, 72)}…` : prompt;
+  return `Agent: ${summary}`;
+}
+
+export async function commitAllChanges(
+  clonePath: string,
+  message: string,
+  onLog?: (line: string) => void,
+): Promise<string | null> {
+  const resolvedPath = resolve(clonePath);
+  const log = onLog ?? (() => {});
+
+  if (!(await hasUncommittedChanges(resolvedPath))) {
+    log("No uncommitted changes to commit.");
+    return null;
+  }
+
+  log("Staging agent changes…");
+  await execFileAsync("git", ["add", "-A"], { cwd: resolvedPath });
+
+  log(`Committing: ${message}`);
+  await execFileAsync("git", ["commit", "-m", message], { cwd: resolvedPath });
+
+  const sha = await getLocalCommitSha(resolvedPath);
+  if (!sha) throw new Error("Failed to resolve commit after commit");
+  log(`Committed ${sha.slice(0, 7)}.`);
+  return sha;
+}
+
 export async function prepareAgentWorkspace(
   repo: string,
   defaultBranch: string,

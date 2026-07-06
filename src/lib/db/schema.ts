@@ -65,6 +65,7 @@ export const agentSessions = sqliteTable("agent_sessions", {
   logs: text("logs").notNull().default(""),
   errorMessage: text("error_message"),
   deploymentId: text("deployment_id"),
+  commitSha: text("commit_sha"),
   startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
   completedAt: integer("completed_at", { mode: "timestamp" }),
 });

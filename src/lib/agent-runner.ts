@@ -12,7 +12,7 @@ import {
 } from "@/lib/db/schema";
 import { parseStreamEventLine } from "@/lib/agent-stream";
 import { activeAgentProjects, getActiveSessionForProject, isAgentSessionActive } from "@/lib/agent-state";
-import { listLocalBranches, prepareAgentWorkspace } from "@/lib/github";
+import { listLocalBranches, prepareAgentWorkspace, commitAllChanges, buildAgentCommitMessage } from "@/lib/github";
 import { runDeployment } from "@/lib/deployer";
 
 const activeAgentProcesses = new Map<string, ChildProcess>();
@@ -21,12 +21,6 @@ const TERMINAL_STATUSES: AgentSessionStatus[] = [
   "completed",
   "failed",
   "cancelled",
-];
-
-const ACTIVE_STATUSES: AgentSessionStatus[] = [
-  "pending",
-  "running",
-  "deploying",
 ];
 
 function agentBin(): string {
@@ -55,6 +49,7 @@ function updateSessionStatus(
     errorMessage?: string;
     completedAt?: Date;
     deploymentId?: string;
+    commitSha?: string;
   },
 ): void {
   db.update(agentSessions)
@@ -103,6 +98,7 @@ function reactivateSession(sessionId: string): void {
       errorMessage: null,
       completedAt: null,
       deploymentId: null,
+      commitSha: null,
     })
     .where(eq(agentSessions.id, sessionId))
     .run();
@@ -463,7 +459,7 @@ export async function createAgentSession(
   return sessionId;
 }
 
-export async function finishAgentSession(sessionId: string): Promise<void> {
+function assertSessionReadyForCommit(sessionId: string) {
   const session = db
     .select()
     .from(agentSessions)
@@ -481,6 +477,56 @@ export async function finishAgentSession(sessionId: string): Promise<void> {
     throw new Error("Deployment already in progress");
   }
 
+  return session;
+}
+
+export async function commitAgentSessionChanges(
+  sessionId: string,
+  options?: { message?: string },
+): Promise<{ commitSha: string | null; committed: boolean }> {
+  const session = assertSessionReadyForCommit(sessionId);
+
+  const project = db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, session.projectId))
+    .get();
+
+  if (!project) throw new Error("Project not found");
+
+  const log = (msg: string) => appendSessionLog(sessionId, msg);
+
+  await prepareAgentWorkspace(
+    project.githubRepo,
+    project.branch,
+    project.clonePath,
+    session.branch,
+    log,
+  );
+
+  const message =
+    options?.message?.trim() || buildAgentCommitMessage(session.initialPrompt);
+
+  const commitSha = await commitAllChanges(
+    project.clonePath,
+    message,
+    log,
+  );
+
+  if (commitSha) {
+    db.update(agentSessions)
+      .set({ commitSha })
+      .where(eq(agentSessions.id, sessionId))
+      .run();
+  }
+
+  return { commitSha, committed: commitSha !== null };
+}
+
+export async function finishAgentSession(sessionId: string): Promise<void> {
+  const session = assertSessionReadyForCommit(sessionId);
+
+  await commitAgentSessionChanges(sessionId);
   await deployAfterAgent(sessionId, session.projectId, session.branch);
   await waitForDeploymentAndFinalize(sessionId, session.projectId);
 }
