@@ -12,7 +12,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-full flex-1 bg-zinc-900">
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-zinc-900">
       <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-zinc-800 bg-zinc-950/95 px-4 backdrop-blur md:hidden">
         <button
           type="button"
@@ -57,9 +57,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <Sidebar className="hidden md:flex" />
+      <Sidebar className="hidden h-full md:flex" />
 
-      <main className="flex min-w-0 flex-1 flex-col overflow-y-auto pt-14 md:pt-0">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pt-14 md:pt-0">
         {children}
       </main>
     </div>

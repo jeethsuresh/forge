@@ -26,7 +26,8 @@ export type DeploymentStatus =
   | "testing"
   | "deploying"
   | "success"
-  | "failed";
+  | "failed"
+  | "duplicate";
 
 export type DeploymentTrigger = "auto" | "manual" | "agent";
 

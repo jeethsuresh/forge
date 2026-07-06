@@ -38,6 +38,8 @@ export function statusColor(status: string): string {
   switch (status) {
     case "success":
       return "text-emerald-400 bg-emerald-400/10 border-emerald-400/20";
+    case "duplicate":
+      return "text-zinc-400 bg-zinc-400/10 border-zinc-400/20";
     case "failed":
       return "text-red-400 bg-red-400/10 border-red-400/20";
     case "building":

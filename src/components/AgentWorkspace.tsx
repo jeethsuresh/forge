@@ -11,7 +11,6 @@ import { shortSha, statusColor } from "@/lib/utils";
 import type { AgentDisplayMessage } from "@/lib/agent-stream";
 import { mergeIncomingMessages } from "@/lib/agent-stream";
 import {
-  reconcileAgentBusy,
   resolveAgentSessionBanner,
 } from "@/lib/agent-turn";
 import { AgentMessageList } from "@/components/AgentMessageList";
@@ -28,6 +27,8 @@ interface AgentSession {
   commitSha: string | null;
   startedAt: string;
   completedAt: string | null;
+  hasActiveProcess?: boolean;
+  canRetry?: boolean;
 }
 
 type StatusBanner =
@@ -66,6 +67,7 @@ interface AgentSessionsResponse {
 
 interface SessionDetailResponse {
   session: AgentSession;
+  events: Array<{ seq: number }>;
   messages: AgentDisplayMessage[];
 }
 
@@ -82,7 +84,13 @@ function sessionForBranch(
   return sessions.find((s) => s.branch === branch);
 }
 
-export function AgentWorkspace({ projectId }: { projectId: string }) {
+export function AgentWorkspace({
+  projectId,
+  className = "",
+}: {
+  projectId: string;
+  className?: string;
+}) {
   const [data, setData] = useState<AgentSessionsResponse | null>(null);
   const [selectedBranch, setSelectedBranch] = useState<string>("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -92,13 +100,21 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const [mobileShowChat, setMobileShowChat] = useState(false);
-  const [agentBusy, setAgentBusy] = useState(false);
   const [streamEpoch, setStreamEpoch] = useState(0);
+  const [historyReady, setHistoryReady] = useState(false);
+  const [loadedSessionTerminal, setLoadedSessionTerminal] = useState(false);
 
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const lastStreamSeqRef = useRef(0);
+  const streamGenerationRef = useRef(0);
   const sseConnectedRef = useRef(false);
   const shouldAutoScrollRef = useRef(true);
+  const selectedIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   const branches = useMemo(() => data?.branches ?? [], [data?.branches]);
   const sessions = useMemo(() => data?.sessions ?? [], [data?.sessions]);
@@ -117,19 +133,28 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
     setSessionDetail((prev) =>
       prev?.id === selectedId ? refreshed : prev,
     );
-    setAgentBusy((busy) => reconcileAgentBusy(busy, refreshed.status));
   }, [projectId, selectedId]);
 
   const fetchSessionDetail = useCallback(
-    async (sessionId: string) => {
+    async (
+      sessionId: string,
+      options?: { refreshMessages?: boolean },
+    ) => {
       const res = await fetch(
         `/api/projects/${projectId}/agent-sessions/${sessionId}`,
       );
-      if (!res.ok) return;
+      if (!res.ok) return null;
       const json = (await res.json()) as SessionDetailResponse;
+      if (selectedIdRef.current !== sessionId) return json;
+
+      const lastSeq = json.events.at(-1)?.seq ?? 0;
+      lastStreamSeqRef.current = lastSeq;
+
       setSessionDetail(json.session);
-      setMessages(json.messages);
-      setAgentBusy((busy) => reconcileAgentBusy(busy, json.session.status));
+      if (options?.refreshMessages !== false) {
+        setMessages(json.messages);
+      }
+      return json;
     },
     [projectId],
   );
@@ -162,34 +187,58 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
         const session = sessionForBranch(data.sessions, branch.name);
         if (session) {
           setSessionDetail(session);
-          setAgentBusy((busy) => reconcileAgentBusy(busy, session.status));
         }
       }
     });
   }, [data, selectedBranch]);
 
   useEffect(() => {
-    if (!selectedId) return;
-
-    const sessionMeta = sessions.find((s) => s.id === selectedId);
-    if (sessionMeta && TERMINAL_STATUSES.has(sessionMeta.status)) {
+    if (!selectedId) {
       queueMicrotask(() => {
-        void fetchSessionDetail(selectedId);
+        setHistoryReady(false);
+        setLoadedSessionTerminal(false);
+        setMessages([]);
       });
+      lastStreamSeqRef.current = 0;
+      return;
     }
-  }, [selectedId, sessions, fetchSessionDetail]);
+
+    let cancelled = false;
+    queueMicrotask(() => {
+      setHistoryReady(false);
+      setLoadedSessionTerminal(false);
+    });
+
+    void (async () => {
+      const json = await fetchSessionDetail(selectedId);
+      if (cancelled || !json) return;
+      setLoadedSessionTerminal(TERMINAL_STATUSES.has(json.session.status));
+      setHistoryReady(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, streamEpoch, fetchSessionDetail]);
 
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId || !historyReady || loadedSessionTerminal) {
+      if (loadedSessionTerminal) {
+        eventSourceRef.current?.close();
+        eventSourceRef.current = null;
+        sseConnectedRef.current = false;
+      }
+      return;
+    }
 
-    queueMicrotask(() => {
-      setMessages([]);
-    });
+    const generation = ++streamGenerationRef.current;
+    const afterSeq = lastStreamSeqRef.current;
+
     eventSourceRef.current?.close();
     sseConnectedRef.current = false;
 
     const es = new EventSource(
-      `/api/projects/${projectId}/agent-sessions/${selectedId}/stream`,
+      `/api/projects/${projectId}/agent-sessions/${selectedId}/stream?afterSeq=${afterSeq}`,
     );
     eventSourceRef.current = es;
 
@@ -197,40 +246,61 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
       sseConnectedRef.current = true;
     };
 
-    const applySessionUpdate = (session: AgentSession) => {
-      setSessionDetail(session);
-      setAgentBusy((busy) => reconcileAgentBusy(busy, session.status));
+    const applyEventBatch = (payload: {
+      events: Array<{ seq: number }>;
+      messages: AgentDisplayMessage[];
+      session: AgentSession;
+    }) => {
+      if (payload.events.length === 0) return;
+
+      const lastSeq = payload.events[payload.events.length - 1]!.seq;
+      if (lastSeq > lastStreamSeqRef.current) {
+        lastStreamSeqRef.current = lastSeq;
+      }
+
+      setMessages((prev) => mergeIncomingMessages(prev, payload.messages));
+
+      setSessionDetail((current) =>
+        current?.id === payload.session.id ? payload.session : current,
+      );
     };
 
     es.addEventListener("events", (e) => {
+      if (streamGenerationRef.current !== generation) return;
       const payload = JSON.parse(e.data) as {
+        events: Array<{ seq: number }>;
         messages: AgentDisplayMessage[];
         session: AgentSession;
       };
-      setMessages((prev) => mergeIncomingMessages(prev, payload.messages));
-      applySessionUpdate(payload.session);
-      if (
-        payload.messages.some(
-          (m) =>
-            m.role === "system" && m.content.includes("Agent turn completed"),
-        )
-      ) {
-        setAgentBusy(false);
-      }
+      applyEventBatch(payload);
     });
 
     es.addEventListener("heartbeat", (e) => {
+      if (streamGenerationRef.current !== generation) return;
       const payload = JSON.parse(e.data) as { session: AgentSession };
-      applySessionUpdate(payload.session);
+      setSessionDetail((current) => {
+        if (current?.id !== payload.session.id) return current;
+        if (
+          current.status === payload.session.status &&
+          current.errorMessage === payload.session.errorMessage &&
+          current.deploymentId === payload.session.deploymentId &&
+          current.commitSha === payload.session.commitSha &&
+          current.hasActiveProcess === payload.session.hasActiveProcess &&
+          current.canRetry === payload.session.canRetry
+        ) {
+          return current;
+        }
+        return payload.session;
+      });
     });
 
     es.addEventListener("done", (e) => {
+      if (streamGenerationRef.current !== generation) return;
       const payload = JSON.parse(e.data) as { session: AgentSession };
-      applySessionUpdate(payload.session);
-      setAgentBusy(false);
+      setSessionDetail(payload.session);
+      setLoadedSessionTerminal(TERMINAL_STATUSES.has(payload.session.status));
       sseConnectedRef.current = false;
       void fetchSessions();
-      void fetchSessionDetail(selectedId);
       es.close();
     });
 
@@ -242,14 +312,26 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
       sseConnectedRef.current = false;
       es.close();
     };
-  }, [selectedId, projectId, fetchSessions, fetchSessionDetail, streamEpoch]);
+  }, [
+    selectedId,
+    projectId,
+    historyReady,
+    loadedSessionTerminal,
+    fetchSessions,
+    streamEpoch,
+  ]);
+
+  const hasActiveProcess = sessionDetail?.hasActiveProcess ?? false;
 
   useEffect(() => {
     if (!shouldAutoScrollRef.current) return;
     const el = messagesScrollRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages, agentBusy, sessionDetail?.status]);
+    el.scrollTo({
+      top: el.scrollHeight,
+      behavior: hasActiveProcess ? "auto" : "smooth",
+    });
+  }, [messages, hasActiveProcess, sessionDetail?.status]);
 
   function openBranch(
     branch: BranchAgentInfo,
@@ -264,14 +346,12 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
       const session = sessionForBranch(sessions, branch.name);
       if (session) {
         setSessionDetail(session);
-        setAgentBusy((busy) => reconcileAgentBusy(busy, session.status));
       }
       return;
     }
 
     setSelectedId(null);
     setSessionDetail(null);
-    setAgentBusy(false);
     setMessages([]);
   }
 
@@ -283,7 +363,6 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
     e.preventDefault();
     if (!prompt.trim() || !selectedBranch) return;
     setLoading(true);
-    setAgentBusy(true);
     setMobileShowChat(true);
     try {
       const res = await fetch(`/api/projects/${projectId}/agent-sessions`, {
@@ -297,13 +376,16 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
       if (!res.ok) {
         const json = (await res.json()) as { error?: string };
         alert(json.error ?? "Failed to start agent");
-        setAgentBusy(false);
         return;
       }
       const json = (await res.json()) as { sessionId: string };
+      const previousSessionId = selectedId;
       setPrompt("");
       setSelectedId(json.sessionId);
       await fetchSessions();
+      if (json.sessionId === previousSessionId) {
+        setStreamEpoch((epoch) => epoch + 1);
+      }
     } finally {
       setLoading(false);
     }
@@ -313,7 +395,6 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
     e.preventDefault();
     if (!selectedId || !prompt.trim()) return;
     setLoading(true);
-    setAgentBusy(true);
     shouldAutoScrollRef.current = true;
     const userPrompt = prompt.trim();
     try {
@@ -328,7 +409,6 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
       if (!res.ok) {
         const json = (await res.json()) as { error?: string };
         alert(json.error ?? "Failed to send message");
-        setAgentBusy(false);
         return;
       }
       setMessages((prev) => [
@@ -358,12 +438,13 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
         error?: string;
         committed?: boolean;
         commitSha?: string | null;
+        pushed?: boolean;
       };
       if (!res.ok) {
-        alert(json.error ?? "Failed to commit changes");
+        alert(json.error ?? "Failed to commit and push changes");
         return;
       }
-      if (json.committed) {
+      if (json.committed || json.pushed) {
         await fetchSessions();
         await fetchSessionDetail(selectedId);
       } else {
@@ -403,7 +484,6 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
   async function retryFailedTurn() {
     if (!selectedId) return;
     setLoading(true);
-    setAgentBusy(true);
     shouldAutoScrollRef.current = true;
     try {
       const res = await fetch(
@@ -413,10 +493,10 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
       if (!res.ok) {
         const json = (await res.json()) as { error?: string };
         alert(json.error ?? "Failed to retry agent turn");
-        setAgentBusy(false);
         return;
       }
       const json = (await res.json()) as { prompt?: string };
+      setLoadedSessionTerminal(false);
       if (json.prompt) {
         setMessages((prev) => {
           const lastUserIdx = prev.map((m) => m.role).lastIndexOf("user");
@@ -426,9 +506,32 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
           return prev.slice(0, lastUserIdx);
         });
       }
-      await fetchSessionDetail(selectedId);
+      await fetchSessionDetail(selectedId, { refreshMessages: true });
       setStreamEpoch((n) => n + 1);
       await fetchSessions();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function stopAgent() {
+    if (!selectedId) return;
+    if (!confirm("Stop the agent? You can retry or send another message afterward.")) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/agent-sessions/${selectedId}/stop`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Failed to stop agent");
+        return;
+      }
+      await fetchSessions();
+      if (selectedId) await fetchSessionDetail(selectedId);
     } finally {
       setLoading(false);
     }
@@ -487,17 +590,17 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
     return toStatusBanner(
       resolveAgentSessionBanner({
         status: sessionDetail.status,
-        agentBusy,
+        hasActiveProcess,
         isDeploying,
         errorMessage: sessionDetail.errorMessage,
-        failedTurnStartSeq: sessionDetail.failedTurnStartSeq,
+        canRetry: sessionDetail.canRetry ?? false,
       }),
     );
-  }, [sessionDetail, isDeploying, agentBusy]);
+  }, [sessionDetail, isDeploying, hasActiveProcess]);
 
   const branchSidebar = (
     <aside
-      className={`flex w-full shrink-0 flex-col border-zinc-800 bg-zinc-950 md:w-64 md:border-r ${
+      className={`flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-zinc-800 bg-zinc-950 md:w-64 md:border-r ${
         mobileShowChat ? "hidden md:flex" : "flex"
       }`}
     >
@@ -513,7 +616,7 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
           const session = sessionForBranch(sessions, b.name);
           const isSelected = selectedBranch === b.name;
           const isRunning =
-            b.sessionStatus && !TERMINAL_STATUSES.has(b.sessionStatus);
+            session?.hasActiveProcess ?? b.sessionStatus === "deploying";
 
           return (
             <li key={b.name}>
@@ -574,7 +677,7 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
 
   const chatArea = (
     <div
-      className={`flex min-h-0 min-w-0 flex-1 flex-col bg-zinc-900 ${
+      className={`flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-zinc-900 ${
         !mobileShowChat ? "hidden md:flex" : "flex"
       }`}
     >
@@ -608,12 +711,32 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
               )}
             </div>
             <div className="flex shrink-0 gap-1">
+              {sessionDetail?.status === "failed" && sessionDetail.canRetry && (
+                <button
+                  type="button"
+                  onClick={retryFailedTurn}
+                  disabled={loading || hasActiveProcess}
+                  className="min-h-9 rounded-lg border border-orange-400/30 bg-orange-400/10 px-2.5 py-1.5 text-xs font-medium text-orange-300 hover:bg-orange-400/20 disabled:opacity-50"
+                >
+                  Retry
+                </button>
+              )}
+              {hasActiveProcess && !isDeploying && selectedId && (
+                <button
+                  type="button"
+                  onClick={stopAgent}
+                  disabled={loading}
+                  className="min-h-9 rounded-lg border border-red-400/30 bg-red-400/10 px-2.5 py-1.5 text-xs font-medium text-red-300 hover:bg-red-400/20 disabled:opacity-50"
+                >
+                  Stop
+                </button>
+              )}
               {showFollowUp && (
                 <>
                   <button
                     type="button"
                     onClick={commitSession}
-                    disabled={loading || agentBusy}
+                    disabled={loading || hasActiveProcess}
                     className="min-h-9 rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
                   >
                     Commit
@@ -621,7 +744,7 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
                   <button
                     type="button"
                     onClick={finishSession}
-                    disabled={loading || agentBusy}
+                    disabled={loading || hasActiveProcess}
                     className="min-h-9 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
                   >
                     Finish &amp; deploy
@@ -726,10 +849,10 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
                           <button
                             type="button"
                             onClick={retryFailedTurn}
-                            disabled={loading || agentBusy}
+                            disabled={loading || hasActiveProcess}
                             className="mt-2 min-h-8 rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-400/15 disabled:opacity-50"
                           >
-                            Retry prompt
+                            Retry
                           </button>
                         )}
                       </div>
@@ -754,7 +877,7 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
                     />
                     <button
                       type="submit"
-                      disabled={loading || agentBusy || !prompt.trim()}
+                      disabled={loading || hasActiveProcess || !prompt.trim()}
                       className="min-h-11 shrink-0 rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:opacity-50"
                     >
                       Send
@@ -779,7 +902,7 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
                     />
                     <button
                       type="submit"
-                      disabled={loading || agentBusy || !prompt.trim()}
+                      disabled={loading || hasActiveProcess || !prompt.trim()}
                       className="min-h-11 shrink-0 rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-400 disabled:opacity-50"
                     >
                       Continue
@@ -801,8 +924,13 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
   );
 
   return (
-    <div className="flex h-[min(70vh,32rem)] max-h-[calc(100dvh-10rem)] flex-col overflow-hidden rounded-xl border border-zinc-800">
-      <div className="flex min-h-0 flex-1">{branchSidebar}{chatArea}</div>
+    <div
+      className={`flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-800 ${className}`}
+    >
+      <div className="flex h-full min-h-0 flex-1 overflow-hidden">
+        {branchSidebar}
+        {chatArea}
+      </div>
     </div>
   );
 }

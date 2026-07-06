@@ -136,10 +136,49 @@ async function shouldSkipAutoBuild(
   commitSha: string,
 ): Promise<boolean> {
   const deployedSha = await getRecordedDeployedCommitSha(project);
-  if (deployedSha !== commitSha) return false;
+  if (!isAlreadyDeployedCommit(deployedSha, commitSha)) return false;
   if (project.lastSeenCommit !== commitSha) {
     syncLastSeenCommit(project.id, commitSha);
   }
+  return true;
+}
+
+export function isAlreadyDeployedCommit(
+  deployedSha: string | null | undefined,
+  commitSha: string,
+): boolean {
+  return Boolean(deployedSha && deployedSha === commitSha);
+}
+
+function completeDuplicateDeploy(
+  deploymentId: string,
+  project: Project,
+  commitSha: string,
+  log: (msg: string) => void,
+): void {
+  db.update(deployments)
+    .set({ commitSha })
+    .where(eq(deployments.id, deploymentId))
+    .run();
+
+  if (project.lastSeenCommit !== commitSha) {
+    syncLastSeenCommit(project.id, commitSha);
+  }
+
+  log(`Commit ${commitSha.slice(0, 7)} is already deployed; marking as duplicate.`);
+  updateStatus(deploymentId, "duplicate", { completedAt: new Date() });
+}
+
+async function finishAutoDeployIfDuplicate(
+  deploymentId: string,
+  project: Project,
+  commitSha: string,
+  log: (msg: string) => void,
+): Promise<boolean> {
+  if (!(await shouldSkipAutoBuild(project, commitSha))) {
+    return false;
+  }
+  completeDuplicateDeploy(deploymentId, project, commitSha, log);
   return true;
 }
 
@@ -167,10 +206,20 @@ async function executeDeployment(
   const deployBranch = options?.branch ?? project.branch;
 
   try {
+    const repoPath = resolveClonePath(project.clonePath);
+
+    if (trigger === "auto" && !options?.skipPull) {
+      const remoteSha = await getRemoteCommitSha(
+        project.githubRepo,
+        deployBranch,
+      );
+      if (await finishAutoDeployIfDuplicate(deploymentId, project, remoteSha, log)) {
+        return;
+      }
+    }
+
     updateStatus(deploymentId, "pulling");
     let commitSha: string;
-
-    const repoPath = resolveClonePath(project.clonePath);
 
     if (options?.skipPull) {
       log(`Using local branch ${deployBranch} (agent changes preserved).`);
@@ -189,9 +238,7 @@ async function executeDeployment(
       .where(eq(deployments.id, deploymentId))
       .run();
 
-    if (trigger === "auto" && (await shouldSkipAutoBuild(project, commitSha))) {
-      log(`Already deployed at ${commitSha.slice(0, 7)}, skipping build.`);
-      updateStatus(deploymentId, "success", { completedAt: new Date() });
+    if (trigger === "auto" && (await finishAutoDeployIfDuplicate(deploymentId, project, commitSha, log))) {
       return;
     }
 

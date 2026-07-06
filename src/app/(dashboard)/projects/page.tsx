@@ -25,7 +25,7 @@ export default function ProjectsPage() {
   });
 
   return (
-    <div className="px-4 py-5 sm:px-6 sm:py-6 lg:p-8">
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 sm:py-6 lg:p-8">
       <div className="mb-6 flex flex-col gap-4 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-100 sm:text-2xl">Projects</h1>

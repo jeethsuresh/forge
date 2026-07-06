@@ -7,6 +7,8 @@ export interface AgentDisplayMessage {
   toolCallId?: string;
   toolArgs?: Record<string, unknown>;
   toolResultText?: string;
+  toolStdout?: string;
+  toolStderr?: string;
   toolDurationMs?: number;
   toolError?: string;
   timestamp: number;
@@ -31,6 +33,9 @@ interface StreamEvent {
     content?: Array<{ type?: string; text?: string }>;
   };
   text?: string;
+  stdout?: string;
+  stderr?: string;
+  stream?: string;
   tool_call?: Record<string, unknown>;
   duration_ms?: number;
   timestamp_ms?: number;
@@ -42,6 +47,8 @@ interface ExtractedTool {
   status: "started" | "completed";
   args?: Record<string, unknown>;
   resultText?: string;
+  stdout?: string;
+  stderr?: string;
   errorText?: string;
   durationMs?: number;
   summary: string;
@@ -71,10 +78,32 @@ function formatUnknown(value: unknown): string {
   }
 }
 
+function extractShellStreams(
+  result: Record<string, unknown> | undefined,
+): { stdout?: string; stderr?: string } {
+  if (!result) return {};
+
+  const error = result.error ?? result.rejected ?? result.failure;
+  if (error != null) return {};
+
+  const success = result.success;
+  if (!success || typeof success !== "object") return {};
+
+  const s = success as Record<string, unknown>;
+  const stdout =
+    typeof s.stdout === "string" && s.stdout
+      ? s.stdout
+      : typeof s.interleavedOutput === "string"
+        ? s.interleavedOutput
+        : undefined;
+  const stderr = typeof s.stderr === "string" && s.stderr ? s.stderr : undefined;
+  return { stdout, stderr };
+}
+
 function formatToolResult(
   toolName: string,
   result: Record<string, unknown> | undefined,
-): { text?: string; error?: string } {
+): { text?: string; error?: string; stdout?: string; stderr?: string } {
   if (!result) return {};
 
   const error = result.error ?? result.rejected ?? result.failure;
@@ -91,14 +120,17 @@ function formatToolResult(
   const s = success as Record<string, unknown>;
   switch (toolName.toLowerCase()) {
     case "shell": {
-      const stdout = typeof s.stdout === "string" ? s.stdout : "";
-      const stderr = typeof s.stderr === "string" ? s.stderr : "";
+      const { stdout, stderr } = extractShellStreams(result);
       const exitCode = s.exitCode;
       const parts: string[] = [];
       if (stdout) parts.push(stdout);
       if (stderr) parts.push(`stderr:\n${stderr}`);
       if (exitCode != null) parts.push(`exit code: ${exitCode}`);
-      return parts.length ? { text: truncateText(parts.join("\n")) } : {};
+      return {
+        stdout,
+        stderr,
+        text: parts.length ? truncateText(parts.join("\n")) : undefined,
+      };
     }
     case "read": {
       const content = typeof s.content === "string" ? s.content : "";
@@ -186,7 +218,7 @@ function extractToolFromEvent(event: StreamEvent): ExtractedTool | null {
     };
     const name = key.replace(/ToolCall$/, "");
     const args = toolPayload.args;
-    const { text: resultText, error: errorText } = formatToolResult(
+    const { text: resultText, error: errorText, stdout, stderr } = formatToolResult(
       name,
       toolPayload.result,
     );
@@ -206,6 +238,8 @@ function extractToolFromEvent(event: StreamEvent): ExtractedTool | null {
       status,
       args,
       resultText,
+      stdout,
+      stderr,
       errorText,
       durationMs,
       summary: formatToolSummary(name, args),
@@ -220,6 +254,7 @@ function toolMessageFromExtracted(
   seq: number,
   timestamp: number,
 ): AgentDisplayMessage {
+  const isShell = tool.name.toLowerCase() === "shell";
   return {
     id: tool.callId ? `tool-${tool.callId}` : `tool-${seq}`,
     role: "tool",
@@ -229,10 +264,21 @@ function toolMessageFromExtracted(
     toolCallId: tool.callId,
     toolArgs: tool.args,
     toolResultText: tool.resultText,
+    toolStdout: isShell ? (tool.stdout ?? (tool.status === "started" ? "" : undefined)) : undefined,
+    toolStderr: isShell ? (tool.stderr ?? (tool.status === "started" ? "" : undefined)) : undefined,
     toolDurationMs: tool.durationMs,
     toolError: tool.errorText,
     timestamp,
   };
+}
+
+function mergeStreamChunk(existing?: string, incoming?: string): string | undefined {
+  if (incoming == null || incoming === "") return existing;
+  if (!existing) return incoming;
+  if (incoming.startsWith(existing)) return incoming;
+  if (existing.startsWith(incoming)) return existing;
+  if (existing.endsWith(incoming)) return existing;
+  return existing + incoming;
 }
 
 export function mergeToolIntoExisting(
@@ -244,6 +290,8 @@ export function mergeToolIntoExisting(
       ? "completed"
       : "started";
 
+  const isShell = (incoming.toolName ?? existing.toolName)?.toLowerCase() === "shell";
+
   return {
     ...existing,
     ...incoming,
@@ -251,6 +299,12 @@ export function mergeToolIntoExisting(
     toolStatus: status,
     toolArgs: incoming.toolArgs ?? existing.toolArgs,
     toolResultText: incoming.toolResultText ?? existing.toolResultText,
+    toolStdout: isShell
+      ? mergeStreamChunk(existing.toolStdout, incoming.toolStdout)
+      : incoming.toolStdout ?? existing.toolStdout,
+    toolStderr: isShell
+      ? mergeStreamChunk(existing.toolStderr, incoming.toolStderr)
+      : incoming.toolStderr ?? existing.toolStderr,
     toolDurationMs: incoming.toolDurationMs ?? existing.toolDurationMs,
     toolError: incoming.toolError ?? existing.toolError,
     content: incoming.content || existing.content,
@@ -309,6 +363,11 @@ function mergeAssistantContent(existing: string, incoming: string): string {
   return existing + incoming;
 }
 
+function sameAssistantStreamKind(a: string, b: string): boolean {
+  const kind = (id: string) => (id.startsWith("thinking-") ? "thinking" : "assistant");
+  return kind(a) === kind(b);
+}
+
 export function parseStreamEventLine(line: string): StreamEvent | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
@@ -317,6 +376,31 @@ export function parseStreamEventLine(line: string): StreamEvent | null {
   } catch {
     return null;
   }
+}
+
+function extractShellOutputDelta(
+  event: StreamEvent,
+): { callId: string; stdout?: string; stderr?: string } | null {
+  if (event.type !== "shell-output-delta") return null;
+  const callId =
+    typeof event.call_id === "string" && event.call_id ? event.call_id : null;
+  if (!callId) return null;
+
+  const stream = typeof event.stream === "string" ? event.stream.toLowerCase() : "";
+  const text =
+    typeof event.text === "string"
+      ? event.text
+      : typeof event.stdout === "string"
+        ? event.stdout
+        : typeof event.stderr === "string"
+          ? event.stderr
+          : "";
+
+  if (!text) return null;
+  if (stream === "stderr" || (event.stderr && !event.stdout)) {
+    return { callId, stderr: text };
+  }
+  return { callId, stdout: text };
 }
 
 export function streamEventToDisplay(
@@ -352,6 +436,21 @@ export function streamEventToDisplay(
     return toolMessageFromExtracted(tool, seq, timestamp);
   }
 
+  const shellDelta = extractShellOutputDelta(event);
+  if (shellDelta) {
+    return {
+      id: `tool-${shellDelta.callId}`,
+      role: "tool",
+      content: "shell",
+      toolName: "shell",
+      toolStatus: "started",
+      toolCallId: shellDelta.callId,
+      toolStdout: shellDelta.stdout ?? "",
+      toolStderr: shellDelta.stderr ?? "",
+      timestamp,
+    };
+  }
+
   if (event.type === "result") {
     const durationSec = event.duration_ms
       ? `${Math.round(event.duration_ms / 1000)}s`
@@ -379,7 +478,10 @@ export function mergeAssistantDeltas(
     }
 
     const last = merged[merged.length - 1];
-    if (last?.role === "assistant" && last.id.startsWith("assistant-")) {
+    if (
+      last?.role === "assistant" &&
+      sameAssistantStreamKind(last.id, msg.id)
+    ) {
       last.content = mergeAssistantContent(last.content, msg.content);
     } else {
       merged.push({ ...msg });
@@ -389,10 +491,31 @@ export function mergeAssistantDeltas(
   return merged;
 }
 
+function agentMessagesEqual(
+  a: AgentDisplayMessage,
+  b: AgentDisplayMessage,
+): boolean {
+  return (
+    a.id === b.id &&
+    a.role === b.role &&
+    a.content === b.content &&
+    a.toolStatus === b.toolStatus &&
+    a.toolCallId === b.toolCallId &&
+    a.toolResultText === b.toolResultText &&
+    a.toolStdout === b.toolStdout &&
+    a.toolStderr === b.toolStderr &&
+    a.toolError === b.toolError &&
+    a.toolDurationMs === b.toolDurationMs
+  );
+}
+
 export function mergeIncomingMessages(
   prev: AgentDisplayMessage[],
   incoming: AgentDisplayMessage[],
 ): AgentDisplayMessage[] {
+  if (incoming.length === 0) return prev;
+
+  let changed = false;
   const merged = [...prev];
   for (const msg of incoming) {
     if (msg.role === "user") {
@@ -402,11 +525,17 @@ export function mergeIncomingMessages(
 
     if (msg.role === "assistant") {
       const last = merged[merged.length - 1];
-      if (last?.role === "assistant") {
+      if (
+        last?.role === "assistant" &&
+        sameAssistantStreamKind(last.id, msg.id)
+      ) {
+        const content = mergeAssistantContent(last.content, msg.content);
+        if (content === last.content) continue;
         merged[merged.length - 1] = {
           ...last,
-          content: mergeAssistantContent(last.content, msg.content),
+          content,
         };
+        changed = true;
         continue;
       }
     }
@@ -416,14 +545,18 @@ export function mergeIncomingMessages(
         (m) => m.role === "tool" && m.toolCallId === msg.toolCallId,
       );
       if (existingIdx >= 0) {
-        merged[existingIdx] = mergeToolIntoExisting(merged[existingIdx]!, msg);
+        const mergedTool = mergeToolIntoExisting(merged[existingIdx]!, msg);
+        if (agentMessagesEqual(mergedTool, merged[existingIdx]!)) continue;
+        merged[existingIdx] = mergedTool;
+        changed = true;
         continue;
       }
     }
 
     merged.push(msg);
+    changed = true;
   }
-  return merged;
+  return changed ? merged : prev;
 }
 
 export function eventsToDisplayMessages(
@@ -436,6 +569,25 @@ export function eventsToDisplayMessages(
     try {
       parsed = JSON.parse(event.payload) as StreamEvent;
     } catch {
+      continue;
+    }
+
+    if (parsed.type === "shell-output-delta") {
+      const display = streamEventToDisplay(parsed, event.seq);
+      if (display) raw.push(display);
+      continue;
+    }
+
+    if (parsed.type === "thinking" && parsed.subtype === "delta") {
+      const text = typeof parsed.text === "string" ? parsed.text : null;
+      if (text) {
+        raw.push({
+          id: `thinking-${event.seq}`,
+          role: "assistant",
+          content: text,
+          timestamp: parsed.timestamp_ms ?? Date.now(),
+        });
+      }
       continue;
     }
 
@@ -463,6 +615,10 @@ function clusterHasActiveTool(tools: AgentDisplayMessage[]): boolean {
   return tools.some((t) => t.toolStatus === "started");
 }
 
+function isShellTool(msg: AgentDisplayMessage): boolean {
+  return msg.role === "tool" && msg.toolName?.toLowerCase() === "shell";
+}
+
 /** Group consecutive tool messages into collapsible clusters for the UI. */
 export function groupMessagesForDisplay(
   messages: AgentDisplayMessage[],
@@ -487,6 +643,11 @@ export function groupMessagesForDisplay(
 
   for (const msg of messages) {
     if (msg.role === "tool") {
+      if (isShellTool(msg)) {
+        flushTools();
+        items.push({ kind: "message", message: msg });
+        continue;
+      }
       toolBuffer.push(msg);
       continue;
     }

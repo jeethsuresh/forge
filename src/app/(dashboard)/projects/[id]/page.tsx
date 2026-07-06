@@ -16,6 +16,8 @@ import { AgentWorkspace } from "@/components/AgentWorkspace";
 
 type ProjectTab = "deploy" | "agents";
 
+const DEPLOYMENTS_PER_PAGE = 10;
+
 interface ContainerInfo {
   name: string;
   service: string;
@@ -66,6 +68,7 @@ export default function ProjectDetailPage() {
     null,
   );
   const [activeTab, setActiveTab] = useState<ProjectTab>("deploy");
+  const [deploymentPage, setDeploymentPage] = useState(0);
 
   const fetchData = useCallback(async () => {
     try {
@@ -158,7 +161,7 @@ export default function ProjectDetailPage() {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center p-8 text-zinc-500">
+      <div className="flex min-h-0 flex-1 items-center justify-center p-8 text-zinc-500">
         Loading…
       </div>
     );
@@ -166,7 +169,7 @@ export default function ProjectDetailPage() {
 
   if (!data) {
     return (
-      <div className="p-8 text-zinc-500">Project not found</div>
+      <div className="min-h-0 flex-1 p-8 text-zinc-500">Project not found</div>
     );
   }
 
@@ -175,9 +178,25 @@ export default function ProjectDetailPage() {
 
   const deployedAt = currentDeployment?.completedAt ?? currentDeployment?.startedAt;
 
+  const deploymentPageCount = Math.max(
+    1,
+    Math.ceil(deployments.length / DEPLOYMENTS_PER_PAGE),
+  );
+  const safeDeploymentPage = Math.min(deploymentPage, deploymentPageCount - 1);
+  const paginatedDeployments = deployments.slice(
+    safeDeploymentPage * DEPLOYMENTS_PER_PAGE,
+    safeDeploymentPage * DEPLOYMENTS_PER_PAGE + DEPLOYMENTS_PER_PAGE,
+  );
+  const deploymentRangeStart =
+    deployments.length === 0 ? 0 : safeDeploymentPage * DEPLOYMENTS_PER_PAGE + 1;
+  const deploymentRangeEnd = Math.min(
+    (safeDeploymentPage + 1) * DEPLOYMENTS_PER_PAGE,
+    deployments.length,
+  );
+
   return (
-    <div className="flex min-h-full flex-col px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-6 lg:p-8">
-      <div className="mb-6 flex flex-col gap-4 sm:mb-8">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-6 lg:p-8">
+      <div className="mb-4 flex shrink-0 flex-col gap-4 sm:mb-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <h1 className="text-xl font-semibold text-zinc-100 sm:text-2xl">
@@ -212,7 +231,7 @@ export default function ProjectDetailPage() {
       </div>
 
       {activeTab === "deploy" ? (
-        <>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="mb-6 flex flex-wrap gap-2">
             <button
               onClick={deployNow}
@@ -333,8 +352,9 @@ export default function ProjectDetailPage() {
                   No deployments yet
                 </p>
               ) : (
-                <ul className="divide-y divide-zinc-800">
-                  {deployments.map((d) => {
+                <>
+                  <ul className="divide-y divide-zinc-800">
+                    {paginatedDeployments.map((d) => {
                     const expanded = expandedDeploymentId === d.id;
                     return (
                       <li key={d.id}>
@@ -384,14 +404,50 @@ export default function ProjectDetailPage() {
                         )}
                       </li>
                     );
-                  })}
-                </ul>
+                    })}
+                  </ul>
+                  {deploymentPageCount > 1 && (
+                    <div className="flex items-center justify-between border-t border-zinc-800 px-4 py-3">
+                      <p className="text-xs text-zinc-500">
+                        Showing {deploymentRangeStart}–{deploymentRangeEnd} of{" "}
+                        {deployments.length}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDeploymentPage((page) => Math.max(0, page - 1))
+                          }
+                          disabled={safeDeploymentPage === 0}
+                          className="min-h-9 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+                        >
+                          Previous
+                        </button>
+                        <span className="text-xs text-zinc-500">
+                          Page {safeDeploymentPage + 1} of {deploymentPageCount}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDeploymentPage((page) =>
+                              Math.min(deploymentPageCount - 1, page + 1),
+                            )
+                          }
+                          disabled={safeDeploymentPage >= deploymentPageCount - 1}
+                          className="min-h-9 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </section>
-        </>
+        </div>
       ) : (
-        <AgentWorkspace projectId={id} />
+        <AgentWorkspace projectId={id} className="min-h-0 flex-1" />
       )}
     </div>
   );

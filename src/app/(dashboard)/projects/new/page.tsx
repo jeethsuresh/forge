@@ -39,7 +39,7 @@ export default function NewProjectPage() {
   }
 
   return (
-    <div className="p-8">
+    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-8">
       <div className="mx-auto max-w-lg">
         <h1 className="mb-1 text-2xl font-semibold text-zinc-100">
           Add project

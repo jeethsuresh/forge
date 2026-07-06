@@ -12,16 +12,27 @@ import {
 } from "@/lib/db/schema";
 import { parseStreamEventLine } from "@/lib/agent-stream";
 import {
+  canRetryFailedAgentTurn,
   failedTurnEventSeq,
   findFailedTurnPrompt,
+  isAgentTurnComplete,
   isStuckActiveSession,
 } from "@/lib/agent-turn";
 import { activeAgentProjects, getActiveSessionForProject, isAgentSessionActive } from "@/lib/agent-state";
-import { listLocalBranches, prepareAgentWorkspace, commitAllChanges, buildAgentCommitMessage } from "@/lib/github";
+import {
+  listLocalBranches,
+  prepareAgentWorkspace,
+  commitAllChanges,
+  buildAgentCommitMessage,
+  hasUnpushedCommits,
+  pushBranch,
+} from "@/lib/github";
 import { runDeployment } from "@/lib/deployer";
 import { resolveClonePath } from "@/lib/paths";
 
 const activeAgentProcesses = new Map<string, ChildProcess>();
+const stoppingSessions = new Set<string>();
+const cancelledSessions = new Set<string>();
 
 const TERMINAL_STATUSES: AgentSessionStatus[] = [
   "completed",
@@ -31,6 +42,14 @@ const TERMINAL_STATUSES: AgentSessionStatus[] = [
 
 function agentBin(): string {
   return process.env.FORGE_AGENT_BIN ?? "agent";
+}
+
+function spawnAgentProcess(
+  args: string[],
+  options: Parameters<typeof spawn>[2],
+): ReturnType<typeof spawn> {
+  // Line-buffer stdout so stream-json partial events reach the DB/SSE promptly.
+  return spawn("stdbuf", ["-oL", "-eL", agentBin(), ...args], options);
 }
 
 function appendSessionLog(sessionId: string, message: string): void {
@@ -156,15 +175,34 @@ export function isAgentProcessRunning(sessionId: string): boolean {
   return activeAgentProcesses.has(sessionId);
 }
 
+export type AgentSessionForClient = NonNullable<ReturnType<typeof getAgentSession>> & {
+  hasActiveProcess: boolean;
+  canRetry: boolean;
+};
+
+function withClientFields(session: NonNullable<ReturnType<typeof getAgentSession>>): AgentSessionForClient {
+  const events = getAllAgentEventsAfter(session.id, 0);
+  return {
+    ...session,
+    hasActiveProcess: isAgentProcessRunning(session.id),
+    canRetry: canRetryFailedAgentTurn(session, events),
+  };
+}
+
 export function reconcileStuckAgentSession(sessionId: string) {
   const session = getAgentSession(sessionId);
   if (!session) return undefined;
+
+  const events = getAllAgentEventsAfter(sessionId, 0);
+  const turnIncomplete =
+    session.status === "running" && !isAgentTurnComplete(events);
 
   const stuck = isStuckActiveSession({
     status: session.status,
     failedTurnStartSeq: session.failedTurnStartSeq,
     hasActiveProcess: activeAgentProcesses.has(sessionId),
     projectMarkedActive: activeAgentProjects.has(session.projectId),
+    turnIncomplete,
   });
 
   if (!stuck) return session;
@@ -175,16 +213,34 @@ export function reconcileStuckAgentSession(sessionId: string) {
       : "Agent process ended unexpectedly";
 
   appendSessionLog(sessionId, `ERROR: ${message}`);
-  updateSessionStatus(sessionId, "failed", {
-    errorMessage: message,
-    completedAt: new Date(),
-  });
+
+  let failedTurnStartSeq = session.failedTurnStartSeq;
+  if (failedTurnStartSeq == null) {
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i]!.eventType === "user") {
+        failedTurnStartSeq = events[i]!.seq;
+        break;
+      }
+    }
+  }
+
+  db.update(agentSessions)
+    .set({
+      status: "failed",
+      errorMessage: message,
+      completedAt: new Date(),
+      failedTurnStartSeq,
+    })
+    .where(eq(agentSessions.id, sessionId))
+    .run();
   activeAgentProjects.delete(session.projectId);
   return getAgentSession(sessionId);
 }
 
-export function getAgentSessionForClient(sessionId: string) {
-  return reconcileStuckAgentSession(sessionId);
+export function getAgentSessionForClient(sessionId: string): AgentSessionForClient | undefined {
+  const session = reconcileStuckAgentSession(sessionId);
+  if (!session) return undefined;
+  return withClientFields(session);
 }
 
 export function getSessionForBranch(projectId: string, branch: string) {
@@ -288,7 +344,7 @@ async function runAgentTurn(
   if (apiKey) env.CURSOR_API_KEY = apiKey;
 
   return new Promise((resolve, reject) => {
-    const proc = spawn(agentBin(), args, {
+    const proc = spawnAgentProcess(args, {
       cwd: resolveClonePath(project.clonePath),
       env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -334,6 +390,23 @@ async function runAgentTurn(
     proc.on("close", (code) => {
       activeAgentProcesses.delete(sessionId);
       if (stdoutBuffer.trim()) handleLine(stdoutBuffer);
+
+      if (cancelledSessions.has(sessionId)) {
+        cancelledSessions.delete(sessionId);
+        resolve();
+        return;
+      }
+
+      if (stoppingSessions.has(sessionId)) {
+        stoppingSessions.delete(sessionId);
+        markTurnFailed(sessionId, turnStartSeq);
+        updateSessionStatus(sessionId, "failed", {
+          errorMessage: "Stopped by user.",
+        });
+        activeAgentProjects.delete(project.id);
+        resolve();
+        return;
+      }
 
       if (code !== 0 && code !== null) {
         markTurnFailed(sessionId, turnStartSeq);
@@ -473,10 +546,21 @@ async function executeAgentTurn(
     );
 
     await runAgentTurn(sessionId, project, prompt);
-    updateSessionStatus(sessionId, "running");
+    const afterTurn = getAgentSession(sessionId);
+    if (afterTurn && !TERMINAL_STATUSES.includes(afterTurn.status)) {
+      updateSessionStatus(sessionId, "running");
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log(`ERROR: ${message}`);
+    const current = getAgentSession(sessionId);
+    if (current && current.failedTurnStartSeq == null) {
+      const events = getAllAgentEventsAfter(sessionId, 0);
+      const boundary = failedTurnEventSeq(events, null);
+      if (boundary != null) {
+        markTurnFailed(sessionId, boundary);
+      }
+    }
     updateSessionStatus(sessionId, "failed", {
       errorMessage: message,
       completedAt: new Date(),
@@ -570,7 +654,7 @@ function assertSessionReadyForCommit(sessionId: string) {
 export async function commitAgentSessionChanges(
   sessionId: string,
   options?: { message?: string },
-): Promise<{ commitSha: string | null; committed: boolean }> {
+): Promise<{ commitSha: string | null; committed: boolean; pushed: boolean }> {
   const session = assertSessionReadyForCommit(sessionId);
 
   const project = db
@@ -600,6 +684,14 @@ export async function commitAgentSessionChanges(
     log,
   );
 
+  const shouldPush =
+    commitSha !== null ||
+    (await hasUnpushedCommits(project.clonePath, session.branch));
+
+  if (shouldPush) {
+    await pushBranch(project.clonePath, session.branch, log);
+  }
+
   if (commitSha) {
     db.update(agentSessions)
       .set({ commitSha })
@@ -607,7 +699,11 @@ export async function commitAgentSessionChanges(
       .run();
   }
 
-  return { commitSha, committed: commitSha !== null };
+  return {
+    commitSha,
+    committed: commitSha !== null,
+    pushed: shouldPush,
+  };
 }
 
 export async function finishAgentSession(sessionId: string): Promise<void> {
@@ -701,6 +797,26 @@ export async function retryAgentTurn(sessionId: string): Promise<string> {
   return prompt;
 }
 
+export async function stopAgentTurn(sessionId: string): Promise<void> {
+  const session = getAgentSession(sessionId);
+  if (!session) throw new Error("Session not found");
+  if (TERMINAL_STATUSES.includes(session.status)) return;
+  if (session.status === "deploying") {
+    throw new Error("Cannot stop during deploy");
+  }
+  if (!activeAgentProcesses.has(sessionId)) {
+    throw new Error("Agent is not running");
+  }
+
+  stoppingSessions.add(sessionId);
+  const proc = activeAgentProcesses.get(sessionId);
+  if (proc) {
+    proc.kill("SIGTERM");
+  }
+
+  appendSessionLog(sessionId, "Agent stopped by user.");
+}
+
 export async function cancelAgentSession(sessionId: string): Promise<void> {
   const session = db
     .select()
@@ -711,10 +827,10 @@ export async function cancelAgentSession(sessionId: string): Promise<void> {
   if (!session) throw new Error("Session not found");
   if (TERMINAL_STATUSES.includes(session.status)) return;
 
+  cancelledSessions.add(sessionId);
   const proc = activeAgentProcesses.get(sessionId);
   if (proc) {
     proc.kill("SIGTERM");
-    activeAgentProcesses.delete(sessionId);
   }
 
   appendSessionLog(sessionId, "Session cancelled by user.");
@@ -732,9 +848,10 @@ export function listAgentSessions(projectId: string) {
 }
 
 export function listAgentSessionsForClient(projectId: string) {
-  return listAgentSessions(projectId).map(
-    (session) => reconcileStuckAgentSession(session.id) ?? session,
-  );
+  return listAgentSessions(projectId).map((session) => {
+    const reconciled = reconcileStuckAgentSession(session.id) ?? session;
+    return withClientFields(reconciled);
+  });
 }
 
 export function getAgentSession(sessionId: string) {

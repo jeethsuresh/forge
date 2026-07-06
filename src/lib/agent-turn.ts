@@ -10,36 +10,22 @@ export function isTerminalSessionStatus(status: string): status is TerminalSessi
   return (TERMINAL_SESSION_STATUSES as readonly string[]).includes(status);
 }
 
-/** Clear optimistic busy when the server reports a terminal session. */
-export function reconcileAgentBusy(
-  agentBusy: boolean,
-  sessionStatus: string,
-): boolean {
-  if (isTerminalSessionStatus(sessionStatus)) return false;
-  return agentBusy;
+export function isAgentTurnComplete(events: AgentEventRow[]): boolean {
+  let lastUserSeq = 0;
+  for (const event of events) {
+    if (event.eventType === "user") lastUserSeq = event.seq;
+  }
+  if (lastUserSeq === 0) return true;
+  return events.some(
+    (event) => event.seq > lastUserSeq && event.eventType === "result",
+  );
 }
 
-export type AgentSessionBannerKind = "working" | "failed" | null;
-
-export interface AgentSessionBannerInput {
-  status: string;
-  agentBusy: boolean;
-  isDeploying: boolean;
-  errorMessage: string | null;
-  failedTurnStartSeq: number | null;
-}
-
-export interface AgentSessionBanner {
-  kind: NonNullable<AgentSessionBannerKind>;
-  text: string;
-  canRetry?: boolean;
-}
-
-/** UI banner from session status; terminal states win over stale agentBusy. */
+/** UI banner from session status. Agent "working" only when a process is live. */
 export function resolveAgentSessionBanner(
   input: AgentSessionBannerInput,
 ): AgentSessionBanner | null {
-  const { status, agentBusy, isDeploying, errorMessage, failedTurnStartSeq } =
+  const { status, hasActiveProcess, isDeploying, errorMessage, canRetry } =
     input;
 
   if (isDeploying) {
@@ -50,7 +36,7 @@ export function resolveAgentSessionBanner(
     return {
       kind: "failed",
       text: errorMessage ?? "Agent session failed",
-      canRetry: failedTurnStartSeq != null,
+      canRetry,
     };
   }
 
@@ -58,14 +44,27 @@ export function resolveAgentSessionBanner(
     return null;
   }
 
-  if (agentBusy || status === "running" || status === "pending") {
-    if (status === "pending") {
-      return { kind: "working", text: "Starting agent session…" };
-    }
+  if (hasActiveProcess) {
     return { kind: "working", text: "Agent is working…" };
   }
 
   return null;
+}
+
+export type AgentSessionBannerKind = "working" | "failed" | null;
+
+export interface AgentSessionBannerInput {
+  status: string;
+  hasActiveProcess: boolean;
+  isDeploying: boolean;
+  errorMessage: string | null;
+  canRetry: boolean;
+}
+
+export interface AgentSessionBanner {
+  kind: NonNullable<AgentSessionBannerKind>;
+  text: string;
+  canRetry?: boolean;
 }
 
 export interface StuckSessionInput {
@@ -73,16 +72,21 @@ export interface StuckSessionInput {
   failedTurnStartSeq: number | null;
   hasActiveProcess: boolean;
   projectMarkedActive: boolean;
+  turnIncomplete?: boolean;
 }
 
 /** Detect sessions stuck active in DB after the agent process has ended. */
 export function isStuckActiveSession(input: StuckSessionInput): boolean {
-  const { status, failedTurnStartSeq, hasActiveProcess, projectMarkedActive } =
-    input;
+  const {
+    status,
+    hasActiveProcess,
+    projectMarkedActive,
+    turnIncomplete = false,
+  } = input;
 
   if (hasActiveProcess) return false;
 
-  if (status === "running" && failedTurnStartSeq != null) {
+  if (status === "running" && turnIncomplete) {
     return true;
   }
 
@@ -165,4 +169,19 @@ export function filterEventsBeforeSeq(
 
 export function isSessionTurnFailed(status: string): boolean {
   return status === "failed";
+}
+
+/** Whether a failed session can retry the last agent prompt (not a deploy failure). */
+export function canRetryFailedAgentTurn(
+  session: {
+    status: string;
+    failedTurnStartSeq: number | null;
+    deploymentId: string | null;
+  },
+  events: AgentEventRow[],
+): boolean {
+  if (session.status !== "failed") return false;
+  if (!findFailedTurnPrompt(events, session.failedTurnStartSeq)) return false;
+  if (session.deploymentId && isAgentTurnComplete(events)) return false;
+  return true;
 }

@@ -89,8 +89,27 @@ describe("streamEventToDisplay", () => {
     const msg = streamEventToDisplay(SHELL_COMPLETED, 3);
     expect(msg?.toolStatus).toBe("completed");
     expect(msg?.toolResultText).toContain("file.txt");
+    expect(msg?.toolStdout).toBe("file.txt");
     expect(msg?.toolDurationMs).toBe(120);
     expect(msg?.content).toContain("ls -la");
+  });
+
+  it("maps shell-output-delta events to tool stdout/stderr", () => {
+    const msg = streamEventToDisplay(
+      {
+        type: "shell-output-delta",
+        call_id: "tool_test-1",
+        stream: "stdout",
+        text: "line 1\n",
+        timestamp_ms: 1050,
+      },
+      4,
+    );
+    expect(msg?.role).toBe("tool");
+    expect(msg?.toolName).toBe("shell");
+    expect(msg?.toolCallId).toBe("tool_test-1");
+    expect(msg?.toolStdout).toBe("line 1\n");
+    expect(msg?.toolStatus).toBe("started");
   });
 });
 
@@ -102,6 +121,7 @@ describe("mergeToolCallMessages", () => {
     expect(merged).toHaveLength(1);
     expect(merged[0]?.toolStatus).toBe("completed");
     expect(merged[0]?.toolResultText).toContain("file.txt");
+    expect(merged[0]?.toolStdout).toBe("file.txt");
     expect(merged[0]?.toolDurationMs).toBe(120);
   });
 
@@ -140,7 +160,25 @@ describe("mergeToolIntoExisting", () => {
     const merged = mergeToolIntoExisting(started, completed);
     expect(merged.toolStatus).toBe("completed");
     expect(merged.toolResultText).toContain("file.txt");
+    expect(merged.toolStdout).toBe("file.txt");
     expect(merged.id).toBe(started.id);
+  });
+
+  it("appends shell stdout deltas", () => {
+    const started = streamEventToDisplay(SHELL_STARTED, 1)!;
+    const delta = streamEventToDisplay(
+      {
+        type: "shell-output-delta",
+        call_id: "tool_test-1",
+        stream: "stdout",
+        text: "partial\n",
+        timestamp_ms: 1010,
+      },
+      2,
+    )!;
+    const merged = mergeToolIntoExisting(started, delta);
+    expect(merged.toolStdout).toBe("partial\n");
+    expect(merged.toolStatus).toBe("started");
   });
 });
 
@@ -201,6 +239,19 @@ describe("mergeIncomingMessages", () => {
     expect(merged).toHaveLength(1);
     expect(merged[0]?.content).toBe("hello world");
   });
+
+  it("returns the previous array when there are no incoming updates", () => {
+    const prev = [{ id: "assistant-1", role: "assistant" as const, content: "hello", timestamp: 1 }];
+    expect(mergeIncomingMessages(prev, [])).toBe(prev);
+  });
+
+  it("returns the previous array when incoming data is a no-op", () => {
+    const prev = [{ id: "assistant-1", role: "assistant" as const, content: "hello", timestamp: 1 }];
+    const merged = mergeIncomingMessages(prev, [
+      { id: "assistant-2", role: "assistant", content: "hello", timestamp: 2 },
+    ]);
+    expect(merged).toBe(prev);
+  });
 });
 
 describe("groupMessagesForDisplay", () => {
@@ -233,18 +284,36 @@ describe("groupMessagesForDisplay", () => {
     expect(items[0]).toMatchObject({ kind: "message", message: { id: "tool-1" } });
   });
 
-  it("clusters consecutive tool messages", () => {
+  it("clusters consecutive non-shell tool messages", () => {
     const items = groupMessagesForDisplay([
       tool("tool-1", "read: a.ts", "read", "completed"),
       tool("tool-2", "write: b.ts", "write", "completed"),
-      tool("tool-3", "shell", "shell", "started"),
     ]);
     expect(items).toHaveLength(1);
     expect(items[0]?.kind).toBe("tool-cluster");
     if (items[0]?.kind === "tool-cluster") {
-      expect(items[0].tools).toHaveLength(3);
-      expect(items[0].hasActive).toBe(true);
+      expect(items[0].tools).toHaveLength(2);
+      expect(items[0].hasActive).toBe(false);
     }
+  });
+
+  it("renders shell tools outside clusters", () => {
+    const items = groupMessagesForDisplay([
+      tool("tool-1", "read: a.ts", "read", "completed"),
+      tool("tool-2", "read: c.ts", "read", "completed"),
+      tool("tool-3", "shell: ls", "shell", "started"),
+      tool("tool-4", "write: b.ts", "write", "completed"),
+    ]);
+    expect(items).toHaveLength(3);
+    expect(items[0]?.kind).toBe("tool-cluster");
+    if (items[0]?.kind === "tool-cluster") {
+      expect(items[0].tools).toHaveLength(2);
+    }
+    expect(items[1]?.kind).toBe("message");
+    if (items[1]?.kind === "message") {
+      expect(items[1].message.toolName).toBe("shell");
+    }
+    expect(items[2]?.kind).toBe("message");
   });
 
   it("splits clusters around other message types", () => {
@@ -345,6 +414,33 @@ describe("eventsToDisplayMessages", () => {
     ]);
     expect(messages).toHaveLength(1);
     expect(messages[0]?.content).toBe("hello world");
+  });
+
+  it("keeps assistant text separate from thinking deltas", () => {
+    const messages = eventsToDisplayMessages([
+      {
+        seq: 1,
+        eventType: "thinking",
+        payload: JSON.stringify({
+          type: "thinking",
+          subtype: "delta",
+          text: "Planning",
+          timestamp_ms: 1,
+        }),
+      },
+      {
+        seq: 2,
+        eventType: "assistant",
+        payload: JSON.stringify({
+          type: "assistant",
+          text: "Hi",
+          timestamp_ms: 2,
+        }),
+      },
+    ]);
+    expect(messages).toHaveLength(2);
+    expect(messages[0]?.id).toMatch(/^thinking-/);
+    expect(messages[1]?.id).toMatch(/^assistant-/);
   });
 
   it("parses partial assistant chunks that only use text", () => {

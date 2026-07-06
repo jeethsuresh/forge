@@ -78,7 +78,7 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
 
   return (
     <aside
-      className={`flex w-64 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950 ${className}`}
+      className={`flex h-full min-h-0 w-64 shrink-0 flex-col overflow-hidden border-r border-zinc-800 bg-zinc-950 ${className}`}
     >
       <div className="border-b border-zinc-800 px-5 py-4">
         <Link

@@ -34,6 +34,7 @@ describe("formatDuration", () => {
 describe("statusColor", () => {
   it("maps known deployment statuses", () => {
     expect(statusColor("success")).toContain("emerald");
+    expect(statusColor("duplicate")).toContain("zinc");
     expect(statusColor("failed")).toContain("red");
     expect(statusColor("building")).toContain("amber");
   });

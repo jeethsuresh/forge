@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  canRetryFailedAgentTurn,
   failedTurnEventSeq,
   filterEventsBeforeSeq,
   findFailedTurnPrompt,
+  isAgentTurnComplete,
   isSessionTurnFailed,
   isStuckActiveSession,
   isTerminalSessionStatus,
   parseStoredUserEventPrompt,
-  reconcileAgentBusy,
   resolveAgentSessionBanner,
 } from "@/lib/agent-turn";
 
@@ -95,24 +96,15 @@ describe("isTerminalSessionStatus", () => {
   });
 });
 
-describe("reconcileAgentBusy", () => {
-  it("clears busy when the session is terminal", () => {
-    expect(reconcileAgentBusy(true, "failed")).toBe(false);
-    expect(reconcileAgentBusy(true, "completed")).toBe(false);
-    expect(reconcileAgentBusy(true, "running")).toBe(true);
-    expect(reconcileAgentBusy(false, "running")).toBe(false);
-  });
-});
-
 describe("resolveAgentSessionBanner", () => {
-  it("shows failure even when agentBusy is stale", () => {
+  it("shows failure for failed sessions", () => {
     expect(
       resolveAgentSessionBanner({
         status: "failed",
-        agentBusy: true,
+        hasActiveProcess: true,
         isDeploying: false,
         errorMessage: "Agent exited with code 1",
-        failedTurnStartSeq: 3,
+        canRetry: true,
       }),
     ).toEqual({
       kind: "failed",
@@ -121,38 +113,48 @@ describe("resolveAgentSessionBanner", () => {
     });
   });
 
-  it("shows working while a turn is in progress", () => {
+  it("shows working only when a cursor process is running", () => {
     expect(
       resolveAgentSessionBanner({
         status: "running",
-        agentBusy: true,
+        hasActiveProcess: true,
         isDeploying: false,
         errorMessage: null,
-        failedTurnStartSeq: null,
+        canRetry: false,
       }),
     ).toEqual({ kind: "working", text: "Agent is working…" });
   });
 
-  it("shows working for idle running sessions without agentBusy", () => {
+  it("hides the working banner without an active process", () => {
     expect(
       resolveAgentSessionBanner({
         status: "running",
-        agentBusy: false,
+        hasActiveProcess: false,
         isDeploying: false,
         errorMessage: null,
-        failedTurnStartSeq: null,
+        canRetry: false,
       }),
-    ).toEqual({ kind: "working", text: "Agent is working…" });
+    ).toBeNull();
+
+    expect(
+      resolveAgentSessionBanner({
+        status: "pending",
+        hasActiveProcess: false,
+        isDeploying: false,
+        errorMessage: null,
+        canRetry: false,
+      }),
+    ).toBeNull();
   });
 
   it("prioritizes deploying over other states", () => {
     expect(
       resolveAgentSessionBanner({
         status: "deploying",
-        agentBusy: false,
+        hasActiveProcess: false,
         isDeploying: true,
         errorMessage: null,
-        failedTurnStartSeq: null,
+        canRetry: false,
       }),
     ).toEqual({
       kind: "working",
@@ -161,14 +163,70 @@ describe("resolveAgentSessionBanner", () => {
   });
 });
 
+describe("canRetryFailedAgentTurn", () => {
+  it("allows retry when an agent turn failed mid-flight", () => {
+    expect(
+      canRetryFailedAgentTurn(
+        { status: "failed", failedTurnStartSeq: 3, deploymentId: null },
+        EVENTS,
+      ),
+    ).toBe(true);
+  });
+
+  it("allows retry when failedTurnStartSeq is inferred from events", () => {
+    expect(
+      canRetryFailedAgentTurn(
+        { status: "failed", failedTurnStartSeq: null, deploymentId: null },
+        EVENTS,
+      ),
+    ).toBe(true);
+  });
+
+  it("disallows retry for deploy failures after a completed turn", () => {
+    expect(
+      canRetryFailedAgentTurn(
+        { status: "failed", failedTurnStartSeq: null, deploymentId: "dep-1" },
+        [
+          ...EVENTS,
+          {
+            seq: 5,
+            eventType: "result",
+            payload: JSON.stringify({ type: "result", duration_ms: 1000 }),
+          },
+        ],
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("isAgentTurnComplete", () => {
+  it("is true when a result event follows the last user event", () => {
+    expect(
+      isAgentTurnComplete([
+        ...EVENTS,
+        {
+          seq: 5,
+          eventType: "result",
+          payload: JSON.stringify({ type: "result", duration_ms: 1000 }),
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("is false while a turn is still in progress", () => {
+    expect(isAgentTurnComplete(EVENTS)).toBe(false);
+  });
+});
+
 describe("isStuckActiveSession", () => {
-  it("detects a failed turn left in running state", () => {
+  it("detects a turn left incomplete in running state", () => {
     expect(
       isStuckActiveSession({
         status: "running",
         failedTurnStartSeq: 3,
         hasActiveProcess: false,
         projectMarkedActive: true,
+        turnIncomplete: true,
       }),
     ).toBe(true);
   });
@@ -180,6 +238,7 @@ describe("isStuckActiveSession", () => {
         failedTurnStartSeq: null,
         hasActiveProcess: false,
         projectMarkedActive: true,
+        turnIncomplete: false,
       }),
     ).toBe(false);
   });

@@ -9,7 +9,9 @@ import {
 } from "@/lib/agent-runner";
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
-const STREAM_POLL_MS = 200;
+const STREAM_POLL_MS = 100;
+
+export const dynamic = "force-dynamic";
 
 export async function GET(
   request: Request,
@@ -44,6 +46,8 @@ export async function GET(
         );
       };
 
+      controller.enqueue(encoder.encode(": connected\n\n"));
+
       while (true) {
         const current = getAgentSessionForClient(sessionId);
         if (!current) break;
@@ -71,9 +75,10 @@ export async function GET(
 
   return new Response(stream, {
     headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
     },
   });
 }

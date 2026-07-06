@@ -21,6 +21,16 @@ async function execGit(
   return execFileAsync("git", args, { ...options, env: gitEnv() });
 }
 
+export function formatGitError(err: unknown): string {
+  if (err && typeof err === "object") {
+    const execErr = err as { stderr?: string; message?: string };
+    const stderr = execErr.stderr?.trim();
+    if (stderr) return stderr;
+    if (execErr.message) return execErr.message;
+  }
+  return String(err);
+}
+
 export function parseGithubRepo(input: string): string {
   const trimmed = input.trim().replace(/\.git$/, "");
 
@@ -229,6 +239,27 @@ export async function hasUncommittedChanges(clonePath: string): Promise<boolean>
   return stdout.trim().length > 0;
 }
 
+export async function hasUnpushedCommits(
+  clonePath: string,
+  branch: string,
+): Promise<boolean> {
+  const resolvedPath = resolveClonePath(clonePath);
+  if (!existsSync(resolvedPath)) return false;
+
+  try {
+    await execGit(["rev-parse", "--verify", `origin/${branch}`], {
+      cwd: resolvedPath,
+    });
+    const { stdout } = await execGit(
+      ["rev-list", "--count", `origin/${branch}..HEAD`],
+      { cwd: resolvedPath },
+    );
+    return parseInt(stdout.trim(), 10) > 0;
+  } catch {
+    return (await getLocalCommitSha(resolvedPath)) !== null;
+  }
+}
+
 export function buildAgentCommitMessage(initialPrompt: string): string {
   const prompt = initialPrompt.trim();
   const summary = prompt.length > 72 ? `${prompt.slice(0, 72)}…` : prompt;
@@ -313,6 +344,27 @@ export async function commitAllChanges(
   if (!sha) throw new Error("Failed to resolve commit after commit");
   log(`Committed ${sha.slice(0, 7)}.`);
   return sha;
+}
+
+export async function pushBranch(
+  clonePath: string,
+  branch: string,
+  onLog?: (line: string) => void,
+): Promise<void> {
+  const resolvedPath = resolveClonePath(clonePath);
+  const log = onLog ?? (() => {});
+
+  await ensureGitCredentialStore();
+
+  log(`Pushing ${branch} to origin…`);
+  try {
+    await execGit(["push", "-u", "origin", branch], { cwd: resolvedPath });
+  } catch (err) {
+    throw new Error(
+      `Failed to push ${branch} to origin: ${formatGitError(err)}`,
+    );
+  }
+  log(`Pushed ${branch} to origin.`);
 }
 
 export async function prepareAgentWorkspace(

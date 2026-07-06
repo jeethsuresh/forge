@@ -5,5 +5,9 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <DashboardShell>{children}</DashboardShell>;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <DashboardShell>{children}</DashboardShell>
+    </div>
+  );
 }

@@ -9,6 +9,7 @@ import {
   summarizeToolCluster,
   toolStatusLabel,
 } from "@/lib/agent-stream";
+import { ShellToolOutput } from "@/components/ShellToolOutput";
 
 export function AgentMessageList({
   messages,
@@ -102,17 +103,23 @@ function ToolOperation({
   nested?: boolean;
 }) {
   const busy = message.toolStatus === "started";
+  const isShell = message.toolName?.toLowerCase() === "shell";
   const status = toolStatusLabel(message);
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
-  const expanded = manualExpanded ?? busy;
+  const expanded = manualExpanded ?? (busy || isShell);
   const icon = toolIcon(message.toolName);
   const label = formatToolLabel(message);
   const duration = formatToolDuration(message.toolDurationMs);
+  const hasShellOutput = isShell && (
+    busy ||
+    Boolean(message.toolStdout || message.toolStderr)
+  );
   const hasDetails = Boolean(
     message.toolArgs ||
       message.toolResultText ||
       message.toolError ||
-      duration,
+      duration ||
+      hasShellOutput,
   );
 
   if (nested) {
@@ -202,11 +209,36 @@ function ToolDetails({
   message: AgentDisplayMessage;
   compact?: boolean;
 }) {
+  const isShell = message.toolName?.toLowerCase() === "shell";
   const args = formatToolArgs(message.toolArgs);
   const duration = formatToolDuration(message.toolDurationMs);
   const sectionClass = compact
     ? "mt-1.5 space-y-1.5"
     : "space-y-2 text-[11px] leading-relaxed";
+
+  if (isShell) {
+    return (
+      <div className={sectionClass}>
+        <ShellToolOutput
+          message={message}
+          autoScroll={message.toolStatus === "started"}
+        />
+        {message.toolError && (
+          <div>
+            <p className="mb-0.5 text-[10px] uppercase tracking-wide text-red-400/70">
+              Error
+            </p>
+            <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-red-400/5 p-2 font-mono text-red-300/80">
+              {message.toolError}
+            </pre>
+          </div>
+        )}
+        {duration && (
+          <p className="text-[10px] text-zinc-600">Duration: {duration}</p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className={sectionClass}>
@@ -287,6 +319,7 @@ function MessageBubble({ message }: { message: AgentDisplayMessage }) {
   }
 
   const isUser = message.role === "user";
+  const isThinking = message.id.startsWith("thinking-");
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
@@ -294,9 +327,16 @@ function MessageBubble({ message }: { message: AgentDisplayMessage }) {
         className={`max-w-[92%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed sm:max-w-[85%] ${
           isUser
             ? "bg-orange-500/20 text-orange-100"
-            : "bg-zinc-800 text-zinc-200"
+            : isThinking
+              ? "border border-zinc-700/80 bg-zinc-900/80 text-zinc-400"
+              : "bg-zinc-800 text-zinc-200"
         }`}
       >
+        {isThinking && (
+          <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+            Thinking
+          </p>
+        )}
         <p className="whitespace-pre-wrap break-words">{message.content}</p>
       </div>
     </div>
