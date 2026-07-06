@@ -4,7 +4,7 @@ import { projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
 import { eventsToDisplayMessages } from "@/lib/agent-stream";
 import {
-  getAgentSession,
+  getAgentSessionForClient,
   getAllAgentEventsAfter,
 } from "@/lib/agent-runner";
 
@@ -26,7 +26,7 @@ export async function GET(
     return new Response("Project not found", { status: 404 });
   }
 
-  const agentSession = getAgentSession(sessionId);
+  const agentSession = getAgentSessionForClient(sessionId);
   if (!agentSession || agentSession.projectId !== id) {
     return new Response("Session not found", { status: 404 });
   }
@@ -45,7 +45,7 @@ export async function GET(
       };
 
       while (true) {
-        const current = getAgentSession(sessionId);
+        const current = getAgentSessionForClient(sessionId);
         if (!current) break;
 
         const events = getAllAgentEventsAfter(sessionId, afterSeq);

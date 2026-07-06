@@ -89,3 +89,11 @@ const AGENT_SESSION_COLUMNS = sqlite
 if (!AGENT_SESSION_COLUMNS.some((col) => col.name === "commit_sha")) {
   sqlite.exec("ALTER TABLE agent_sessions ADD COLUMN commit_sha TEXT");
 }
+
+if (!AGENT_SESSION_COLUMNS.some((col) => col.name === "resume_cursor_session_id")) {
+  sqlite.exec("ALTER TABLE agent_sessions ADD COLUMN resume_cursor_session_id TEXT");
+}
+
+if (!AGENT_SESSION_COLUMNS.some((col) => col.name === "failed_turn_start_seq")) {
+  sqlite.exec("ALTER TABLE agent_sessions ADD COLUMN failed_turn_start_seq INTEGER");
+}

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-mkdir -p /data/repos /data/agent-home/.cache /data/agent-home/.config
+mkdir -p /data/repos /data/agent-home/.cache /data/agent-home/.config /data/agent-home/.cursor/chats
 
 if [[ -x /opt/cursor-agent/cursor-agent ]]; then
   ln -sf /opt/cursor-agent/cursor-agent /usr/local/bin/agent
@@ -11,17 +11,8 @@ rm -rf /data/agent-home/.config/cursor
 mkdir -p /data/agent-home/.config/cursor
 if [[ -f /opt/cursor-config/auth.json ]]; then
   cp /opt/cursor-config/auth.json /data/agent-home/.config/cursor/auth.json
-  chown node:node /data/agent-home/.config/cursor/auth.json
   chmod 600 /data/agent-home/.config/cursor/auth.json
 fi
-
-chown -R node:node /data/repos /data/agent-home/.cache /data/agent-home/.config
-chown node:node /data/agent-home
-for db_file in /data/forge.db /data/forge.db-shm /data/forge.db-wal; do
-  if [[ -e "$db_file" ]]; then
-    chown node:node "$db_file"
-  fi
-done
 
 AGENT_HOME="/data/agent-home"
 export HOME="$AGENT_HOME"
@@ -46,9 +37,15 @@ path = os.environ["CRED_FILE"]
 with open(path, "w", encoding="utf-8") as f:
     f.write(f"https://{user}:{password}@github.com\n")
 PY
-  chown node:node "$CRED_FILE"
   chmod 600 "$CRED_FILE"
   gosu node env HOME="$AGENT_HOME" git config --global credential.helper "store --file ${CRED_FILE}"
 fi
+
+chown -R node:node /data/repos /data/agent-home
+for db_file in /data/forge.db /data/forge.db-shm /data/forge.db-wal; do
+  if [[ -e "$db_file" ]]; then
+    chown node:node "$db_file"
+  fi
+done
 
 exec gosu node env HOME="$AGENT_HOME" "$@"

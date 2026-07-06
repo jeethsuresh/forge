@@ -10,6 +10,10 @@ import {
 import { shortSha, statusColor } from "@/lib/utils";
 import type { AgentDisplayMessage } from "@/lib/agent-stream";
 import { mergeIncomingMessages } from "@/lib/agent-stream";
+import {
+  reconcileAgentBusy,
+  resolveAgentSessionBanner,
+} from "@/lib/agent-turn";
 import { AgentMessageList } from "@/components/AgentMessageList";
 
 interface AgentSession {
@@ -19,10 +23,30 @@ interface AgentSession {
   initialPrompt: string;
   logs: string;
   errorMessage: string | null;
+  failedTurnStartSeq: number | null;
   deploymentId: string | null;
   commitSha: string | null;
   startedAt: string;
   completedAt: string | null;
+}
+
+type StatusBanner =
+  | { kind: "working"; text: string }
+  | { kind: "failed"; text: string; canRetry: boolean }
+  | null;
+
+function toStatusBanner(
+  banner: ReturnType<typeof resolveAgentSessionBanner>,
+): StatusBanner {
+  if (!banner) return null;
+  if (banner.kind === "failed") {
+    return {
+      kind: "failed",
+      text: banner.text,
+      canRetry: banner.canRetry ?? false,
+    };
+  }
+  return { kind: "working", text: banner.text };
 }
 
 interface BranchAgentInfo {
@@ -45,7 +69,11 @@ interface SessionDetailResponse {
   messages: AgentDisplayMessage[];
 }
 
-const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
+const TERMINAL_STATUSES = new Set<string>([
+  "completed",
+  "failed",
+  "cancelled",
+]);
 
 function sessionForBranch(
   sessions: AgentSession[],
@@ -65,8 +93,9 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
   const [showLogs, setShowLogs] = useState(false);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [agentBusy, setAgentBusy] = useState(false);
+  const [streamEpoch, setStreamEpoch] = useState(0);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const sseConnectedRef = useRef(false);
   const shouldAutoScrollRef = useRef(true);
@@ -80,7 +109,16 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
     if (!res.ok) return;
     const json = (await res.json()) as AgentSessionsResponse;
     setData(json);
-  }, [projectId]);
+
+    if (!selectedId) return;
+    const refreshed = json.sessions.find((s) => s.id === selectedId);
+    if (!refreshed) return;
+
+    setSessionDetail((prev) =>
+      prev?.id === selectedId ? refreshed : prev,
+    );
+    setAgentBusy((busy) => reconcileAgentBusy(busy, refreshed.status));
+  }, [projectId, selectedId]);
 
   const fetchSessionDetail = useCallback(
     async (sessionId: string) => {
@@ -91,6 +129,7 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
       const json = (await res.json()) as SessionDetailResponse;
       setSessionDetail(json.session);
       setMessages(json.messages);
+      setAgentBusy((busy) => reconcileAgentBusy(busy, json.session.status));
     },
     [projectId],
   );
@@ -100,7 +139,7 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
       void fetchSessions();
     });
     const interval = setInterval(() => {
-      if (!sseConnectedRef.current) void fetchSessions();
+      void fetchSessions();
     }, 8000);
     return () => clearInterval(interval);
   }, [fetchSessions]);
@@ -121,7 +160,10 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
       if (branch.sessionId) {
         setSelectedId(branch.sessionId);
         const session = sessionForBranch(data.sessions, branch.name);
-        if (session) setSessionDetail(session);
+        if (session) {
+          setSessionDetail(session);
+          setAgentBusy((busy) => reconcileAgentBusy(busy, session.status));
+        }
       }
     });
   }, [data, selectedBranch]);
@@ -155,13 +197,18 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
       sseConnectedRef.current = true;
     };
 
+    const applySessionUpdate = (session: AgentSession) => {
+      setSessionDetail(session);
+      setAgentBusy((busy) => reconcileAgentBusy(busy, session.status));
+    };
+
     es.addEventListener("events", (e) => {
       const payload = JSON.parse(e.data) as {
         messages: AgentDisplayMessage[];
         session: AgentSession;
       };
       setMessages((prev) => mergeIncomingMessages(prev, payload.messages));
-      setSessionDetail(payload.session);
+      applySessionUpdate(payload.session);
       if (
         payload.messages.some(
           (m) =>
@@ -174,15 +221,16 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
 
     es.addEventListener("heartbeat", (e) => {
       const payload = JSON.parse(e.data) as { session: AgentSession };
-      setSessionDetail(payload.session);
+      applySessionUpdate(payload.session);
     });
 
     es.addEventListener("done", (e) => {
       const payload = JSON.parse(e.data) as { session: AgentSession };
-      setSessionDetail(payload.session);
+      applySessionUpdate(payload.session);
       setAgentBusy(false);
       sseConnectedRef.current = false;
       void fetchSessions();
+      void fetchSessionDetail(selectedId);
       es.close();
     });
 
@@ -194,11 +242,13 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
       sseConnectedRef.current = false;
       es.close();
     };
-  }, [selectedId, projectId, fetchSessions]);
+  }, [selectedId, projectId, fetchSessions, fetchSessionDetail, streamEpoch]);
 
   useEffect(() => {
     if (!shouldAutoScrollRef.current) return;
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const el = messagesScrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, agentBusy, sessionDetail?.status]);
 
   function openBranch(
@@ -212,12 +262,16 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
     if (branch.sessionId) {
       setSelectedId(branch.sessionId);
       const session = sessionForBranch(sessions, branch.name);
-      if (session) setSessionDetail(session);
+      if (session) {
+        setSessionDetail(session);
+        setAgentBusy((busy) => reconcileAgentBusy(busy, session.status));
+      }
       return;
     }
 
     setSelectedId(null);
     setSessionDetail(null);
+    setAgentBusy(false);
     setMessages([]);
   }
 
@@ -346,6 +400,40 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
     }
   }
 
+  async function retryFailedTurn() {
+    if (!selectedId) return;
+    setLoading(true);
+    setAgentBusy(true);
+    shouldAutoScrollRef.current = true;
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/agent-sessions/${selectedId}/retry`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Failed to retry agent turn");
+        setAgentBusy(false);
+        return;
+      }
+      const json = (await res.json()) as { prompt?: string };
+      if (json.prompt) {
+        setMessages((prev) => {
+          const lastUserIdx = prev.map((m) => m.role).lastIndexOf("user");
+          if (lastUserIdx < 0) return prev;
+          const lastUser = prev[lastUserIdx]!;
+          if (lastUser.content !== json.prompt) return prev;
+          return prev.slice(0, lastUserIdx);
+        });
+      }
+      await fetchSessionDetail(selectedId);
+      setStreamEpoch((n) => n + 1);
+      await fetchSessions();
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function cancelSession() {
     if (!selectedId) return;
     if (
@@ -394,15 +482,18 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
   const showContinueForm = Boolean(canStartOnBranch && isTerminalSession);
   const showNewAgentForm = Boolean(canStartOnBranch && !selectedId);
 
-  const statusHint = useMemo(() => {
+  const statusBanner = useMemo((): StatusBanner => {
     if (!sessionDetail) return null;
-    if (isDeploying) return "Rebuilding and releasing containers…";
-    if (agentBusy || (sessionDetail.status === "running" && loading)) {
-      return "Agent is working…";
-    }
-    if (sessionDetail.status === "pending") return "Starting agent session…";
-    return null;
-  }, [sessionDetail, isDeploying, agentBusy, loading]);
+    return toStatusBanner(
+      resolveAgentSessionBanner({
+        status: sessionDetail.status,
+        agentBusy,
+        isDeploying,
+        errorMessage: sessionDetail.errorMessage,
+        failedTurnStartSeq: sessionDetail.failedTurnStartSeq,
+      }),
+    );
+  }, [sessionDetail, isDeploying, agentBusy]);
 
   const branchSidebar = (
     <aside
@@ -483,7 +574,7 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
 
   const chatArea = (
     <div
-      className={`flex min-h-[min(70vh,32rem)] min-w-0 flex-1 flex-col bg-zinc-900 ${
+      className={`flex min-h-0 min-w-0 flex-1 flex-col bg-zinc-900 ${
         !mobileShowChat ? "hidden md:flex" : "flex"
       }`}
     >
@@ -601,6 +692,7 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
           ) : selectedId ? (
             <>
               <div
+                ref={messagesScrollRef}
                 className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4"
                 onScroll={(e) => {
                   const el = e.currentTarget;
@@ -609,19 +701,41 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
                   shouldAutoScrollRef.current = nearBottom;
                 }}
               >
-                {messages.length === 0 && !statusHint && (
+                {messages.length === 0 && !statusBanner && (
                   <p className="py-8 text-center text-sm text-zinc-600">
                     Waiting for agent output…
                   </p>
                 )}
                 <AgentMessageList messages={messages} />
-                {statusHint && (
+                {statusBanner?.kind === "working" && (
                   <div className="flex items-center gap-2 text-xs text-amber-400">
                     <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-400" />
-                    {statusHint}
+                    {statusBanner.text}
                   </div>
                 )}
-                <div ref={messagesEndRef} />
+                {statusBanner?.kind === "failed" && (
+                  <div className="rounded-lg border border-red-400/20 bg-red-400/5 px-3 py-2.5 text-xs">
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 shrink-0 text-red-400">✕</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-red-400">Agent turn failed</p>
+                        <p className="mt-1 break-words text-red-300/90">
+                          {statusBanner.text}
+                        </p>
+                        {statusBanner.canRetry && (
+                          <button
+                            type="button"
+                            onClick={retryFailedTurn}
+                            disabled={loading || agentBusy}
+                            className="mt-2 min-h-8 rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-400/15 disabled:opacity-50"
+                          >
+                            Retry prompt
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {showFollowUp && !showLogs && (
@@ -687,8 +801,8 @@ export function AgentWorkspace({ projectId }: { projectId: string }) {
   );
 
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-800">
-      <div className="flex min-h-[min(70vh,32rem)]">{branchSidebar}{chatArea}</div>
+    <div className="flex h-[min(70vh,32rem)] max-h-[calc(100dvh-10rem)] flex-col overflow-hidden rounded-xl border border-zinc-800">
+      <div className="flex min-h-0 flex-1">{branchSidebar}{chatArea}</div>
     </div>
   );
 }

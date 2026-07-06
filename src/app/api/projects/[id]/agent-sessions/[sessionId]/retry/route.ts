@@ -3,24 +3,14 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
-import { eventsToDisplayMessages } from "@/lib/agent-stream";
-import {
-  getAgentSessionForClient,
-  getAllAgentEventsAfter,
-} from "@/lib/agent-runner";
+import { getAgentSession, retryAgentTurn } from "@/lib/agent-runner";
 
-async function requireLogin() {
-  const session = await getSession();
-  if (!session.isLoggedIn) return null;
-  return session;
-}
-
-export async function GET(
+export async function POST(
   _request: Request,
   { params }: { params: Promise<{ id: string; sessionId: string }> },
 ) {
-  const session = await requireLogin();
-  if (!session) {
+  const session = await getSession();
+  if (!session.isLoggedIn) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -30,17 +20,16 @@ export async function GET(
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  const agentSession = getAgentSessionForClient(sessionId);
+  const agentSession = getAgentSession(sessionId);
   if (!agentSession || agentSession.projectId !== id) {
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
-  const events = getAllAgentEventsAfter(sessionId, 0);
-  const messages = eventsToDisplayMessages(events);
-
-  return NextResponse.json({
-    session: agentSession,
-    events,
-    messages,
-  });
+  try {
+    const prompt = await retryAgentTurn(sessionId);
+    return NextResponse.json({ ok: true, prompt }, { status: 202 });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to retry agent turn";
+    return NextResponse.json({ error: message }, { status: 409 });
+  }
 }

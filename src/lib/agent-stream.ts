@@ -4,6 +4,11 @@ export interface AgentDisplayMessage {
   content: string;
   toolName?: string;
   toolStatus?: "started" | "completed";
+  toolCallId?: string;
+  toolArgs?: Record<string, unknown>;
+  toolResultText?: string;
+  toolDurationMs?: number;
+  toolError?: string;
   timestamp: number;
 }
 
@@ -19,6 +24,7 @@ export type AgentDisplayItem =
 interface StreamEvent {
   type?: string;
   subtype?: string;
+  call_id?: string;
   session_id?: string;
   message?: {
     role?: string;
@@ -30,24 +36,253 @@ interface StreamEvent {
   timestamp_ms?: number;
 }
 
-function extractToolInfo(event: StreamEvent): {
+interface ExtractedTool {
   name: string;
-  path?: string;
+  callId?: string;
   status: "started" | "completed";
-} | null {
+  args?: Record<string, unknown>;
+  resultText?: string;
+  errorText?: string;
+  durationMs?: number;
+  summary: string;
+}
+
+function parseToolCallMs(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const n = Number(value);
+    if (Number.isFinite(n)) return n;
+  }
+  return undefined;
+}
+
+function truncateText(text: string, max = 4000): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n… (${text.length - max} more chars)`;
+}
+
+function formatUnknown(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatToolResult(
+  toolName: string,
+  result: Record<string, unknown> | undefined,
+): { text?: string; error?: string } {
+  if (!result) return {};
+
+  const error = result.error ?? result.rejected ?? result.failure;
+  if (error != null) {
+    return { error: truncateText(formatUnknown(error)) };
+  }
+
+  const success = result.success;
+  if (!success || typeof success !== "object") {
+    const raw = formatUnknown(result);
+    return raw ? { text: truncateText(raw) } : {};
+  }
+
+  const s = success as Record<string, unknown>;
+  switch (toolName.toLowerCase()) {
+    case "shell": {
+      const stdout = typeof s.stdout === "string" ? s.stdout : "";
+      const stderr = typeof s.stderr === "string" ? s.stderr : "";
+      const exitCode = s.exitCode;
+      const parts: string[] = [];
+      if (stdout) parts.push(stdout);
+      if (stderr) parts.push(`stderr:\n${stderr}`);
+      if (exitCode != null) parts.push(`exit code: ${exitCode}`);
+      return parts.length ? { text: truncateText(parts.join("\n")) } : {};
+    }
+    case "read": {
+      const content = typeof s.content === "string" ? s.content : "";
+      const path = typeof s.path === "string" ? s.path : "";
+      if (content) return { text: truncateText(content) };
+      if (path) return { text: `(read ${path})` };
+      break;
+    }
+    case "write":
+    case "edit": {
+      const path = typeof s.path === "string" ? s.path : "";
+      const lines =
+        typeof s.linesCreated === "number"
+          ? `${s.linesCreated} lines`
+          : typeof s.linesAdded === "number"
+            ? `+${s.linesAdded}`
+            : "";
+      const detail = [path, lines].filter(Boolean).join(" — ");
+      return detail ? { text: detail } : {};
+    }
+    case "grep":
+    case "search": {
+      const matches = s.matches ?? s.results ?? s.output;
+      if (typeof matches === "string") return { text: truncateText(matches) };
+      if (Array.isArray(matches)) {
+        return { text: truncateText(matches.map((m) => formatUnknown(m)).join("\n")) };
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  const raw = formatUnknown(success);
+  return raw ? { text: truncateText(raw) } : {};
+}
+
+function formatToolSummary(
+  toolName: string,
+  args: Record<string, unknown> | undefined,
+): string {
+  if (!args) return toolName;
+
+  const path = typeof args.path === "string" ? args.path : undefined;
+  const command = typeof args.command === "string" ? args.command : undefined;
+  const pattern =
+    typeof args.pattern === "string"
+      ? args.pattern
+      : typeof args.query === "string"
+        ? args.query
+        : undefined;
+  const description =
+    typeof args.description === "string" ? args.description : undefined;
+
+  if (path) return `${toolName}: ${path}`;
+  if (command) {
+    const short =
+      command.length > 72 ? `${command.slice(0, 69)}…` : command;
+    return `${toolName}: ${short}`;
+  }
+  if (pattern) return `${toolName}: ${pattern}`;
+  if (description) return `${toolName}: ${description}`;
+  return toolName;
+}
+
+function extractToolFromEvent(event: StreamEvent): ExtractedTool | null {
   if (event.type !== "tool_call") return null;
 
   const status = event.subtype === "completed" ? "completed" : "started";
   const tc = event.tool_call ?? {};
+  const callId =
+    (typeof event.call_id === "string" && event.call_id) ||
+    (typeof tc.toolCallId === "string" && tc.toolCallId) ||
+    undefined;
+  const startedAtMs = parseToolCallMs(tc.startedAtMs);
+  const completedAtMs = parseToolCallMs(tc.completedAtMs);
 
   for (const [key, value] of Object.entries(tc)) {
     if (!value || typeof value !== "object") continue;
-    const args = (value as { args?: { path?: string } }).args;
+    if (key === "hookAdditionalContexts") continue;
+
+    const toolPayload = value as {
+      args?: Record<string, unknown>;
+      result?: Record<string, unknown>;
+    };
     const name = key.replace(/ToolCall$/, "");
-    return { name, path: args?.path, status };
+    const args = toolPayload.args;
+    const { text: resultText, error: errorText } = formatToolResult(
+      name,
+      toolPayload.result,
+    );
+
+    let durationMs: number | undefined;
+    if (startedAtMs != null && completedAtMs != null) {
+      durationMs = Math.max(0, completedAtMs - startedAtMs);
+    } else if (toolPayload.result?.success && typeof toolPayload.result.success === "object") {
+      const exec = (toolPayload.result.success as { executionTime?: number })
+        .executionTime;
+      if (typeof exec === "number") durationMs = exec;
+    }
+
+    return {
+      name,
+      callId,
+      status,
+      args,
+      resultText,
+      errorText,
+      durationMs,
+      summary: formatToolSummary(name, args),
+    };
   }
 
-  return { name: "tool", status };
+  return { name: "tool", callId, status, summary: "tool" };
+}
+
+function toolMessageFromExtracted(
+  tool: ExtractedTool,
+  seq: number,
+  timestamp: number,
+): AgentDisplayMessage {
+  return {
+    id: tool.callId ? `tool-${tool.callId}` : `tool-${seq}`,
+    role: "tool",
+    content: tool.summary,
+    toolName: tool.name,
+    toolStatus: tool.status,
+    toolCallId: tool.callId,
+    toolArgs: tool.args,
+    toolResultText: tool.resultText,
+    toolDurationMs: tool.durationMs,
+    toolError: tool.errorText,
+    timestamp,
+  };
+}
+
+export function mergeToolIntoExisting(
+  existing: AgentDisplayMessage,
+  incoming: AgentDisplayMessage,
+): AgentDisplayMessage {
+  const status =
+    incoming.toolStatus === "completed" || existing.toolStatus === "completed"
+      ? "completed"
+      : "started";
+
+  return {
+    ...existing,
+    ...incoming,
+    id: existing.id,
+    toolStatus: status,
+    toolArgs: incoming.toolArgs ?? existing.toolArgs,
+    toolResultText: incoming.toolResultText ?? existing.toolResultText,
+    toolDurationMs: incoming.toolDurationMs ?? existing.toolDurationMs,
+    toolError: incoming.toolError ?? existing.toolError,
+    content: incoming.content || existing.content,
+    toolName: incoming.toolName ?? existing.toolName,
+    timestamp: incoming.timestamp || existing.timestamp,
+  };
+}
+
+/** Pair started/completed tool_call events by call_id into single display rows. */
+export function mergeToolCallMessages(
+  messages: AgentDisplayMessage[],
+): AgentDisplayMessage[] {
+  const merged: AgentDisplayMessage[] = [];
+  const indexByCallId = new Map<string, number>();
+
+  for (const msg of messages) {
+    if (msg.role !== "tool" || !msg.toolCallId) {
+      merged.push(msg);
+      continue;
+    }
+
+    const existingIdx = indexByCallId.get(msg.toolCallId);
+    if (existingIdx == null) {
+      indexByCallId.set(msg.toolCallId, merged.length);
+      merged.push(msg);
+      continue;
+    }
+
+    merged[existingIdx] = mergeToolIntoExisting(merged[existingIdx]!, msg);
+  }
+
+  return merged;
 }
 
 function extractAssistantText(event: StreamEvent): string | null {
@@ -55,7 +290,7 @@ function extractAssistantText(event: StreamEvent): string | null {
   const content = event.message?.content?.[0]?.text;
   if (content) return content;
 
-  if (event.subtype === "delta" && event.text) {
+  if (typeof event.text === "string" && event.text) {
     return event.text;
   }
 
@@ -112,17 +347,9 @@ export function streamEventToDisplay(
     };
   }
 
-  const tool = extractToolInfo(event);
+  const tool = extractToolFromEvent(event);
   if (tool) {
-    const pathSuffix = tool.path ? `: ${tool.path}` : "";
-    return {
-      id: `tool-${seq}`,
-      role: "tool",
-      content: `${tool.name}${pathSuffix}`,
-      toolName: tool.name,
-      toolStatus: tool.status,
-      timestamp,
-    };
+    return toolMessageFromExtracted(tool, seq, timestamp);
   }
 
   if (event.type === "result") {
@@ -184,6 +411,16 @@ export function mergeIncomingMessages(
       }
     }
 
+    if (msg.role === "tool" && msg.toolCallId) {
+      const existingIdx = merged.findIndex(
+        (m) => m.role === "tool" && m.toolCallId === msg.toolCallId,
+      );
+      if (existingIdx >= 0) {
+        merged[existingIdx] = mergeToolIntoExisting(merged[existingIdx]!, msg);
+        continue;
+      }
+    }
+
     merged.push(msg);
   }
   return merged;
@@ -219,7 +456,7 @@ export function eventsToDisplayMessages(
     if (display) raw.push(display);
   }
 
-  return mergeAssistantDeltas(raw);
+  return mergeToolCallMessages(mergeAssistantDeltas(raw));
 }
 
 function clusterHasActiveTool(tools: AgentDisplayMessage[]): boolean {
@@ -267,4 +504,31 @@ export function summarizeToolCluster(tools: AgentDisplayMessage[]): string {
   const unique = [...new Set(names)];
   if (unique.length <= 3) return unique.join(", ");
   return `${unique.slice(0, 2).join(", ")} +${unique.length - 2}`;
+}
+
+export function formatToolDuration(durationMs?: number): string | null {
+  if (durationMs == null || !Number.isFinite(durationMs)) return null;
+  if (durationMs < 1000) return `${Math.round(durationMs)}ms`;
+  return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+export function formatToolArgs(args?: Record<string, unknown>): string | null {
+  if (!args || Object.keys(args).length === 0) return null;
+  try {
+    return JSON.stringify(args, null, 2);
+  } catch {
+    return String(args);
+  }
+}
+
+export function toolStatusLabel(message: AgentDisplayMessage): string {
+  if (message.toolError) return "error";
+  switch (message.toolStatus) {
+    case "started":
+      return "running";
+    case "completed":
+      return "completed";
+    default:
+      return "unknown";
+  }
 }

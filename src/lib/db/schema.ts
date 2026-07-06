@@ -61,6 +61,8 @@ export const agentSessions = sqliteTable("agent_sessions", {
   branch: text("branch").notNull(),
   status: text("status").$type<AgentSessionStatus>().notNull(),
   cursorSessionId: text("cursor_session_id"),
+  resumeCursorSessionId: text("resume_cursor_session_id"),
+  failedTurnStartSeq: integer("failed_turn_start_seq"),
   initialPrompt: text("initial_prompt").notNull(),
   logs: text("logs").notNull().default(""),
   errorMessage: text("error_message"),

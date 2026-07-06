@@ -6,7 +6,7 @@ import { getSession } from "@/lib/auth/session";
 import {
   createAgentSession,
   getBranchAgentOverview,
-  listAgentSessions,
+  listAgentSessionsForClient,
 } from "@/lib/agent-runner";
 import { getActiveSessionForProject, isAgentSessionActive } from "@/lib/agent-state";
 
@@ -31,7 +31,7 @@ export async function GET(
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  const sessions = listAgentSessions(id);
+  const sessions = listAgentSessionsForClient(id);
   const activeSession = getActiveSessionForProject(id);
   const branches = await getBranchAgentOverview(id);
 

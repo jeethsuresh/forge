@@ -1,12 +1,54 @@
 import { describe, expect, it } from "vitest";
 import {
   eventsToDisplayMessages,
+  formatToolDuration,
   groupMessagesForDisplay,
   mergeAssistantDeltas,
   mergeIncomingMessages,
+  mergeToolCallMessages,
+  mergeToolIntoExisting,
   streamEventToDisplay,
   summarizeToolCluster,
+  toolStatusLabel,
 } from "@/lib/agent-stream";
+
+const SHELL_STARTED = {
+  type: "tool_call",
+  subtype: "started",
+  call_id: "tool_test-1",
+  tool_call: {
+    shellToolCall: {
+      args: { command: "ls -la", workingDirectory: "/tmp" },
+    },
+    toolCallId: "tool_test-1",
+    startedAtMs: "1000",
+  },
+  timestamp_ms: 1000,
+};
+
+const SHELL_COMPLETED = {
+  type: "tool_call",
+  subtype: "completed",
+  call_id: "tool_test-1",
+  tool_call: {
+    shellToolCall: {
+      args: { command: "ls -la", workingDirectory: "/tmp" },
+      result: {
+        success: {
+          command: "ls -la",
+          exitCode: 0,
+          stdout: "file.txt",
+          stderr: "",
+          executionTime: 120,
+        },
+      },
+    },
+    toolCallId: "tool_test-1",
+    startedAtMs: "1000",
+    completedAtMs: "1120",
+  },
+  timestamp_ms: 1120,
+};
 
 describe("streamEventToDisplay", () => {
   it("maps user events to display messages", () => {
@@ -28,16 +70,77 @@ describe("streamEventToDisplay", () => {
     const event = {
       type: "tool_call",
       subtype: "started",
+      call_id: "tool_abc",
       tool_call: {
         writeToolCall: { args: { path: "src/app.ts" } },
+        toolCallId: "tool_abc",
       },
       timestamp_ms: 2000,
     };
     const msg = streamEventToDisplay(event, 2);
     expect(msg?.role).toBe("tool");
-    expect(msg?.content).toContain("write");
-    expect(msg?.content).toContain("src/app.ts");
+    expect(msg?.content).toBe("write: src/app.ts");
     expect(msg?.toolStatus).toBe("started");
+    expect(msg?.toolCallId).toBe("tool_abc");
+    expect(msg?.toolArgs).toEqual({ path: "src/app.ts" });
+  });
+
+  it("maps tool call completed events with result and duration", () => {
+    const msg = streamEventToDisplay(SHELL_COMPLETED, 3);
+    expect(msg?.toolStatus).toBe("completed");
+    expect(msg?.toolResultText).toContain("file.txt");
+    expect(msg?.toolDurationMs).toBe(120);
+    expect(msg?.content).toContain("ls -la");
+  });
+});
+
+describe("mergeToolCallMessages", () => {
+  it("pairs started and completed events by call_id", () => {
+    const started = streamEventToDisplay(SHELL_STARTED, 1)!;
+    const completed = streamEventToDisplay(SHELL_COMPLETED, 2)!;
+    const merged = mergeToolCallMessages([started, completed]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.toolStatus).toBe("completed");
+    expect(merged[0]?.toolResultText).toContain("file.txt");
+    expect(merged[0]?.toolDurationMs).toBe(120);
+  });
+
+  it("keeps unrelated tool messages separate", () => {
+    const a = streamEventToDisplay(
+      {
+        ...SHELL_STARTED,
+        call_id: "tool_a",
+        tool_call: {
+          ...SHELL_STARTED.tool_call,
+          toolCallId: "tool_a",
+        },
+      },
+      1,
+    )!;
+    const b = streamEventToDisplay(
+      {
+        ...SHELL_STARTED,
+        call_id: "tool_b",
+        tool_call: {
+          ...SHELL_STARTED.tool_call,
+          toolCallId: "tool_b",
+        },
+      },
+      2,
+    )!;
+    const merged = mergeToolCallMessages([a, b]);
+    expect(merged).toHaveLength(2);
+  });
+});
+
+describe("mergeToolIntoExisting", () => {
+  it("upgrades started to completed and fills in result", () => {
+    const started = streamEventToDisplay(SHELL_STARTED, 1)!;
+    const completed = streamEventToDisplay(SHELL_COMPLETED, 2)!;
+    const merged = mergeToolIntoExisting(started, completed);
+    expect(merged.toolStatus).toBe("completed");
+    expect(merged.toolResultText).toContain("file.txt");
+    expect(merged.id).toBe(started.id);
   });
 });
 
@@ -79,6 +182,24 @@ describe("mergeIncomingMessages", () => {
       [{ id: "user-2", role: "user", content: "Fix it", timestamp: 2 }],
     );
     expect(merged).toHaveLength(1);
+  });
+
+  it("merges completed tool updates into existing started rows", () => {
+    const started = streamEventToDisplay(SHELL_STARTED, 1)!;
+    const completed = streamEventToDisplay(SHELL_COMPLETED, 2)!;
+    const merged = mergeIncomingMessages([started], [completed]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.toolStatus).toBe("completed");
+    expect(merged[0]?.toolResultText).toContain("file.txt");
+  });
+
+  it("merges cumulative assistant snapshots from SSE batches", () => {
+    const merged = mergeIncomingMessages(
+      [{ id: "assistant-1", role: "assistant", content: "hello", timestamp: 1 }],
+      [{ id: "assistant-5", role: "assistant", content: "hello world", timestamp: 5 }],
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.content).toBe("hello world");
   });
 });
 
@@ -183,6 +304,16 @@ describe("eventsToDisplayMessages", () => {
     expect(messages.some((m) => m.role === "system")).toBe(true);
   });
 
+  it("merges tool call started/completed pairs from stored events", () => {
+    const messages = eventsToDisplayMessages([
+      { seq: 1, eventType: "tool_call", payload: JSON.stringify(SHELL_STARTED) },
+      { seq: 2, eventType: "tool_call", payload: JSON.stringify(SHELL_COMPLETED) },
+    ]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.toolStatus).toBe("completed");
+    expect(messages[0]?.toolResultText).toContain("file.txt");
+  });
+
   it("merges partial assistant stream-json chunks", () => {
     const messages = eventsToDisplayMessages([
       {
@@ -214,5 +345,76 @@ describe("eventsToDisplayMessages", () => {
     ]);
     expect(messages).toHaveLength(1);
     expect(messages[0]?.content).toBe("hello world");
+  });
+
+  it("parses partial assistant chunks that only use text", () => {
+    const messages = eventsToDisplayMessages([
+      {
+        seq: 1,
+        eventType: "assistant",
+        payload: JSON.stringify({
+          type: "assistant",
+          text: "hel",
+          timestamp_ms: 1,
+        }),
+      },
+      {
+        seq: 2,
+        eventType: "assistant",
+        payload: JSON.stringify({
+          type: "assistant",
+          text: "lo",
+          timestamp_ms: 2,
+        }),
+      },
+    ]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.content).toBe("hello");
+  });
+});
+
+describe("formatToolDuration", () => {
+  it("formats sub-second durations in ms", () => {
+    expect(formatToolDuration(250)).toBe("250ms");
+  });
+
+  it("formats longer durations in seconds", () => {
+    expect(formatToolDuration(1500)).toBe("1.5s");
+  });
+});
+
+describe("toolStatusLabel", () => {
+  it("labels running and completed tools", () => {
+    expect(
+      toolStatusLabel({
+        id: "1",
+        role: "tool",
+        content: "read",
+        toolStatus: "started",
+        timestamp: 1,
+      }),
+    ).toBe("running");
+    expect(
+      toolStatusLabel({
+        id: "2",
+        role: "tool",
+        content: "read",
+        toolStatus: "completed",
+        timestamp: 2,
+      }),
+    ).toBe("completed");
+  });
+
+  it("labels errored tools", () => {
+    expect(
+      toolStatusLabel({
+        id: "3",
+        role: "tool",
+        content: "shell",
+        toolStatus: "completed",
+        toolError: "failed",
+        timestamp: 3,
+      }),
+    ).toBe("error");
   });
 });

@@ -2,7 +2,13 @@
 
 import { useMemo, useState } from "react";
 import type { AgentDisplayItem, AgentDisplayMessage } from "@/lib/agent-stream";
-import { groupMessagesForDisplay, summarizeToolCluster } from "@/lib/agent-stream";
+import {
+  formatToolArgs,
+  formatToolDuration,
+  groupMessagesForDisplay,
+  summarizeToolCluster,
+  toolStatusLabel,
+} from "@/lib/agent-stream";
 
 export function AgentMessageList({
   messages,
@@ -43,6 +49,9 @@ function ToolCluster({
 
   const count = cluster.tools.length;
   const summary = summarizeToolCluster(cluster.tools);
+  const completedCount = cluster.tools.filter(
+    (t) => t.toolStatus === "completed",
+  ).length;
 
   return (
     <div
@@ -62,8 +71,12 @@ function ToolCluster({
         <Chevron expanded={expanded} />
         <span className="font-medium text-zinc-300">
           {count} tool {count === 1 ? "call" : "calls"}
-          {cluster.hasActive && (
+          {cluster.hasActive ? (
             <span className="ml-1.5 text-amber-400/90">running</span>
+          ) : (
+            <span className="ml-1.5 text-zinc-500">
+              completed{completedCount > 0 ? ` (${completedCount})` : ""}
+            </span>
           )}
         </span>
         <span className="min-w-0 flex-1 truncate font-mono text-zinc-500">
@@ -89,20 +102,50 @@ function ToolOperation({
   nested?: boolean;
 }) {
   const busy = message.toolStatus === "started";
-  const [expanded, setExpanded] = useState(false);
+  const status = toolStatusLabel(message);
+  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
+  const expanded = manualExpanded ?? busy;
   const icon = toolIcon(message.toolName);
   const label = formatToolLabel(message);
+  const duration = formatToolDuration(message.toolDurationMs);
+  const hasDetails = Boolean(
+    message.toolArgs ||
+      message.toolResultText ||
+      message.toolError ||
+      duration,
+  );
 
   if (nested) {
     return (
       <div
-        className={`flex items-start gap-2 rounded-md px-2 py-1.5 font-mono ${
-          busy ? "text-amber-200/80" : "text-zinc-500"
+        className={`rounded-md px-2 py-1.5 font-mono ${
+          busy
+            ? "text-amber-200/80"
+            : message.toolError
+              ? "text-red-400/80"
+              : "text-zinc-500"
         }`}
       >
-        <span className="mt-0.5 shrink-0">{statusIcon(message.toolStatus)}</span>
-        <span className="shrink-0 text-zinc-600">{icon}</span>
-        <span className="min-w-0 break-all">{label}</span>
+        <div className="flex items-start gap-2">
+          <span className="mt-0.5 shrink-0">{statusIcon(message)}</span>
+          <span className="shrink-0 text-zinc-600">{icon}</span>
+          <span className="min-w-0 flex-1 break-all">{label}</span>
+          <span
+            className={`shrink-0 text-[10px] uppercase tracking-wide ${
+              busy
+                ? "text-amber-400/80"
+                : message.toolError
+                  ? "text-red-400/70"
+                  : "text-zinc-600"
+            }`}
+          >
+            {status}
+          </span>
+          {duration && (
+            <span className="shrink-0 text-[10px] text-zinc-600">{duration}</span>
+          )}
+        </div>
+        {hasDetails && <ToolDetails message={message} compact />}
       </div>
     );
   }
@@ -112,24 +155,126 @@ function ToolOperation({
       className={`rounded-lg border text-xs ${
         busy
           ? "border-amber-400/20 bg-amber-400/5 text-amber-200/80"
-          : "border-zinc-800 bg-zinc-950/50 text-zinc-500"
+          : message.toolError
+            ? "border-red-400/20 bg-red-400/5 text-red-300/80"
+            : "border-zinc-800 bg-zinc-950/50 text-zinc-500"
       }`}
     >
       <button
         type="button"
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => setManualExpanded((v) => !(v ?? busy))}
         className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-zinc-900/40"
       >
         <Chevron expanded={expanded} className="mt-0.5" />
-        <span className="mt-0.5 shrink-0">{statusIcon(message.toolStatus)}</span>
+        <span className="mt-0.5 shrink-0">{statusIcon(message)}</span>
         <span className="mt-0.5 shrink-0 text-zinc-600">{icon}</span>
         <span className="min-w-0 flex-1 break-all font-mono">{label}</span>
+        <span
+          className={`mt-0.5 shrink-0 text-[10px] uppercase tracking-wide ${
+            busy
+              ? "text-amber-400/80"
+              : message.toolError
+                ? "text-red-400/70"
+                : "text-zinc-600"
+          }`}
+        >
+          {status}
+        </span>
+        {duration && (
+          <span className="mt-0.5 shrink-0 text-[10px] text-zinc-600">
+            {duration}
+          </span>
+        )}
       </button>
-      {expanded && message.content !== label && (
-        <pre className="border-t border-zinc-800/80 px-3 py-2 font-mono text-[11px] leading-relaxed text-zinc-600">
-          {message.content}
-        </pre>
+      {expanded && hasDetails && (
+        <div className="border-t border-zinc-800/80 px-3 py-2">
+          <ToolDetails message={message} />
+        </div>
       )}
+    </div>
+  );
+}
+
+function ToolDetails({
+  message,
+  compact = false,
+}: {
+  message: AgentDisplayMessage;
+  compact?: boolean;
+}) {
+  const args = formatToolArgs(message.toolArgs);
+  const duration = formatToolDuration(message.toolDurationMs);
+  const sectionClass = compact
+    ? "mt-1.5 space-y-1.5"
+    : "space-y-2 text-[11px] leading-relaxed";
+
+  return (
+    <div className={sectionClass}>
+      {message.toolName && !compact && (
+        <DetailRow label="Tool" value={message.toolName} />
+      )}
+      {message.toolCallId && !compact && (
+        <DetailRow label="Call ID" value={message.toolCallId} mono />
+      )}
+      {args && (
+        <div>
+          {!compact && (
+            <p className="mb-0.5 text-[10px] uppercase tracking-wide text-zinc-600">
+              Args
+            </p>
+          )}
+          <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-zinc-900/60 p-2 font-mono text-zinc-500">
+            {args}
+          </pre>
+        </div>
+      )}
+      {message.toolResultText && (
+        <div>
+          <p className="mb-0.5 text-[10px] uppercase tracking-wide text-zinc-600">
+            Result
+          </p>
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-zinc-900/60 p-2 font-mono text-zinc-500">
+            {message.toolResultText}
+          </pre>
+        </div>
+      )}
+      {message.toolError && (
+        <div>
+          <p className="mb-0.5 text-[10px] uppercase tracking-wide text-red-400/70">
+            Error
+          </p>
+          <pre className="max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-red-400/5 p-2 font-mono text-red-300/80">
+            {message.toolError}
+          </pre>
+        </div>
+      )}
+      {duration && compact && (
+        <p className="text-[10px] text-zinc-600">Duration: {duration}</p>
+      )}
+      {duration && !compact && <DetailRow label="Duration" value={duration} />}
+    </div>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="flex gap-2">
+      <span className="shrink-0 text-[10px] uppercase tracking-wide text-zinc-600">
+        {label}
+      </span>
+      <span
+        className={`min-w-0 break-all text-zinc-500 ${mono ? "font-mono" : ""}`}
+      >
+        {value}
+      </span>
     </div>
   );
 }
@@ -175,10 +320,16 @@ function Chevron({
   );
 }
 
-function statusIcon(status?: "started" | "completed"): string {
-  if (status === "completed") return "✓";
-  if (status === "started") return "…";
-  return "·";
+function statusIcon(message: AgentDisplayMessage): string {
+  if (message.toolError) return "✕";
+  switch (message.toolStatus) {
+    case "completed":
+      return "✓";
+    case "started":
+      return "…";
+    default:
+      return "·";
+  }
 }
 
 function toolIcon(toolName?: string): string {
@@ -201,9 +352,9 @@ function toolIcon(toolName?: string): string {
 }
 
 function formatToolLabel(message: AgentDisplayMessage): string {
+  if (message.content) return message.content;
   const name = message.toolName ?? "tool";
-  const path = message.content.includes(": ")
-    ? message.content.slice(message.content.indexOf(": ") + 2)
-    : "";
-  return path ? `${name}: ${path}` : message.content;
+  const path =
+    typeof message.toolArgs?.path === "string" ? message.toolArgs.path : "";
+  return path ? `${name}: ${path}` : name;
 }
