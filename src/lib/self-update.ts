@@ -403,6 +403,16 @@ async function assertCanStartUpdate(): Promise<void> {
 export async function startForgeUpdate(): Promise<string> {
   await assertCanStartUpdate();
 
+  const status = await getForgeStatus();
+  if (!status.updateAvailable) {
+    const running = status.runningCommitSha?.slice(0, 7);
+    const remote = status.remoteCommitSha?.slice(0, 7);
+    if (running && remote && running === remote) {
+      throw new Error(`Already running the latest commit (${running})`);
+    }
+    throw new Error("No update is available from the configured repository");
+  }
+
   const updateId = randomUUID();
   activeUpdateId = updateId;
 

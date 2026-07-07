@@ -74,7 +74,16 @@ fi
 mark_failed_exit() {
   local code="$1"
   if [[ -n "$UPDATE_ID" && -f "$DB_PATH" ]]; then
-    set_status "failed" "Updater exited with code ${code}"
+    local existing
+    existing="$(
+      sqlite3 "$DB_PATH" \
+        "SELECT COALESCE(error_message, '') FROM forge_updates WHERE id = '${UPDATE_ID}';" \
+        2>/dev/null \
+        || true
+    )"
+    if [[ -z "$existing" ]]; then
+      set_status "failed" "Updater exited with code ${code}"
+    fi
   fi
 }
 
@@ -530,8 +539,9 @@ run_upgrade() {
   log "Target commit: ${target_commit}"
 
   if [[ -n "$previous_commit" && "$target_commit" == "$previous_commit" ]]; then
-    set_status "failed" "Already running the latest commit (${target_commit:0:7})"
-    exit 1
+    log "Already running the latest commit (${target_commit:0:7})"
+    mark_success "$target_commit"
+    exit 0
   fi
 
   if ! ensure_rollback_image; then

@@ -219,13 +219,27 @@ export function ForgeSelfUpdateEditor({
             )}
 
             <div className="flex flex-wrap gap-3">
+              {!status.updateAvailable && !status.activeUpdate && (
+                <p className="text-sm text-zinc-400">
+                  Forge is up to date with{" "}
+                  <span className="font-mono text-zinc-300">
+                    {status.selfRepo}@{status.selfBranch}
+                  </span>
+                  .
+                </p>
+              )}
+
               <button
                 type="button"
                 onClick={runUpdate}
-                disabled={busy}
+                disabled={busy || !status.updateAvailable}
                 className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {status.activeUpdate ? "Update in progress…" : "Update Forge"}
+                {status.activeUpdate
+                  ? "Update in progress…"
+                  : status.updateAvailable
+                    ? "Update Forge"
+                    : "Up to date"}
               </button>
               <button
                 type="button"
