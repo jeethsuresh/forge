@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS projects (
   clone_path TEXT NOT NULL,
   last_seen_commit TEXT,
   enabled INTEGER NOT NULL DEFAULT 1,
+  deploy_env_json TEXT NOT NULL DEFAULT '[]',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -105,3 +106,4 @@ function addColumnIfMissing(
 addColumnIfMissing("agent_sessions", "commit_sha", "TEXT");
 addColumnIfMissing("agent_sessions", "resume_cursor_session_id", "TEXT");
 addColumnIfMissing("agent_sessions", "failed_turn_start_seq", "INTEGER");
+addColumnIfMissing("projects", "deploy_env_json", "TEXT NOT NULL DEFAULT '[]'");

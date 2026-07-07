@@ -19,6 +19,10 @@ import {
 } from "@/lib/github";
 import { isAgentSessionActive } from "@/lib/agent-state";
 import { resolveClonePath } from "@/lib/paths";
+import {
+  mergeDeployEnvWithProcess,
+  parseDeployEnvJson,
+} from "@/lib/deploy-env";
 
 const activeDeployments = new Set<string>();
 
@@ -299,6 +303,7 @@ async function executeDeployment(
   const log = (msg: string) => appendLog(deploymentId, msg);
   const deployBranch = resolveDeploymentBranch(project, trigger, options);
   const runningSha = getCurrentlyRunningCommitSha(projectId);
+  const scriptEnv = mergeDeployEnvWithProcess(parseDeployEnvJson(project.deployEnvJson));
 
   try {
     const repoPath = resolveClonePath(project.clonePath);
@@ -350,17 +355,17 @@ async function executeDeployment(
     }
 
     updateStatus(deploymentId, "building");
-    await runScript("build.sh", repoPath, log);
+    await runScript("build.sh", repoPath, log, { env: scriptEnv });
 
     updateStatus(deploymentId, "testing");
     if (existsSync(join(repoPath, "test.sh"))) {
-      await runScript("test.sh", repoPath, log);
+      await runScript("test.sh", repoPath, log, { env: scriptEnv });
     } else {
       log("test.sh not found, skipping tests.");
     }
 
     updateStatus(deploymentId, "deploying");
-    await runScript("deploy.sh", repoPath, log);
+    await runScript("deploy.sh", repoPath, log, { env: scriptEnv });
 
     updateStatus(deploymentId, "success", { completedAt: new Date() });
 

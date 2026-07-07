@@ -15,6 +15,7 @@ export const projects = sqliteTable("projects", {
   clonePath: text("clone_path").notNull(),
   lastSeenCommit: text("last_seen_commit"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  deployEnvJson: text("deploy_env_json").notNull().default("[]"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });

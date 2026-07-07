@@ -7,11 +7,17 @@ export interface SessionData {
   isLoggedIn: boolean;
 }
 
+/** Enable only when Forge is served over HTTPS (e.g. TLS-terminated reverse proxy). */
+export function sessionCookieSecure(): boolean {
+  const value = process.env.FORGE_SESSION_SECURE_COOKIE?.trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
+}
+
 export const sessionOptions: SessionOptions = {
   password: process.env.FORGE_SESSION_SECRET ?? "forge-dev-secret-change-me-32chars",
   cookieName: "forge_session",
   cookieOptions: {
-    secure: process.env.NODE_ENV === "production",
+    secure: sessionCookieSecure(),
     httpOnly: true,
     sameSite: "lax",
   },

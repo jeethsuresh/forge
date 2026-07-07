@@ -141,6 +141,7 @@ export async function runScript(
   scriptName: string,
   cwd: string,
   onLog: (line: string) => void,
+  options?: { env?: NodeJS.ProcessEnv },
 ): Promise<void> {
   const resolvedCwd = resolveClonePath(cwd);
   const scriptPath = join(resolvedCwd, scriptName);
@@ -152,6 +153,7 @@ export async function runScript(
   const { stdout, stderr } = await execFileAsync("bash", [scriptName], {
     cwd: resolvedCwd,
     maxBuffer: 10 * 1024 * 1024,
+    env: options?.env ?? process.env,
   });
   if (stdout) onLog(stdout.trimEnd());
   if (stderr) onLog(stderr.trimEnd());

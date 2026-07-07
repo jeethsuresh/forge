@@ -56,7 +56,15 @@ export async function GET() {
       });
 
       return {
-        ...project,
+        id: project.id,
+        name: project.name,
+        githubRepo: project.githubRepo,
+        branch: project.branch,
+        clonePath: project.clonePath,
+        lastSeenCommit: project.lastSeenCommit,
+        enabled: project.enabled,
+        createdAt: project.createdAt,
+        updatedAt: project.updatedAt,
         latestDeployment: latest ?? null,
         isDeploying,
         runtimeStatus,

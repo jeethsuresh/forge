@@ -9,6 +9,10 @@ import { stopComposeProject } from "@/lib/docker";
 import { isDeploymentActive } from "@/lib/deployer";
 import { runScript } from "@/lib/github";
 import { resolveClonePath } from "@/lib/paths";
+import {
+  mergeDeployEnvWithProcess,
+  parseDeployEnvJson,
+} from "@/lib/deploy-env";
 
 export async function POST(
   _request: Request,
@@ -34,10 +38,15 @@ export async function POST(
 
   try {
     const repoPath = resolveClonePath(project.clonePath);
+    const scriptEnv = mergeDeployEnvWithProcess(
+      parseDeployEnvJson(project.deployEnvJson),
+    );
     const teardownPath = join(repoPath, "teardown.sh");
     if (existsSync(teardownPath)) {
       const lines: string[] = [];
-      await runScript("teardown.sh", repoPath, (line) => lines.push(line));
+      await runScript("teardown.sh", repoPath, (line) => lines.push(line), {
+        env: scriptEnv,
+      });
       return NextResponse.json({ ok: true, output: lines.join("\n") });
     }
 

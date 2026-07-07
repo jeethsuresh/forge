@@ -13,6 +13,10 @@ import {
 } from "@/lib/utils";
 import type { RuntimeStatus } from "@/lib/project-status";
 import { AgentWorkspace } from "@/components/AgentWorkspace";
+import {
+  DeployEnvVarsEditor,
+  type DeployEnvVarRow,
+} from "@/components/DeployEnvVarsEditor";
 
 type ProjectTab = "deploy" | "agents";
 
@@ -49,6 +53,8 @@ interface ProjectDetail {
     enabled: boolean;
     createdAt: string;
     updatedAt: string;
+    deployEnvVars: DeployEnvVarRow[];
+    deployEnvFileSource: ".env" | ".env.example" | null;
   };
   deployments: Deployment[];
   currentDeployment: Deployment | null;
@@ -71,6 +77,7 @@ export default function ProjectDetailPage() {
   const [activeTab, setActiveTab] = useState<ProjectTab>("deploy");
   const [deploymentPage, setDeploymentPage] = useState(0);
   const [deployBranch, setDeployBranch] = useState<string | null>(null);
+  const [envSaving, setEnvSaving] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -126,6 +133,26 @@ export default function ProjectDetailPage() {
       await fetchData();
     } finally {
       setActionLoading(false);
+    }
+  }
+
+  async function saveDeployEnvVars(vars: DeployEnvVarRow[]): Promise<boolean> {
+    setEnvSaving(true);
+    try {
+      const res = await fetch(`/api/projects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deployEnvVars: vars }),
+      });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Failed to save environment variables");
+        return false;
+      }
+      await fetchData();
+      return true;
+    } finally {
+      setEnvSaving(false);
     }
   }
 
@@ -297,6 +324,15 @@ export default function ProjectDetailPage() {
               Remove project
             </button>
           </div>
+
+          <DeployEnvVarsEditor
+            key={project.updatedAt}
+            vars={project.deployEnvVars}
+            envFileSource={project.deployEnvFileSource}
+            disabled={actionLoading || isDeploying}
+            saving={envSaving}
+            onSave={saveDeployEnvVars}
+          />
 
           <div className="mb-6 grid grid-cols-2 gap-3 sm:mb-8 sm:gap-4 lg:grid-cols-4">
             <StatCard label="Watch branch" value={project.branch} />
