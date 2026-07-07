@@ -120,11 +120,14 @@ has_compose_file() {
 
 export_compose_env() {
   export_docker_socket
-  if [[ -S /var/run/docker.sock ]] \
+  local tcp_host="tcp://127.0.0.1:${FORGE_PODMAN_API_PORT}"
+  if DOCKER_HOST="$tcp_host" docker info >/dev/null 2>&1; then
+    export DOCKER_HOST="$tcp_host"
+  elif [[ -S /var/run/docker.sock ]] \
     && DOCKER_HOST=unix:///var/run/docker.sock docker info >/dev/null 2>&1; then
     export DOCKER_HOST=unix:///var/run/docker.sock
   elif [[ -z "${DOCKER_HOST:-}" ]]; then
-    export DOCKER_HOST="tcp://127.0.0.1:${FORGE_PODMAN_API_PORT}"
+    export DOCKER_HOST="$tcp_host"
   fi
   export FORGE_CONTAINER_NAME="${FORGE_CONTAINER_NAME:-${COMPOSE_PROJECT_NAME}_app_1}"
   export COMPOSE_PROJECT_NAME

@@ -465,8 +465,8 @@ ensure_container_runtime() {
     return 0
   fi
   if load_common_sh; then
-    start_podman_api_service
-    return
+    start_podman_api_service || return 1
+    return 0
   fi
   start_podman_api_inline
 }

@@ -55,6 +55,10 @@ fi
 
 chown -R node:node /data
 
+if [[ -d /data/forge-source/.git ]]; then
+  chown -R node:node /data/forge-source 2>/dev/null || true
+fi
+
 if [[ -f /opt/forge/scripts/lib/common.sh ]]; then
   forge_entrypoint_cwd="$(pwd)"
   # shellcheck source=scripts/lib/common.sh
