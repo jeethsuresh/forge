@@ -59,6 +59,10 @@ if [[ -d /data/forge-source/.git ]]; then
   chown -R node:node /data/forge-source 2>/dev/null || true
 fi
 
+AGENT_HOME="/data/agent-home"
+export HOME="$AGENT_HOME"
+rm -f "${AGENT_HOME}/.gitconfig.lock"
+
 if [[ -f /opt/forge/scripts/lib/common.sh ]]; then
   forge_entrypoint_cwd="$(pwd)"
   # shellcheck source=scripts/lib/common.sh
@@ -67,8 +71,8 @@ if [[ -f /opt/forge/scripts/lib/common.sh ]]; then
   cd "$forge_entrypoint_cwd"
 fi
 
-AGENT_HOME="/data/agent-home"
-export HOME="$AGENT_HOME"
+chown -R node:node /data/agent-home /data/forge-source 2>/dev/null || true
+rm -f "${AGENT_HOME}/.gitconfig.lock"
 
 GIT_USER_NAME="${FORGE_GIT_USER_NAME:-Forge Agent}"
 GIT_USER_EMAIL="${FORGE_GIT_USER_EMAIL:-forge-agent@localhost}"
