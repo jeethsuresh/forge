@@ -9,6 +9,21 @@ import {
   isRecoveryPrompt,
   RECOVERY_PROMPT_PREFIX,
 } from "@/lib/deploy-recovery";
+import { parseGithubRepo } from "@/lib/github";
+
+function deleteProjectsForRepo(repo: string): void {
+  for (const row of db.select().from(projects).all()) {
+    try {
+      if (parseGithubRepo(row.githubRepo) === repo) {
+        db.delete(projects).where(eq(projects.id, row.id)).run();
+      }
+    } catch {
+      if (row.githubRepo.trim() === repo) {
+        db.delete(projects).where(eq(projects.id, row.id)).run();
+      }
+    }
+  }
+}
 
 describe("isRecoveryPrompt", () => {
   it("detects recovery prompts by prefix", () => {
@@ -48,6 +63,7 @@ describe("findForgeProject", () => {
 
   beforeEach(() => {
     previousRepo = process.env.FORGE_SELF_REPO;
+    deleteProjectsForRepo("acme/forge");
   });
 
   afterEach(() => {
