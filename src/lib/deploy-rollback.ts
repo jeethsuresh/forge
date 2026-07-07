@@ -92,6 +92,46 @@ export async function hasRollbackImage(project: Project): Promise<boolean> {
   return dockerImageExists(projectImageName(project), "rollback");
 }
 
+async function getComposeAppImageRef(
+  repoPath: string,
+  composeFile: string,
+  composeSlug: string,
+): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      "docker",
+      composeDockerArgs(composeFile, composeSlug, "config", "--format", "json"),
+      { cwd: repoPath, maxBuffer: 1024 * 1024 },
+    );
+    const config = JSON.parse(stdout.trim()) as {
+      services?: { app?: { image?: string } };
+    };
+    const image = config.services?.app?.image?.trim();
+    return image || null;
+  } catch {
+    return null;
+  }
+}
+
+async function inspectDockerImageId(imageRef: string): Promise<string | null> {
+  for (const ref of [imageRef, `localhost/${imageRef}`]) {
+    try {
+      const { stdout } = await execFileAsync("docker", [
+        "image",
+        "inspect",
+        "--format",
+        "{{.Id}}",
+        ref,
+      ]);
+      const id = stdout.trim();
+      if (id) return id;
+    } catch {
+      // try next ref
+    }
+  }
+  return null;
+}
+
 async function getComposeAppImageId(
   repoPath: string,
   composeFile: string,
@@ -104,10 +144,18 @@ async function getComposeAppImageId(
       { cwd: repoPath, maxBuffer: 1024 * 1024 },
     );
     const id = stdout.trim().split("\n")[0]?.trim();
-    return id || null;
+    if (id) return id;
   } catch {
-    return null;
+    // fall through to configured image ref
   }
+
+  const imageRef = await getComposeAppImageRef(
+    repoPath,
+    composeFile,
+    composeSlug,
+  );
+  if (!imageRef) return null;
+  return inspectDockerImageId(imageRef);
 }
 
 export async function tagComposeAppImage(

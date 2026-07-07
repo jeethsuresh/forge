@@ -17,6 +17,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run lint && npm run build
 
 FROM base AS test
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+  && rm -rf /var/lib/apt/lists/*
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 CMD ["npm", "test"]

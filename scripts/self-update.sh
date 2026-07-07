@@ -304,7 +304,7 @@ build_test_stage_and_cutover() {
 
   local built_id
   built_id="$(
-    cd "$SOURCE_DIR" && COMPOSE_PROJECT_NAME="$STAGING_PROJECT" compose_cmd images -q app | head -1
+    cd "$SOURCE_DIR" && COMPOSE_PROJECT_NAME="$STAGING_PROJECT" resolve_compose_app_image_id || true
   )"
   if [[ -z "$built_id" ]]; then
     LAST_UPGRADE_ERROR="Build did not produce an app image"

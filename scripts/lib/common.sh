@@ -235,6 +235,34 @@ compose_cmd() {
   docker compose -f "$file" -p "$COMPOSE_PROJECT_NAME" "$@"
 }
 
+resolve_compose_app_image_id() {
+  local image_id
+  image_id="$(compose_cmd images -q app 2>/dev/null | head -1 || true)"
+  if [[ -n "$image_id" ]]; then
+    echo "$image_id"
+    return 0
+  fi
+
+  local image_ref
+  image_ref="$(
+    compose_cmd config --format json 2>/dev/null \
+      | python3 -c "import json,sys; print(json.load(sys.stdin).get('services',{}).get('app',{}).get('image',''))" \
+      || true
+  )"
+  if [[ -z "$image_ref" ]]; then
+    return 1
+  fi
+
+  local ref
+  for ref in "$image_ref" "localhost/${image_ref}"; do
+    if docker image inspect "$ref" >/dev/null 2>&1; then
+      docker image inspect --format '{{.Id}}' "$ref"
+      return 0
+    fi
+  done
+  return 1
+}
+
 resolve_docker_socket() {
   if [[ -n "${DOCKER_SOCKET:-}" ]]; then
     if [[ -S "$DOCKER_SOCKET" ]]; then

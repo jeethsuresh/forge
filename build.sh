@@ -49,7 +49,7 @@ done
 
 if has_compose_file; then
   compose_cmd build
-  image_id="$(compose_cmd images -q app | head -1 || true)"
+  image_id="$(resolve_compose_app_image_id || true)"
   if [[ -n "$image_id" ]]; then
     docker tag "$image_id" forge-app:stable
     if ! docker image inspect forge-app:rollback >/dev/null 2>&1; then
