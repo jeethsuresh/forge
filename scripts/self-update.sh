@@ -458,6 +458,9 @@ run_rollback_trigger() {
 }
 
 ensure_container_runtime() {
+  if load_common_sh; then
+    export_compose_env
+  fi
   if docker info >/dev/null 2>&1; then
     return 0
   fi

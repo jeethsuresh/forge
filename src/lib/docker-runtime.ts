@@ -6,14 +6,18 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_PODMAN_API_PORT = "18765";
 
+function unixSocketHost(): string | null {
+  const socket = containerDockerSocket();
+  if (!isWritableSocket(socket)) return null;
+  return `unix://${socket}`;
+}
+
 export function dockerHostForRuntime(): string {
+  const socketHost = unixSocketHost();
+  if (socketHost) return socketHost;
+
   const configured = process.env.DOCKER_HOST?.trim();
   if (configured) return configured;
-
-  const socket = containerDockerSocket();
-  if (isWritableSocket(socket)) {
-    return `unix://${socket}`;
-  }
 
   const port = process.env.FORGE_PODMAN_API_PORT ?? DEFAULT_PODMAN_API_PORT;
   return `tcp://127.0.0.1:${port}`;
@@ -49,26 +53,46 @@ export function dockerExecEnv(): NodeJS.ProcessEnv {
   };
 }
 
-export async function ensureDockerDaemon(): Promise<void> {
+async function dockerInfoReachable(host: string): Promise<boolean> {
   try {
     await execFileAsync("docker", ["info"], {
-      env: dockerExecEnv(),
+      env: { ...process.env, DOCKER_HOST: host },
       timeout: 10_000,
     });
-    return;
+    return true;
   } catch {
-    // fall through
+    return false;
+  }
+}
+
+export async function ensureDockerDaemon(): Promise<void> {
+  const primary = dockerHostForRuntime();
+  if (await dockerInfoReachable(primary)) {
+    return;
   }
 
-  const host = dockerHostForRuntime();
-  if (host.startsWith("unix://")) {
+  const configured = process.env.DOCKER_HOST?.trim();
+  const socketHost = unixSocketHost();
+  if (configured && socketHost && configured !== socketHost) {
+    if (await dockerInfoReachable(socketHost)) {
+      return;
+    }
+  }
+
+  const port = process.env.FORGE_PODMAN_API_PORT ?? DEFAULT_PODMAN_API_PORT;
+  const tcpHost = `tcp://127.0.0.1:${port}`;
+  if (primary !== tcpHost && (await dockerInfoReachable(tcpHost))) {
+    return;
+  }
+
+  if (primary.startsWith("unix://") || socketHost) {
     throw new Error(
-      `Cannot reach container runtime at ${host}. Redeploy Forge with ./deploy.sh so the host socket is mounted.`,
+      `Cannot reach container runtime at ${primary}. Redeploy Forge with ./deploy.sh so the host socket is mounted.`,
     );
   }
 
   throw new Error(
-    `Cannot connect to container runtime at ${host}. Start podman API on the host with ./deploy.sh (port ${process.env.FORGE_PODMAN_API_PORT ?? DEFAULT_PODMAN_API_PORT}) or mount DOCKER_SOCKET into Forge.`,
+    `Cannot connect to container runtime at ${primary}. Start podman API on the host with ./deploy.sh (port ${port}) or mount DOCKER_SOCKET into Forge.`,
   );
 }
 
