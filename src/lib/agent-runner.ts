@@ -1030,6 +1030,19 @@ export async function stopAgentTurn(sessionId: string): Promise<void> {
   appendSessionLog(sessionId, "Agent stopped by user.");
 }
 
+export function clearAgentSessionLogs(sessionId: string): void {
+  const session = getAgentSession(sessionId);
+  if (!session) throw new Error("Session not found");
+  if (isAgentProcessRunning(sessionId)) {
+    throw new Error("Cannot clear logs while the agent is running");
+  }
+
+  db.update(agentSessions)
+    .set({ logs: "" })
+    .where(eq(agentSessions.id, sessionId))
+    .run();
+}
+
 export async function cancelAgentSession(sessionId: string): Promise<void> {
   const session = db
     .select()

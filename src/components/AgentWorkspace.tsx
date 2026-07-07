@@ -602,6 +602,29 @@ export function AgentWorkspace({
     }
   }
 
+  async function clearLogs() {
+    if (!selectedId) return;
+    if (!confirm("Clear this agent's raw logs? Chat history is not affected.")) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/agent-sessions/${selectedId}/clear-logs`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Failed to clear logs");
+        return;
+      }
+      await fetchSessions();
+      await fetchSessionDetail(selectedId);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function cancelSession() {
     if (!selectedId) return;
     if (
@@ -996,6 +1019,23 @@ export function AgentWorkspace({
                   className="min-h-9 rounded-lg px-2 py-1.5 text-xs text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
                 >
                   {showLogs ? "Chat" : "Logs"}
+                </button>
+              )}
+              {selectedId && showLogs && (
+                <button
+                  type="button"
+                  onClick={clearLogs}
+                  disabled={loading || hasActiveProcess || !sessionDetail?.logs}
+                  className="min-h-9 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-50"
+                  title={
+                    hasActiveProcess
+                      ? "Stop the agent before clearing logs"
+                      : !sessionDetail?.logs
+                        ? "No logs to clear"
+                        : "Clear raw agent logs"
+                  }
+                >
+                  Clear logs
                 </button>
               )}
             </div>

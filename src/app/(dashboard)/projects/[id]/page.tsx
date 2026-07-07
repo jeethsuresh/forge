@@ -20,7 +20,7 @@ import {
   type DeployEnvVarRow,
 } from "@/components/DeployEnvVarsEditor";
 
-type ProjectTab = "deploy" | "agents";
+type ProjectTab = "deploy" | "config" | "agents";
 
 const DEPLOYMENTS_PER_PAGE = 10;
 
@@ -328,12 +328,9 @@ export default function ProjectDetailPage() {
       <div className="mb-4 flex shrink-0 flex-col gap-4 sm:mb-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <ProjectRenameEditor
-              projectId={id}
-              name={project.name}
-              disabled={actionLoading || isDeploying}
-              onRenamed={fetchData}
-            />
+            <h1 className="text-xl font-semibold text-zinc-100 sm:text-2xl">
+              {project.name}
+            </h1>
             <span
               className={`inline-flex rounded border px-2.5 py-0.5 text-xs font-medium ${runtimeStatusBadgeColor(runtimeStatus)}`}
             >
@@ -357,6 +354,12 @@ export default function ProjectDetailPage() {
             onClick={() => setActiveTab("deploy")}
           >
             Deploy
+          </TabButton>
+          <TabButton
+            active={activeTab === "config"}
+            onClick={() => setActiveTab("config")}
+          >
+            Config &amp; history
           </TabButton>
           <TabButton
             active={activeTab === "agents"}
@@ -428,24 +431,7 @@ export default function ProjectDetailPage() {
             >
               Stop containers
             </button>
-            {!isForge && (
-              <button
-                onClick={deleteProject}
-                className="min-h-11 rounded-lg border border-red-400/20 px-4 py-2.5 text-sm text-red-400 hover:bg-red-400/10"
-              >
-                Remove project
-              </button>
-            )}
           </div>
-
-          <DeployEnvVarsEditor
-            key={project.updatedAt}
-            vars={project.deployEnvVars}
-            envFileSource={project.deployEnvFileSource}
-            disabled={actionLoading || deployBusy}
-            saving={envSaving}
-            onSave={saveDeployEnvVars}
-          />
 
           <div className="mb-6 grid grid-cols-2 gap-3 sm:mb-8 sm:gap-4 lg:grid-cols-4">
             <StatCard label="Watch branch" value={project.branch} />
@@ -526,115 +512,202 @@ export default function ProjectDetailPage() {
               </div>
             </section>
           )}
-
-          <section>
+        </div>
+      ) : activeTab === "config" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <section className="mb-8">
             <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
-              {isForge ? "Update history" : "Deployment history"}
+              Project
             </h2>
-            <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
-              {deployments.length === 0 ? (
-                <p className="px-4 py-8 text-center text-sm text-zinc-600">
-                  No deployments yet
-                </p>
-              ) : (
-                <>
-                  <ul className="divide-y divide-zinc-800">
-                    {paginatedDeployments.map((d) => {
-                    const expanded = expandedDeploymentId === d.id;
-                    return (
-                      <li key={d.id}>
-                        <button
-                          type="button"
-                          onClick={() => toggleDeployment(d.id)}
-                          aria-expanded={expanded}
-                          className={`flex min-h-11 w-full flex-col gap-2 px-4 py-3 text-left text-sm transition-colors hover:bg-zinc-800/50 sm:flex-row sm:items-center sm:justify-between ${
-                            expanded ? "bg-zinc-800/80" : ""
-                          }`}
-                        >
-                          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
-                            <span
-                              className={`shrink-0 text-zinc-500 transition-transform ${expanded ? "rotate-90" : ""}`}
-                              aria-hidden
-                            >
-                              ›
-                            </span>
-                            <span
-                              className={`rounded border px-2 py-0.5 text-xs font-medium capitalize ${statusColor(d.status)}`}
-                            >
-                              {d.status}
-                            </span>
-                            <span className="font-mono text-zinc-400">
-                              {shortSha(d.commitSha)}
-                            </span>
-                            <span className="text-zinc-600">{d.trigger}</span>
-                            {d.branch !== project.branch && (
-                              <span className="truncate font-mono text-xs text-orange-400/80">
-                                {d.branch}
-                              </span>
-                            )}
-                          </div>
-                          <span className="shrink-0 text-zinc-500">
-                            {formatRelativeTime(d.startedAt)}
-                          </span>
-                        </button>
-                        {expanded && (
-                          <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-4">
-                            {d.errorMessage && (
-                              <p className="mb-3 text-sm text-red-400">{d.errorMessage}</p>
-                            )}
-                            <pre className="max-h-80 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-zinc-400 sm:max-h-96">
-                              {d.logs || "No logs recorded."}
-                            </pre>
-                          </div>
-                        )}
-                      </li>
-                    );
-                    })}
-                  </ul>
-                  {deploymentPageCount > 1 && (
-                    <div className="flex items-center justify-between border-t border-zinc-800 px-4 py-3">
-                      <p className="text-xs text-zinc-500">
-                        Showing {deploymentRangeStart}–{deploymentRangeEnd} of{" "}
-                        {deployments.length}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDeploymentPage((page) => Math.max(0, page - 1))
-                          }
-                          disabled={safeDeploymentPage === 0}
-                          className="min-h-9 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
-                        >
-                          Previous
-                        </button>
-                        <span className="text-xs text-zinc-500">
-                          Page {safeDeploymentPage + 1} of {deploymentPageCount}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDeploymentPage((page) =>
-                              Math.min(deploymentPageCount - 1, page + 1),
-                            )
-                          }
-                          disabled={safeDeploymentPage >= deploymentPageCount - 1}
-                          className="min-h-9 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-4">
+              <ProjectRenameEditor
+                projectId={id}
+                name={project.name}
+                disabled={actionLoading || deployBusy}
+                onRenamed={fetchData}
+              />
             </div>
           </section>
+
+          <div className="mb-8">
+            <DeployEnvVarsEditor
+              key={project.updatedAt}
+              vars={project.deployEnvVars}
+              envFileSource={project.deployEnvFileSource}
+              disabled={actionLoading || deployBusy}
+              saving={envSaving}
+              onSave={saveDeployEnvVars}
+            />
+          </div>
+
+          <DeploymentHistorySection
+            isForge={isForge}
+            watchBranch={project.branch}
+            deployments={deployments}
+            paginatedDeployments={paginatedDeployments}
+            expandedDeploymentId={expandedDeploymentId}
+            toggleDeployment={toggleDeployment}
+            deploymentPageCount={deploymentPageCount}
+            safeDeploymentPage={safeDeploymentPage}
+            deploymentRangeStart={deploymentRangeStart}
+            deploymentRangeEnd={deploymentRangeEnd}
+            onPageChange={setDeploymentPage}
+          />
+
+          {!isForge && (
+            <section className="mt-8">
+              <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
+                Danger zone
+              </h2>
+              <div className="rounded-xl border border-red-400/20 bg-zinc-900 px-4 py-4">
+                <p className="mb-3 text-sm text-zinc-400">
+                  Remove this project from Forge. Running containers will not be
+                  stopped automatically.
+                </p>
+                <button
+                  onClick={deleteProject}
+                  className="min-h-11 rounded-lg border border-red-400/20 px-4 py-2.5 text-sm text-red-400 hover:bg-red-400/10"
+                >
+                  Remove project
+                </button>
+              </div>
+            </section>
+          )}
         </div>
       ) : (
         <AgentWorkspace projectId={id} className="min-h-0 flex-1" />
       )}
     </div>
+  );
+}
+
+function DeploymentHistorySection({
+  isForge,
+  watchBranch,
+  deployments,
+  paginatedDeployments,
+  expandedDeploymentId,
+  toggleDeployment,
+  deploymentPageCount,
+  safeDeploymentPage,
+  deploymentRangeStart,
+  deploymentRangeEnd,
+  onPageChange,
+}: {
+  isForge: boolean;
+  watchBranch: string;
+  deployments: Deployment[];
+  paginatedDeployments: Deployment[];
+  expandedDeploymentId: string | null;
+  toggleDeployment: (deploymentId: string) => void;
+  deploymentPageCount: number;
+  safeDeploymentPage: number;
+  deploymentRangeStart: number;
+  deploymentRangeEnd: number;
+  onPageChange: (page: number | ((page: number) => number)) => void;
+}) {
+  return (
+    <section>
+      <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
+        {isForge ? "Update history" : "Deployment history"}
+      </h2>
+      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
+        {deployments.length === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-zinc-600">
+            No deployments yet
+          </p>
+        ) : (
+          <>
+            <ul className="divide-y divide-zinc-800">
+              {paginatedDeployments.map((d) => {
+                const expanded = expandedDeploymentId === d.id;
+                return (
+                  <li key={d.id}>
+                    <button
+                      type="button"
+                      onClick={() => toggleDeployment(d.id)}
+                      aria-expanded={expanded}
+                      className={`flex min-h-11 w-full flex-col gap-2 px-4 py-3 text-left text-sm transition-colors hover:bg-zinc-800/50 sm:flex-row sm:items-center sm:justify-between ${
+                        expanded ? "bg-zinc-800/80" : ""
+                      }`}
+                    >
+                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
+                        <span
+                          className={`shrink-0 text-zinc-500 transition-transform ${expanded ? "rotate-90" : ""}`}
+                          aria-hidden
+                        >
+                          ›
+                        </span>
+                        <span
+                          className={`rounded border px-2 py-0.5 text-xs font-medium capitalize ${statusColor(d.status)}`}
+                        >
+                          {d.status}
+                        </span>
+                        <span className="font-mono text-zinc-400">
+                          {shortSha(d.commitSha)}
+                        </span>
+                        <span className="text-zinc-600">{d.trigger}</span>
+                        {d.branch !== watchBranch && (
+                          <span className="truncate font-mono text-xs text-orange-400/80">
+                            {d.branch}
+                          </span>
+                        )}
+                      </div>
+                      <span className="shrink-0 text-zinc-500">
+                        {formatRelativeTime(d.startedAt)}
+                      </span>
+                    </button>
+                    {expanded && (
+                      <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-4">
+                        {d.errorMessage && (
+                          <p className="mb-3 text-sm text-red-400">{d.errorMessage}</p>
+                        )}
+                        <pre className="max-h-80 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-zinc-400 sm:max-h-96">
+                          {d.logs || "No logs recorded."}
+                        </pre>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+            {deploymentPageCount > 1 && (
+              <div className="flex items-center justify-between border-t border-zinc-800 px-4 py-3">
+                <p className="text-xs text-zinc-500">
+                  Showing {deploymentRangeStart}–{deploymentRangeEnd} of{" "}
+                  {deployments.length}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onPageChange((page) => Math.max(0, page - 1))}
+                    disabled={safeDeploymentPage === 0}
+                    className="min-h-9 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+                  >
+                    Previous
+                  </button>
+                  <span className="text-xs text-zinc-500">
+                    Page {safeDeploymentPage + 1} of {deploymentPageCount}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onPageChange((page) =>
+                        Math.min(deploymentPageCount - 1, page + 1),
+                      )
+                    }
+                    disabled={safeDeploymentPage >= deploymentPageCount - 1}
+                    className="min-h-9 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 
