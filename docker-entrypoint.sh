@@ -56,10 +56,11 @@ fi
 chown -R node:node /data
 
 if [[ -f /opt/forge/scripts/lib/common.sh ]]; then
+  forge_entrypoint_cwd="$(pwd)"
   # shellcheck source=scripts/lib/common.sh
   source /opt/forge/scripts/lib/common.sh
-  ROOT_DIR=/opt/forge
   init_forge_release_state || true
+  cd "$forge_entrypoint_cwd"
 fi
 
 AGENT_HOME="/data/agent-home"
