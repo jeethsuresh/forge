@@ -391,23 +391,30 @@ async function executeDeployment(
         log,
       });
 
-      if (result === "success") {
+      if (result.status === "success") {
         updateStatus(deploymentId, "success", { completedAt: new Date() });
         syncLastSeenCommit(projectId, commitSha);
         log(`Deployment successful (${commitSha.slice(0, 7)}).`);
         return;
       }
 
-      if (result === "rolled_back") {
+      if (result.status === "rolled_back") {
+        const reason =
+          result.reason ??
+          "Production health check failed; rolled back to previous release";
+        log(`Release deploy rolled back: ${reason}`);
         updateStatus(deploymentId, "rolled_back", {
-          errorMessage: "Production health check failed; rolled back to previous release",
+          errorMessage: reason,
           completedAt: new Date(),
         });
         return;
       }
 
+      const reason = result.reason ?? "Release deploy failed";
+      log(`Release deploy failed: ${reason}`);
+
       updateStatus(deploymentId, "failed", {
-        errorMessage: "Release deploy failed",
+        errorMessage: reason,
         completedAt: new Date(),
       });
 
@@ -422,7 +429,7 @@ async function executeDeployment(
         projectId,
         branch: deployBranch,
         trigger,
-        errorMessage: "Release deploy failed",
+        errorMessage: reason,
         logs: failedRow?.logs ?? "",
       });
       return;

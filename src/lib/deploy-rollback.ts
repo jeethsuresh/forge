@@ -103,7 +103,7 @@ async function getComposeAppImageRef(
     const { stdout } = await execFileAsync(
       "docker",
       composeDockerArgs(composeFile, composeSlug, "config", "--format", "json"),
-      { cwd: repoPath, maxBuffer: 1024 * 1024 },
+      { cwd: repoPath, maxBuffer: 1024 * 1024, ...dockerOpts },
     );
     const config = JSON.parse(stdout.trim()) as {
       services?: { app?: { image?: string } };
@@ -118,13 +118,11 @@ async function getComposeAppImageRef(
 async function inspectDockerImageId(imageRef: string): Promise<string | null> {
   for (const ref of [imageRef, `localhost/${imageRef}`]) {
     try {
-      const { stdout } = await execFileAsync("docker", [
-        "image",
-        "inspect",
-        "--format",
-        "{{.Id}}",
-        ref,
-      ]);
+      const { stdout } = await execFileAsync(
+        "docker",
+        ["image", "inspect", "--format", "{{.Id}}", ref],
+        dockerOpts,
+      );
       const id = stdout.trim();
       if (id) return id;
     } catch {
@@ -173,7 +171,12 @@ export async function tagComposeAppImage(
 
   const imageId = await getComposeAppImageId(repoPath, composeFile, composeSlug);
   if (!imageId) {
-    throw new Error("Build did not produce an app image");
+    const imageRef =
+      (await getComposeAppImageRef(repoPath, composeFile, composeSlug)) ??
+      "(unknown)";
+    throw new Error(
+      `Build did not produce an app image (project=${composeSlug}, image=${imageRef})`,
+    );
   }
 
   const imageName = projectImageName(project);
@@ -255,6 +258,8 @@ export async function waitForHealth(
   label: string,
 ): Promise<boolean> {
   const url = `http://127.0.0.1:${port}${healthPath}`;
+  let lastDetail = "no response";
+
   for (let attempt = 1; attempt <= HEALTH_RETRIES; attempt++) {
     try {
       const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
@@ -262,14 +267,25 @@ export async function waitForHealth(
         log(`${label} health check passed (attempt ${attempt})`);
         return true;
       }
-    } catch {
-      // retry
+      lastDetail = `HTTP ${response.status} ${response.statusText}`;
+    } catch (err) {
+      lastDetail = err instanceof Error ? err.message : String(err);
     }
+
+    if (attempt === 1 || attempt % 5 === 0) {
+      log(
+        `${label} health check attempt ${attempt}/${HEALTH_RETRIES}: ${lastDetail} (${url})`,
+      );
+    }
+
     if (attempt < HEALTH_RETRIES) {
       await new Promise((resolve) => setTimeout(resolve, HEALTH_INTERVAL_MS));
     }
   }
-  log(`${label} health check failed after ${HEALTH_RETRIES} attempts`);
+
+  log(
+    `${label} health check failed after ${HEALTH_RETRIES} attempts (last: ${lastDetail}; url: ${url})`,
+  );
   return false;
 }
 
@@ -372,9 +388,14 @@ export interface ComposeReleaseDeployContext {
   log: (msg: string) => void;
 }
 
+export interface ComposeReleaseDeployOutcome {
+  status: "success" | "rolled_back" | "failed";
+  reason?: string;
+}
+
 export async function runComposeReleaseDeploy(
   ctx: ComposeReleaseDeployContext,
-): Promise<"success" | "rolled_back" | "failed"> {
+): Promise<ComposeReleaseDeployOutcome> {
   const { project, commitSha, composeSlug, scriptEnv, scriptArgs, log } = ctx;
   const repoPath = resolveClonePath(project.clonePath);
   const stagingSlug = stagingProjectName(composeSlug);
@@ -383,8 +404,9 @@ export async function runComposeReleaseDeploy(
   const hostPort = String(scriptEnv.HOST_PORT ?? "3000");
 
   try {
+    log(`Tagging compose app image for project ${composeSlug}`);
     await tagComposeAppImage(project, "next", composeSlug);
-    log("Tagged build as next release image");
+    log(`Tagged ${projectImageName(project)}:next`);
 
     const stagingEnv = {
       ...withImageTagEnv(scriptEnv, "next"),
@@ -394,7 +416,7 @@ export async function runComposeReleaseDeploy(
     };
     const stagingArgs = projectScriptArgs(stagingSlug, stagingEnv);
 
-    log(`Starting staging deploy on port ${stagingPort}`);
+    log(`Starting staging deploy on port ${stagingPort} (project ${stagingSlug})`);
     await runScript("deploy.sh", repoPath, log, {
       env: stagingEnv,
       args: [...stagingArgs, "--detach"],
@@ -402,11 +424,13 @@ export async function runComposeReleaseDeploy(
 
     if (!(await waitForHealth(stagingPort, healthPath, log, "Staging"))) {
       await teardownStaging(project, stagingSlug);
-      log("Staging health check failed; production was not changed");
-      return "failed";
+      const reason = `Staging health check failed on port ${stagingPort}${healthPath}`;
+      log(`Release deploy aborted: ${reason}`);
+      return { status: "failed", reason };
     }
 
     await teardownStaging(project, stagingSlug);
+    log("Staging validation passed; tearing down staging containers");
 
     const hasRollback = await ensureRollbackImage(project, composeSlug);
     if (!hasRollback) {
@@ -415,7 +439,7 @@ export async function runComposeReleaseDeploy(
       );
     }
 
-    log(`Deploying new release to production port ${hostPort}`);
+    log(`Deploying new release to production port ${hostPort} (project ${composeSlug})`);
     await deployWithImageTag(
       project,
       composeSlug,
@@ -434,16 +458,28 @@ export async function runComposeReleaseDeploy(
         scriptArgs,
         log,
       );
-      return rolled ? "rolled_back" : "failed";
+      if (rolled) {
+        const reason =
+          `Production health check failed on port ${hostPort}${healthPath}; rolled back to previous release`;
+        log(reason);
+        return { status: "rolled_back", reason };
+      }
+      const reason =
+        `Production health check failed on port ${hostPort}${healthPath} and rollback did not recover`;
+      log(reason);
+      return { status: "failed", reason };
     }
 
     await promoteNextToStable(project, commitSha);
     log("Release deploy completed successfully");
-    return "success";
+    return { status: "success" };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log(`ERROR during release deploy: ${message}`);
-    return "failed";
+    if (err instanceof Error && err.stack) {
+      log(err.stack);
+    }
+    return { status: "failed", reason: message };
   }
 }
 
