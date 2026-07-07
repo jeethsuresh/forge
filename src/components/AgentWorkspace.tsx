@@ -684,6 +684,12 @@ export function AgentWorkspace({
     canCommitOrDeploy && sessionDetail?.status === "completed";
   const showFailedAgentActions =
     canCommitOrDeploy && sessionDetail?.status === "failed";
+  const showFinishAndDeploy = Boolean(
+    canCommitOrDeploy &&
+      sessionDetail &&
+      sessionDetail.hasFileEdits !== false &&
+      !sessionDetail.deploymentId,
+  );
   const showContinueForm = Boolean(canStartOnBranch && isTerminalSession);
   const showNewAgentForm = Boolean(canStartOnBranch && !selectedId);
 
@@ -974,6 +980,16 @@ export function AgentWorkspace({
               )}
               {showFinishedAgentActions && (
                 <>
+                  {showFinishAndDeploy && (
+                    <button
+                      type="button"
+                      onClick={finishSession}
+                      disabled={loading}
+                      className="min-h-9 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+                    >
+                      Finish &amp; deploy
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={commitSession}
@@ -986,7 +1002,7 @@ export function AgentWorkspace({
                     type="button"
                     onClick={deploySession}
                     disabled={loading}
-                    className="min-h-9 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+                    className="min-h-9 rounded-lg border border-orange-400/30 bg-orange-400/10 px-2.5 py-1.5 text-xs font-medium text-orange-300 hover:bg-orange-400/20 disabled:opacity-50"
                   >
                     Deploy
                   </button>
@@ -994,6 +1010,16 @@ export function AgentWorkspace({
               )}
               {showFailedAgentActions && (
                 <>
+                  {showFinishAndDeploy && (
+                    <button
+                      type="button"
+                      onClick={finishSession}
+                      disabled={loading}
+                      className="min-h-9 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+                    >
+                      Finish &amp; deploy
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={commitSession}
@@ -1006,7 +1032,7 @@ export function AgentWorkspace({
                     type="button"
                     onClick={deploySession}
                     disabled={loading}
-                    className="min-h-9 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+                    className="min-h-9 rounded-lg border border-orange-400/30 bg-orange-400/10 px-2.5 py-1.5 text-xs font-medium text-orange-300 hover:bg-orange-400/20 disabled:opacity-50"
                   >
                     Deploy
                   </button>
@@ -1051,6 +1077,25 @@ export function AgentWorkspace({
 
           {sessionDetail &&
             isTerminalSession &&
+            sessionDetail.status === "completed" &&
+            showFinishAndDeploy && (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-orange-400/5 px-4 py-3">
+                <p className="text-sm text-zinc-300">
+                  Agent session is done. Commit and deploy changes in one step.
+                </p>
+                <button
+                  type="button"
+                  onClick={finishSession}
+                  disabled={loading}
+                  className="min-h-9 shrink-0 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+                >
+                  Finish &amp; deploy
+                </button>
+              </div>
+            )}
+
+          {sessionDetail &&
+            isTerminalSession &&
             sessionDetail.hasFileEdits === false && (
               <p className="border-b border-zinc-800 bg-zinc-800/40 px-4 py-2 text-xs text-zinc-400">
                 Session finished with no file changes.
@@ -1059,7 +1104,27 @@ export function AgentWorkspace({
 
           {sessionDetail &&
             !isTerminalSession &&
-            sessionDetail.hasFileEdits === true && (
+            sessionDetail.hasFileEdits === true &&
+            showFinishAndDeploy && (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-orange-400/5 px-4 py-3">
+                <p className="text-sm text-zinc-300">
+                  Agent finished with file changes ready to ship.
+                </p>
+                <button
+                  type="button"
+                  onClick={finishSession}
+                  disabled={loading}
+                  className="min-h-9 shrink-0 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+                >
+                  Finish &amp; deploy
+                </button>
+              </div>
+            )}
+
+          {sessionDetail &&
+            !isTerminalSession &&
+            sessionDetail.hasFileEdits === true &&
+            !showFinishAndDeploy && (
               <p className="border-b border-zinc-800 bg-zinc-800/40 px-4 py-2 text-xs text-zinc-400">
                 Agent edited files on this branch.
               </p>

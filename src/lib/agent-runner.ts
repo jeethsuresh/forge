@@ -825,10 +825,9 @@ function assertSessionReadyForPostAgentAction(sessionId: string) {
 
 function assertSessionReadyForFinish(sessionId: string) {
   const session = assertSessionReadyForPostAgentAction(sessionId);
-  if (session.status !== "running") {
-    throw new Error(
-      "Use Commit or Deploy on a finished session; Finish is only for an active agent that has stopped working",
-    );
+  const allowedStatuses: AgentSessionStatus[] = ["running", "completed", "failed"];
+  if (!allowedStatuses.includes(session.status)) {
+    throw new Error("Session is not ready to finish and deploy");
   }
   return session;
 }
