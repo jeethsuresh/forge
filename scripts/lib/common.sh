@@ -250,6 +250,27 @@ stop_podman_api_service() {
   rm -f "$PODMAN_API_PID_FILE"
 }
 
+prune_stale_compose_networks() {
+  local network="${COMPOSE_PROJECT_NAME}_default"
+
+  if ! docker network inspect "$network" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local label containers
+  label="$(docker network inspect "$network" --format '{{index .Labels "com.docker.compose.network"}}' 2>/dev/null || true)"
+  if [[ "$label" == "default" ]]; then
+    return 0
+  fi
+
+  containers="$(docker network inspect "$network" --format '{{len .Containers}}' 2>/dev/null || echo 1)"
+  if [[ "$containers" != "0" ]]; then
+    return 0
+  fi
+
+  docker network rm "$network" >/dev/null 2>&1 || true
+}
+
 compose_cmd() {
   local file
   file="$(compose_file_path)"
@@ -258,6 +279,7 @@ compose_cmd() {
     exit 1
   fi
   export_compose_env
+  prune_stale_compose_networks
   docker compose -f "$file" -p "$COMPOSE_PROJECT_NAME" "$@"
 }
 
