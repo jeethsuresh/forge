@@ -289,7 +289,6 @@ async function spawnUpdater(
   const cursorConfigDir = hostMounts.cursorConfigDir;
 
   const hostSocket = hostDockerSocket();
-  const containerSocket = containerDockerSocket();
 
   const args = [
     "run",
@@ -302,13 +301,11 @@ async function spawnUpdater(
     "-v",
     `${forgeDataVolumeName()}:/data`,
     "-v",
-    `${hostSocket}:${containerSocket}`,
+    `${hostSocket}:${containerDockerSocket()}`,
     "-e",
     `DOCKER_HOST=${dockerHost}`,
     "-e",
-    `DOCKER_SOCKET=${containerSocket}`,
-    "-e",
-    `FORGE_DOCKER_SOCKET=${containerSocket}`,
+    `DOCKER_SOCKET=${hostSocket}`,
     "-e",
     `FORGE_DB_PATH=${process.env.FORGE_DB_PATH ?? "/data/forge.db"}`,
     "-e",
