@@ -156,6 +156,10 @@ compose_inline() {
     load_persisted_host_mount_paths || true
     export COMPOSE_PROJECT_NAME HOST_PORT FORGE_PODMAN_API_PORT
     export FORGE_CURSOR_AGENT_DIR FORGE_CURSOR_CONFIG_DIR
+    if [[ -S /var/run/docker.sock ]]; then
+      export DOCKER_SOCKET=/var/run/docker.sock
+      export FORGE_DOCKER_SOCKET=/var/run/docker.sock
+    fi
   fi
   local compose_file="$COMPOSE_FILE"
   if [[ ! -f "$compose_file" && -f "$FORGE_COMPOSE_FILE" ]]; then

@@ -367,6 +367,11 @@ EOF
 }
 
 resolve_docker_socket() {
+  if [[ -S /var/run/docker.sock ]]; then
+    echo "/var/run/docker.sock"
+    return
+  fi
+
   local configured="${DOCKER_SOCKET:-}"
 
   if [[ -n "$configured" && -S "$configured" ]]; then
