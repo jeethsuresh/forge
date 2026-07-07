@@ -307,6 +307,8 @@ async function spawnUpdater(
     "-e",
     `DOCKER_SOCKET=${hostSocket}`,
     "-e",
+    `FORGE_RUN_AS_ROOT=1`,
+    "-e",
     `FORGE_DB_PATH=${process.env.FORGE_DB_PATH ?? "/data/forge.db"}`,
     "-e",
     `FORGE_SELF_REPO=${process.env.FORGE_SELF_REPO ?? ""}`,

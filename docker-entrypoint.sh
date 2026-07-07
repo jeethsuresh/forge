@@ -98,4 +98,12 @@ PY
   gosu node env HOME="$AGENT_HOME" git config --global credential.helper "store --file ${CRED_FILE}"
 fi
 
+if [[ "${FORGE_RUN_AS_ROOT:-}" == "1" ]]; then
+  export HOME="/data/agent-home"
+  git config --global user.name "$GIT_USER_NAME"
+  git config --global user.email "$GIT_USER_EMAIL"
+  git config --global --add safe.directory '*'
+  exec "$@"
+fi
+
 exec gosu node env HOME="$AGENT_HOME" "$@"

@@ -472,19 +472,11 @@ ensure_container_runtime() {
 }
 
 git_in_source() {
-  if [[ "$(id -u)" -eq 0 ]]; then
-    git -C "$SOURCE_DIR" "$@"
-    return
-  fi
-  gosu root git -C "$SOURCE_DIR" "$@"
+  git -C "$SOURCE_DIR" "$@"
 }
 
 normalize_source_permissions() {
-  if [[ "$(id -u)" -eq 0 ]]; then
-    chown -R node:node "$SOURCE_DIR" 2>/dev/null || true
-    return
-  fi
-  gosu root chown -R node:node "$SOURCE_DIR" 2>/dev/null || true
+  chown -R node:node "$SOURCE_DIR" 2>/dev/null || true
 }
 
 run_upgrade() {
