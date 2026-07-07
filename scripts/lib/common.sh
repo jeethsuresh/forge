@@ -290,13 +290,19 @@ resolve_compose_app_image_id() {
 }
 
 resolve_docker_socket() {
-  if [[ -n "${DOCKER_SOCKET:-}" ]]; then
-    if [[ -S "$DOCKER_SOCKET" ]]; then
-      echo "$DOCKER_SOCKET"
-      return
+  local configured="${DOCKER_SOCKET:-}"
+
+  if [[ -n "$configured" && -S "$configured" ]]; then
+    echo "$configured"
+    return
+  fi
+
+  if [[ -n "$configured" ]]; then
+    if [[ -S /var/run/docker.sock ]]; then
+      : # Inside Forge: DOCKER_SOCKET is the host path for compose mounts.
+    else
+      echo "DOCKER_SOCKET is set but not a socket: $configured (falling back to auto-detect)" >&2
     fi
-    echo "DOCKER_SOCKET is set but not a socket: $DOCKER_SOCKET" >&2
-    exit 1
   fi
 
   local candidates=(
