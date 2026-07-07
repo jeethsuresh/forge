@@ -55,6 +55,13 @@ fi
 
 chown -R node:node /data
 
+if [[ -f /opt/forge/scripts/lib/common.sh ]]; then
+  # shellcheck source=scripts/lib/common.sh
+  source /opt/forge/scripts/lib/common.sh
+  ROOT_DIR=/opt/forge
+  init_forge_release_state || true
+fi
+
 AGENT_HOME="/data/agent-home"
 export HOME="$AGENT_HOME"
 

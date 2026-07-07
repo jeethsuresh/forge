@@ -247,8 +247,11 @@ export function resolveStagingPort(scriptEnv: NodeJS.ProcessEnv): string {
   if (scriptEnv.STAGING_PORT) {
     return String(scriptEnv.STAGING_PORT);
   }
+  if (scriptEnv.FORGE_STAGING_PORT) {
+    return String(scriptEnv.FORGE_STAGING_PORT);
+  }
   const hostPort = Number(scriptEnv.HOST_PORT ?? "3000");
-  return String(hostPort + 456);
+  return String(hostPort + 466);
 }
 
 export async function waitForHealth(

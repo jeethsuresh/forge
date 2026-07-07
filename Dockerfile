@@ -14,6 +14,7 @@ FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV FORGE_DB_PATH=:memory:
 RUN npm run lint && npm run build
 
 FROM base AS test

@@ -291,17 +291,26 @@ resolve_compose_app_image_id() {
     return 0
   fi
 
+  local image_tag="${FORGE_IMAGE_TAG:-stable}"
+  local ref
+  for ref in "forge-app:${image_tag}" "localhost/forge-app:${image_tag}"; do
+    if docker image inspect "$ref" >/dev/null 2>&1; then
+      docker image inspect --format '{{.Id}}' "$ref"
+      return 0
+    fi
+  done
+
   local image_ref
   image_ref="$(
     compose_cmd config --format json 2>/dev/null \
       | python3 -c "import json,sys; print(json.load(sys.stdin).get('services',{}).get('app',{}).get('image',''))" \
+      2>/dev/null \
       || true
   )"
   if [[ -z "$image_ref" ]]; then
     return 1
   fi
 
-  local ref
   for ref in "$image_ref" "localhost/${image_ref}"; do
     if docker image inspect "$ref" >/dev/null 2>&1; then
       docker image inspect --format '{{.Id}}' "$ref"
@@ -309,6 +318,52 @@ resolve_compose_app_image_id() {
     fi
   done
   return 1
+}
+
+pick_free_port() {
+  local port="${1:?port required}"
+  local max_port="${2:-3999}"
+  if ! command -v ss >/dev/null 2>&1; then
+    echo "$port"
+    return 0
+  fi
+  while ss -tln 2>/dev/null | grep -q ":${port} "; do
+    port=$((port + 1))
+    if [[ "$port" -gt "$max_port" ]]; then
+      echo "No free port found between ${1} and ${max_port}" >&2
+      return 1
+    fi
+  done
+  echo "$port"
+}
+
+init_forge_release_state() {
+  local state_file="${FORGE_RELEASE_STATE:-/data/forge-release.json}"
+  if [[ -f "$state_file" ]]; then
+    return 0
+  fi
+
+  local commit=""
+  local source_dir="${FORGE_SOURCE_DIR:-/data/forge-source}"
+  if [[ -d "${source_dir}/.git" ]]; then
+    commit="$(git -C "$source_dir" rev-parse HEAD 2>/dev/null || true)"
+  elif [[ -d "${ROOT_DIR}/.git" ]]; then
+    commit="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
+  fi
+
+  if [[ -z "$commit" ]]; then
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$state_file")"
+  cat >"$state_file" <<EOF
+{
+  "stableImageTag": "stable",
+  "rollbackImageTag": "rollback",
+  "stableCommitSha": "${commit}",
+  "updatedAt": "$(date -Iseconds)"
+}
+EOF
 }
 
 resolve_docker_socket() {

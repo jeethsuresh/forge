@@ -311,7 +311,7 @@ async function spawnUpdater(
     "-e",
     `HOST_PORT=${process.env.PORT ?? process.env.HOST_PORT ?? "3000"}`,
     "-e",
-    `FORGE_STAGING_PORT=${process.env.FORGE_STAGING_PORT ?? "3456"}`,
+    `FORGE_STAGING_PORT=${process.env.FORGE_STAGING_PORT ?? "3466"}`,
     "-e",
     `COMPOSE_PROJECT_NAME=${process.env.COMPOSE_PROJECT_NAME ?? "forge"}`,
     "-e",

@@ -81,7 +81,7 @@ describe("deploy-rollback helpers", () => {
   });
 
   it("picks a staging port from HOST_PORT when STAGING_PORT is unset", () => {
-    expect(resolveStagingPort({ HOST_PORT: "3000" })).toBe("3456");
+    expect(resolveStagingPort({ HOST_PORT: "3000" })).toBe("3466");
     expect(resolveStagingPort({ STAGING_PORT: "3999", HOST_PORT: "3000" })).toBe(
       "3999",
     );

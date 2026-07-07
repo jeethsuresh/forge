@@ -6,7 +6,7 @@ set -euo pipefail
 UPDATE_ID=""
 ROLLBACK=0
 SOURCE_DIR="${FORGE_SOURCE_DIR:-/data/forge-source}"
-STAGING_PORT="${FORGE_STAGING_PORT:-3456}"
+STAGING_PORT="${FORGE_STAGING_PORT:-3466}"
 STATE_FILE="${FORGE_RELEASE_STATE:-/data/forge-release.json}"
 DB_PATH="${FORGE_DB_PATH:-/data/forge.db}"
 IMAGE_NAME="${FORGE_IMAGE_NAME:-forge-app}"
@@ -30,7 +30,7 @@ Options:
   --update-id ID        Forge update record ID (required)
   --rollback            Redeploy the previous stable image instead of pulling new code
   --source-dir PATH     Forge source checkout (default: /data/forge-source)
-  --staging-port PORT   Staging port for health checks (default: 3456)
+  --staging-port PORT   Staging port for health checks (default: 3466)
   -h, --help            Show help
 EOF
 }
@@ -89,6 +89,27 @@ load_common_sh() {
     source "${SOURCE_DIR}/scripts/lib/common.sh"
     return 0
   fi
+  return 1
+}
+
+resolve_built_image_id() {
+  local project="$1"
+  local image_id=""
+  if declare -F resolve_compose_app_image_id >/dev/null; then
+    image_id="$(
+      cd "$SOURCE_DIR" && COMPOSE_PROJECT_NAME="$project" resolve_compose_app_image_id || true
+    )"
+  fi
+  if [[ -n "$image_id" ]]; then
+    echo "$image_id"
+    return 0
+  fi
+  for ref in "${IMAGE_NAME}:next" "localhost/${IMAGE_NAME}:next" "${IMAGE_NAME}:stable" "localhost/${IMAGE_NAME}:stable"; do
+    if docker image inspect "$ref" >/dev/null 2>&1; then
+      docker image inspect --format '{{.Id}}' "$ref"
+      return 0
+    fi
+  done
   return 1
 }
 
@@ -323,9 +344,7 @@ build_test_stage_and_cutover() {
   fi
 
   local built_id
-  built_id="$(
-    cd "$SOURCE_DIR" && COMPOSE_PROJECT_NAME="$STAGING_PROJECT" resolve_compose_app_image_id || true
-  )"
+  built_id="$(resolve_built_image_id "$STAGING_PROJECT" || true)"
   if [[ -z "$built_id" ]]; then
     LAST_UPGRADE_ERROR="Build did not produce an app image"
     return 1
@@ -461,6 +480,12 @@ run_upgrade() {
   set_status "pulling"
   ensure_container_runtime
   log "Container runtime is ready"
+
+  if declare -F pick_free_port >/dev/null; then
+    STAGING_PORT="$(pick_free_port "$STAGING_PORT")"
+    export FORGE_STAGING_PORT="$STAGING_PORT"
+    log "Using staging port ${STAGING_PORT}"
+  fi
 
   local previous_commit
   previous_commit="$(read_release_commit)"

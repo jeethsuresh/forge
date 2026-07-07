@@ -250,7 +250,7 @@ export async function retryForgeSourceBuildAndTest(
     throw new Error(`Forge source directory is missing build.sh (${sourceDir})`);
   }
 
-  const stagingPort = process.env.FORGE_STAGING_PORT ?? "3456";
+  const stagingPort = process.env.FORGE_STAGING_PORT ?? "3466";
   const scriptEnv = {
     ...process.env,
     HOST_PORT: stagingPort,
