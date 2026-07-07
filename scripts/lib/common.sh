@@ -19,6 +19,17 @@ PODMAN_API_PID_FILE="${PODMAN_API_PID_FILE:-./data/podman-api.pid}"
 FORGE_PODMAN_API_PORT="${FORGE_PODMAN_API_PORT:-18765}"
 FORGE_HOST_MOUNTS_FILE="${FORGE_HOST_MOUNTS_FILE:-/data/forge-host-mounts.json}"
 
+if [[ -d /data ]] && [[ -w /data ]]; then
+  PODMAN_API_PID_FILE="${PODMAN_API_PID_FILE:-/data/podman-api.pid}"
+  if [[ "$PODMAN_API_PID_FILE" == "./data/"* ]]; then
+    PODMAN_API_PID_FILE="/data/podman-api.pid"
+  fi
+fi
+
+docker_runtime_ready() {
+  docker info >/dev/null 2>&1
+}
+
 persist_host_mount_paths() {
   if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then
     return 0
@@ -108,6 +119,11 @@ has_compose_file() {
 }
 
 export_compose_env() {
+  export_docker_socket
+  if [[ -z "${DOCKER_HOST:-}" ]]; then
+    export DOCKER_HOST="tcp://127.0.0.1:${FORGE_PODMAN_API_PORT}"
+  fi
+  export FORGE_CONTAINER_NAME="${FORGE_CONTAINER_NAME:-${COMPOSE_PROJECT_NAME}_app_1}"
   export COMPOSE_PROJECT_NAME
   export HOST_PORT
   export FORGE_PODMAN_API_PORT
@@ -191,8 +207,18 @@ require_cursor_agent() {
 }
 
 start_podman_api_service() {
-  if ss -tln 2>/dev/null | grep -q ":${FORGE_PODMAN_API_PORT} "; then
+  if docker_runtime_ready; then
     return 0
+  fi
+
+  if command -v ss >/dev/null 2>&1 \
+    && ss -tln 2>/dev/null | grep -q ":${FORGE_PODMAN_API_PORT} "; then
+    return 0
+  fi
+
+  if ! command -v podman >/dev/null 2>&1; then
+    echo "Container runtime is not reachable and podman is not installed to start an API service." >&2
+    exit 1
   fi
 
   mkdir -p "$(dirname "$PODMAN_API_PID_FILE")"

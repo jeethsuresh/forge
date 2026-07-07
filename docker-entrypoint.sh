@@ -3,8 +3,25 @@ set -euo pipefail
 
 mkdir -p /data/repos /data/agent-home/.cache /data/agent-home/.config /data/agent-home/.cursor/chats
 
-if [[ -x /opt/cursor-agent/cursor-agent ]]; then
-  ln -sf /opt/cursor-agent/cursor-agent /usr/local/bin/agent
+link_cursor_agent() {
+  local candidate
+  for candidate in \
+    /opt/cursor-agent/cursor-agent \
+    /opt/cursor-agent/agent; do
+    if [[ -x "$candidate" ]]; then
+      ln -sf "$candidate" /usr/local/bin/agent
+      return 0
+    fi
+  done
+  return 1
+}
+
+if ! link_cursor_agent; then
+  echo "WARNING: Cursor agent not found under /opt/cursor-agent. Agent sessions will fail until Forge is redeployed with ./deploy.sh." >&2
+fi
+
+if [[ -n "${FORGE_CONTAINER_NAME:-}" ]]; then
+  printf '%s\n' "$FORGE_CONTAINER_NAME" > /data/forge-container-name
 fi
 
 if [[ -n "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then

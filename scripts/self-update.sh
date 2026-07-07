@@ -71,24 +71,42 @@ if [[ -z "$UPDATE_ID" ]]; then
   exit 1
 fi
 
-load_common_sh() {
-  if [[ -f "${SOURCE_DIR}/scripts/lib/common.sh" ]]; then
-    # shellcheck source=scripts/lib/common.sh
-    source "${SOURCE_DIR}/scripts/lib/common.sh"
-    return 0
+mark_failed_exit() {
+  local code="$1"
+  if [[ -n "$UPDATE_ID" && -f "$DB_PATH" ]]; then
+    set_status "failed" "Updater exited with code ${code}"
   fi
+}
+
+load_common_sh() {
   if [[ -f "/opt/forge/scripts/lib/common.sh" ]]; then
     # shellcheck source=scripts/lib/common.sh
     source "/opt/forge/scripts/lib/common.sh"
+    return 0
+  fi
+  if [[ -f "${SOURCE_DIR}/scripts/lib/common.sh" ]]; then
+    # shellcheck source=scripts/lib/common.sh
+    source "${SOURCE_DIR}/scripts/lib/common.sh"
     return 0
   fi
   return 1
 }
 
 start_podman_api_inline() {
-  if ss -tln 2>/dev/null | grep -q ":${FORGE_PODMAN_API_PORT} "; then
+  if docker info >/dev/null 2>&1; then
     return 0
   fi
+
+  if command -v ss >/dev/null 2>&1 \
+    && ss -tln 2>/dev/null | grep -q ":${FORGE_PODMAN_API_PORT} "; then
+    return 0
+  fi
+
+  if ! command -v podman >/dev/null 2>&1; then
+    echo "Container runtime is not reachable and podman is not installed to start an API service." >&2
+    exit 1
+  fi
+
   podman system service --time=0 "tcp://127.0.0.1:${FORGE_PODMAN_API_PORT}" \
     >>/data/podman-api.log 2>&1 &
   for _ in $(seq 1 30); do
@@ -153,6 +171,8 @@ set_status() {
       2>/dev/null || true
   fi
 }
+
+trap '[[ $? -eq 0 ]] || mark_failed_exit $?' EXIT
 
 mark_success() {
   local commit_sha="${1:-}"
@@ -404,13 +424,9 @@ rollback_production() {
 }
 
 run_rollback_trigger() {
+  log "Starting manual Forge rollback"
   set_status "cutover"
-  log "Starting manual rollback"
-  if load_common_sh; then
-    start_podman_api_service
-  else
-    start_podman_api_inline
-  fi
+  ensure_container_runtime
   if ! ensure_rollback_image; then
     set_status "failed" "No rollback image is available"
     exit 1
@@ -422,6 +438,17 @@ run_rollback_trigger() {
   exit 1
 }
 
+ensure_container_runtime() {
+  if docker info >/dev/null 2>&1; then
+    return 0
+  fi
+  if load_common_sh; then
+    start_podman_api_service
+    return
+  fi
+  start_podman_api_inline
+}
+
 run_upgrade() {
   local repo="${FORGE_SELF_REPO:-}"
   local branch="${FORGE_SELF_BRANCH:-main}"
@@ -430,11 +457,10 @@ run_upgrade() {
     exit 1
   fi
 
-  if load_common_sh; then
-    start_podman_api_service
-  else
-    start_podman_api_inline
-  fi
+  log "Starting Forge upgrade for ${repo}@${branch}"
+  set_status "pulling"
+  ensure_container_runtime
+  log "Container runtime is ready"
 
   local previous_commit
   previous_commit="$(read_release_commit)"
@@ -444,7 +470,6 @@ run_upgrade() {
       2>/dev/null || true
   fi
 
-  set_status "pulling"
   mkdir -p "$SOURCE_DIR"
   if [[ ! -d "${SOURCE_DIR}/.git" ]]; then
     log "Cloning https://github.com/${repo}.git (branch ${branch})"
@@ -490,7 +515,9 @@ run_upgrade() {
 }
 
 if [[ "$ROLLBACK" -eq 1 ]]; then
+  log "Forge self-update orchestrator started (rollback)"
   run_rollback_trigger
 else
+  log "Forge self-update orchestrator started (upgrade)"
   run_upgrade
 fi

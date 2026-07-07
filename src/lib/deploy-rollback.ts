@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { promisify } from "util";
 import { composeProjectName } from "@/lib/compose-project-name";
+import { dockerExecEnv } from "@/lib/docker-runtime";
 import { isForgeProject } from "@/lib/forge-project";
 import { runScript } from "@/lib/github";
 import { resolveClonePath } from "@/lib/paths";
@@ -15,6 +16,7 @@ import {
 } from "@/lib/docker";
 
 const execFileAsync = promisify(execFile);
+const dockerOpts = { env: dockerExecEnv() };
 
 const COMPOSE_FILES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml"];
 const HEALTH_RETRIES = Number(process.env.FORGE_HEALTH_RETRIES ?? "30");
@@ -81,7 +83,7 @@ export async function dockerImageExists(
   tag: string,
 ): Promise<boolean> {
   try {
-    await execFileAsync("docker", ["image", "inspect", `${imageName}:${tag}`]);
+    await execFileAsync("docker", ["image", "inspect", `${imageName}:${tag}`], dockerOpts);
     return true;
   } catch {
     return false;
@@ -141,7 +143,7 @@ async function getComposeAppImageId(
     const { stdout } = await execFileAsync(
       "docker",
       composeDockerArgs(composeFile, composeSlug, "images", "-q", "app"),
-      { cwd: repoPath, maxBuffer: 1024 * 1024 },
+      { cwd: repoPath, maxBuffer: 1024 * 1024, ...dockerOpts },
     );
     const id = stdout.trim().split("\n")[0]?.trim();
     if (id) return id;
@@ -175,7 +177,7 @@ export async function tagComposeAppImage(
   }
 
   const imageName = projectImageName(project);
-  await execFileAsync("docker", ["tag", imageId, `${imageName}:${tag}`]);
+  await execFileAsync("docker", ["tag", imageId, `${imageName}:${tag}`], dockerOpts);
 }
 
 export async function ensureRollbackImage(
@@ -191,7 +193,7 @@ export async function ensureRollbackImage(
       "tag",
       `${imageName}:stable`,
       `${imageName}:rollback`,
-    ]);
+    ], dockerOpts);
     return true;
   }
 
@@ -210,7 +212,7 @@ export async function ensureRollbackImage(
         "label=com.docker.compose.service=app",
         "-q",
       ],
-      { maxBuffer: 1024 * 1024 },
+      { maxBuffer: 1024 * 1024, ...dockerOpts },
     );
     const containerId = stdout.trim().split("\n")[0]?.trim();
     if (!containerId) return false;
@@ -220,11 +222,11 @@ export async function ensureRollbackImage(
       "--format",
       "{{.Image}}",
       containerId,
-    ]);
+    ], dockerOpts);
     const imageId = imageStdout.trim();
     if (!imageId) return false;
 
-    await execFileAsync("docker", ["tag", imageId, `${imageName}:rollback`]);
+    await execFileAsync("docker", ["tag", imageId, `${imageName}:rollback`], dockerOpts);
     return true;
   } catch {
     return false;
@@ -351,9 +353,9 @@ export async function promoteNextToStable(
       "tag",
       `${imageName}:stable`,
       `${imageName}:rollback`,
-    ]);
+    ], dockerOpts);
   }
-  await execFileAsync("docker", ["tag", `${imageName}:next`, `${imageName}:stable`]);
+  await execFileAsync("docker", ["tag", `${imageName}:next`, `${imageName}:stable`], dockerOpts);
   saveProjectReleaseState(project.id, commitSha);
 }
 

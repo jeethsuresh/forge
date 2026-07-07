@@ -24,6 +24,7 @@ import {
 } from "@/lib/deploy-rollback";
 import {
   findForgeProject,
+  forgeSourceDir,
   isForgeProject,
 } from "@/lib/forge-project";
 import { runScript } from "@/lib/github";
@@ -239,10 +240,6 @@ export async function attemptProjectDeployRecovery(
   } finally {
     recoveryInProgress.delete(context.projectId);
   }
-}
-
-function forgeSourceDir(): string {
-  return process.env.FORGE_SOURCE_DIR ?? "/data/forge-source";
 }
 
 export async function retryForgeSourceBuildAndTest(

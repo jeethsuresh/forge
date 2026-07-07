@@ -1,5 +1,6 @@
 import { spawn, type ChildProcess } from "child_process";
 import { randomUUID } from "crypto";
+import { existsSync } from "fs";
 import { and, desc, eq, gt, gte } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
@@ -30,6 +31,7 @@ import {
   createLocalBranchFromBase,
   validateBranchName,
 } from "@/lib/github";
+import { resolveCursorAgentBin } from "@/lib/cursor-agent";
 import { runDeployment } from "@/lib/deployer";
 import { resolveClonePath } from "@/lib/paths";
 
@@ -43,16 +45,16 @@ const TERMINAL_STATUSES: AgentSessionStatus[] = [
   "cancelled",
 ];
 
-function agentBin(): string {
-  return process.env.FORGE_AGENT_BIN ?? "agent";
-}
-
 function spawnAgentProcess(
   args: string[],
   options: Parameters<typeof spawn>[2],
 ): ReturnType<typeof spawn> {
+  const agentPath = resolveCursorAgentBin();
   // Line-buffer stdout so stream-json partial events reach the DB/SSE promptly.
-  return spawn("stdbuf", ["-oL", "-eL", agentBin(), ...args], options);
+  if (existsSync("/usr/bin/stdbuf")) {
+    return spawn("stdbuf", ["-oL", "-eL", agentPath, ...args], options);
+  }
+  return spawn(agentPath, args, options);
 }
 
 function appendSessionLog(sessionId: string, message: string): void {

@@ -1,7 +1,6 @@
 import { execFile } from "child_process";
 import { randomUUID } from "crypto";
 import { existsSync, readFileSync } from "fs";
-import { hostname } from "os";
 import { promisify } from "util";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -11,6 +10,14 @@ import {
   type ForgeUpdateStatus,
   type ForgeUpdateTrigger,
 } from "@/lib/db/schema";
+import {
+  containerDockerSocket,
+  dockerExecEnv,
+  dockerHostForRuntime,
+  ensureDockerDaemon,
+  forgeDataVolumeName,
+  hostDockerSocket,
+} from "@/lib/docker-runtime";
 import { getRemoteCommitSha, parseGithubRepo } from "@/lib/github";
 import { resolveForgeHostMounts } from "@/lib/forge-host-mounts";
 
@@ -25,6 +32,16 @@ function releaseStatePath(): string {
 }
 
 let activeUpdateId: string | null = null;
+
+const IN_PROGRESS_STATUSES: ForgeUpdateStatus[] = [
+  "pending",
+  "pulling",
+  "building",
+  "testing",
+  "staging",
+  "cutover",
+  "health_check",
+];
 
 export interface ForgeReleaseState {
   stableImageTag: string;
@@ -82,9 +99,26 @@ function toUpdateView(row: ForgeUpdate): ForgeUpdateView {
   };
 }
 
+function appendUpdateLog(updateId: string, message: string): void {
+  const line = `[${new Date().toISOString()}] ${message}\n`;
+  const row = db
+    .select({ logs: forgeUpdates.logs })
+    .from(forgeUpdates)
+    .where(eq(forgeUpdates.id, updateId))
+    .get();
+  db.update(forgeUpdates)
+    .set({ logs: (row?.logs ?? "") + line })
+    .where(eq(forgeUpdates.id, updateId))
+    .run();
+}
+
 async function imageExists(tag: string): Promise<boolean> {
   try {
-    await execFileAsync("docker", ["image", "inspect", `${IMAGE_NAME}:${tag}`]);
+    await execFileAsync(
+      "docker",
+      ["image", "inspect", `${IMAGE_NAME}:${tag}`],
+      { env: dockerExecEnv() },
+    );
     return true;
   } catch {
     return false;
@@ -93,13 +127,17 @@ async function imageExists(tag: string): Promise<boolean> {
 
 async function updaterContainerRunning(): Promise<boolean> {
   try {
-    const { stdout } = await execFileAsync("docker", [
-      "ps",
-      "--filter",
-      "name=forge-updater-",
-      "--format",
-      "{{.Names}}",
-    ]);
+    const { stdout } = await execFileAsync(
+      "docker",
+      [
+        "ps",
+        "--filter",
+        "name=forge-updater-",
+        "--format",
+        "{{.Names}}",
+      ],
+      { env: dockerExecEnv() },
+    );
     return stdout.trim().length > 0;
   } catch {
     return false;
@@ -123,7 +161,43 @@ export function isForgeUpdateInProgress(): boolean {
   return activeUpdateId !== null;
 }
 
+/** Mark orphaned in-progress updates failed when no updater container is running. */
+export async function reconcileStaleForgeUpdates(): Promise<number> {
+  if (await updaterContainerRunning()) {
+    return 0;
+  }
+
+  const stale = db
+    .select()
+    .from(forgeUpdates)
+    .all()
+    .filter((row) => IN_PROGRESS_STATUSES.includes(row.status));
+
+  if (stale.length === 0) {
+    activeUpdateId = null;
+    return 0;
+  }
+
+  for (const row of stale) {
+    db.update(forgeUpdates)
+      .set({
+        status: "failed",
+        errorMessage:
+          row.errorMessage ??
+          "Update did not start or the updater container exited unexpectedly",
+        completedAt: new Date(),
+      })
+      .where(eq(forgeUpdates.id, row.id))
+      .run();
+  }
+
+  activeUpdateId = null;
+  return stale.length;
+}
+
 export async function getForgeStatus(): Promise<ForgeStatusView> {
+  await reconcileStaleForgeUpdates();
+
   const config = getSelfRepoConfig();
   const releaseState = readReleaseState();
   const runningCommitSha = releaseState?.stableCommitSha ?? null;
@@ -151,15 +225,7 @@ export async function getForgeStatus(): Promise<ForgeStatusView> {
         .limit(1)
         .get();
 
-  const inProgressStatuses: ForgeUpdateStatus[] = [
-    "pending",
-    "pulling",
-    "building",
-    "testing",
-    "staging",
-    "cutover",
-    "health_check",
-  ];
+  const inProgressStatuses: ForgeUpdateStatus[] = IN_PROGRESS_STATUSES;
 
   let activeUpdate: ForgeUpdateView | null = null;
   if (activeRow && inProgressStatuses.includes(activeRow.status)) {
@@ -211,9 +277,9 @@ async function spawnUpdater(
   updateId: string,
   options: { rollback?: boolean },
 ): Promise<void> {
-  const dockerHost =
-    process.env.DOCKER_HOST ?? "tcp://127.0.0.1:18765";
-  const containerName = hostname();
+  await ensureDockerDaemon();
+
+  const dockerHost = dockerHostForRuntime();
   const imageRef = (await imageExists("stable"))
     ? `${IMAGE_NAME}:stable`
     : `${IMAGE_NAME}:latest`;
@@ -230,8 +296,10 @@ async function spawnUpdater(
     `forge-updater-${updateId.slice(0, 8)}`,
     "--network",
     "host",
-    "--volumes-from",
-    containerName,
+    "-v",
+    `${forgeDataVolumeName()}:/data`,
+    "-v",
+    `${hostDockerSocket()}:${containerDockerSocket()}`,
     "-e",
     `DOCKER_HOST=${dockerHost}`,
     "-e",
@@ -261,19 +329,58 @@ async function spawnUpdater(
     args.push("-v", `${cursorConfigDir}:/opt/cursor-config:ro,z`);
   }
 
-  const scriptPath = existsSync(`${SOURCE_DIR}/scripts/self-update.sh`)
-    ? `${SOURCE_DIR}/scripts/self-update.sh`
-    : UPDATER_SCRIPT;
-
-  args.push(imageRef, "bash", scriptPath, "--update-id", updateId);
+  // Always run the image-baked orchestrator; /data/forge-source may lag behind.
+  args.push(imageRef, "bash", UPDATER_SCRIPT, "--update-id", updateId);
   if (options.rollback) {
     args.push("--rollback");
   }
 
-  await execFileAsync("docker", args, { env: process.env });
+  appendUpdateLog(updateId, "Spawning updater sidecar container…");
+
+  await execFileAsync("docker", args, { env: dockerExecEnv() });
+
+  const containerName = `forge-updater-${updateId.slice(0, 8)}`;
+  appendUpdateLog(updateId, `Updater container ${containerName} created`);
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const row = db
+      .select({ logs: forgeUpdates.logs, status: forgeUpdates.status })
+      .from(forgeUpdates)
+      .where(eq(forgeUpdates.id, updateId))
+      .get();
+
+    if (row && row.logs.trim().length > 0) {
+      return;
+    }
+
+    if (row && !IN_PROGRESS_STATUSES.includes(row.status as ForgeUpdateStatus)) {
+      return;
+    }
+
+    try {
+      const { stdout } = await execFileAsync(
+        "docker",
+        ["ps", "--filter", `name=${containerName}`, "--format", "{{.Names}}"],
+        { env: dockerExecEnv() },
+      );
+      if (stdout.trim()) {
+        continue;
+      }
+    } catch {
+      // fall through
+    }
+
+    if (attempt >= 3) {
+      throw new Error("Updater container exited before writing logs");
+    }
+  }
 }
 
 async function assertCanStartUpdate(): Promise<void> {
+  await reconcileStaleForgeUpdates();
+
   if (activeUpdateId) {
     throw new Error("A Forge update is already in progress");
   }

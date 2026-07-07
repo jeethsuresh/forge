@@ -3,6 +3,7 @@ import { promisify } from "util";
 import { existsSync } from "fs";
 import { join } from "path";
 import { composeProjectName } from "@/lib/compose-project-name";
+import { dockerExecEnv } from "@/lib/docker-runtime";
 import { resolveClonePath } from "@/lib/paths";
 
 const execFileAsync = promisify(execFile);
@@ -161,7 +162,7 @@ export async function getComposeContainerStatus(
     const { stdout } = await execFileAsync(
       "docker",
       composeDockerArgs(composeFile, projectName, "ps", "--format", "json"),
-      { cwd: resolvedPath, maxBuffer: 5 * 1024 * 1024 },
+      { cwd: resolvedPath, maxBuffer: 5 * 1024 * 1024, env: dockerExecEnv() },
     );
 
     return parseComposePsOutput(stdout)

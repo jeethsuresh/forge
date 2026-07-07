@@ -2,6 +2,10 @@ import { describe, expect, it, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { randomUUID } from "crypto";
+import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { forgeUpdates } from "@/lib/db/schema";
 
 describe("getForgeHealthPayload", () => {
   let tempDir: string;
@@ -83,5 +87,42 @@ describe("getForgeStatus configuration", () => {
     expect(status.configured).toBe(true);
     expect(status.selfRepo).toBe("acme/forge");
     expect(status.selfBranch).toBe("main");
+  });
+});
+
+describe("reconcileStaleForgeUpdates", () => {
+  const ids: string[] = [];
+
+  afterEach(() => {
+    for (const id of ids) {
+      db.delete(forgeUpdates).where(eq(forgeUpdates.id, id)).run();
+    }
+    ids.length = 0;
+  });
+
+  it("marks orphaned pending updates as failed", async () => {
+    const id = randomUUID();
+    ids.push(id);
+    db.insert(forgeUpdates)
+      .values({
+        id,
+        status: "pending",
+        trigger: "manual",
+        logs: "",
+        startedAt: new Date(),
+      })
+      .run();
+
+    const { reconcileStaleForgeUpdates } = await import("@/lib/self-update");
+    const count = await reconcileStaleForgeUpdates();
+    expect(count).toBeGreaterThanOrEqual(1);
+
+    const row = db
+      .select()
+      .from(forgeUpdates)
+      .where(eq(forgeUpdates.id, id))
+      .get();
+    expect(row?.status).toBe("failed");
+    expect(row?.errorMessage).toMatch(/updater container/i);
   });
 });

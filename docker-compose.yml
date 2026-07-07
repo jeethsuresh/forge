@@ -32,13 +32,16 @@ services:
       FORGE_CADDY_LOG_TCP_PORT: ${FORGE_CADDY_LOG_TCP_PORT:-3999}
       FORGE_GIT_PASSWORD: ${FORGE_GIT_PASSWORD:-}
       FORGE_GIT_USERNAME: ${FORGE_GIT_USERNAME:-}
+      FORGE_CONTAINER_NAME: ${FORGE_CONTAINER_NAME:-}
+      DOCKER_SOCKET: ${DOCKER_SOCKET:-}
       HOME: /data/agent-home
       PORT: ${HOST_PORT:-3000}
-      DOCKER_HOST: tcp://127.0.0.1:${FORGE_PODMAN_API_PORT:-18765}
+      DOCKER_HOST: ${DOCKER_HOST:-tcp://127.0.0.1:${FORGE_PODMAN_API_PORT:-18765}}
     volumes:
       - forge-data:/data
-      - ${FORGE_CURSOR_AGENT_DIR}:/opt/cursor-agent:ro,z
-      - ${FORGE_CURSOR_CONFIG_DIR}:/opt/cursor-config:ro,z
+      - ${FORGE_CURSOR_AGENT_DIR:?Set FORGE_CURSOR_AGENT_DIR or redeploy with ./deploy.sh}:/opt/cursor-agent:ro,z
+      - ${FORGE_CURSOR_CONFIG_DIR:?Set FORGE_CURSOR_CONFIG_DIR or redeploy with ./deploy.sh}:/opt/cursor-config:ro,z
+      - ${DOCKER_SOCKET:?Set DOCKER_SOCKET or redeploy with ./deploy.sh}:/var/run/docker.sock
     restart: unless-stopped
 
   test:

@@ -49,10 +49,11 @@ done
 
 start_podman_api_service
 
+export_docker_socket
 require_cursor_agent
 
 if [[ "$DETACH" -eq 1 ]]; then
-  compose_cmd up -d
+  compose_cmd up -d --force-recreate
 else
   compose_cmd up
 fi
