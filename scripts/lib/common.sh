@@ -297,12 +297,14 @@ resolve_docker_socket() {
     return
   fi
 
+  if [[ -n "$configured" && -S /var/run/docker.sock ]]; then
+    # Inside Forge: env holds the host socket path for compose volume mounts.
+    echo "$configured"
+    return
+  fi
+
   if [[ -n "$configured" ]]; then
-    if [[ -S /var/run/docker.sock ]]; then
-      : # Inside Forge: DOCKER_SOCKET is the host path for compose mounts.
-    else
-      echo "DOCKER_SOCKET is set but not a socket: $configured (falling back to auto-detect)" >&2
-    fi
+    echo "DOCKER_SOCKET is set but not a socket: $configured (falling back to auto-detect)" >&2
   fi
 
   local candidates=(

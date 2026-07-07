@@ -49,7 +49,6 @@ done
 
 if has_compose_file; then
   compose_cmd build
-  compose_cmd create --no-build
   image_id="$(resolve_compose_app_image_id || true)"
   if [[ -n "$image_id" ]]; then
     docker tag "$image_id" forge-app:stable
