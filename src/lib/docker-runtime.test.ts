@@ -48,7 +48,7 @@ describe("docker-runtime helpers", () => {
     process.env.FORGE_DOCKER_SOCKET = socketPath;
     process.env.DOCKER_HOST = "tcp://127.0.0.1:18765";
     const { dockerHostForRuntime } = await import("@/lib/docker-runtime");
-    expect(dockerHostForRuntime()).toBe(`unix://${socketPath}`);
+    expect(dockerHostForRuntime()).toBe("tcp://127.0.0.1:18765");
   });
 
   it("falls back to configured DOCKER_HOST when no socket is mounted", async () => {

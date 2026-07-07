@@ -24,7 +24,6 @@ function unixSocketHost(): string | null {
   const host = `unix://${socket}`;
   if (!existsSync(socket)) return null;
   if (isReachableDockerHost(host)) return host;
-  if (isWritableSocket(socket)) return host;
   return null;
 }
 

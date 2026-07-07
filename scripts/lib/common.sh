@@ -209,8 +209,12 @@ require_cursor_agent() {
   fi
 }
 
+forge_tcp_runtime_ready() {
+  DOCKER_HOST="tcp://127.0.0.1:${FORGE_PODMAN_API_PORT}" docker info >/dev/null 2>&1
+}
+
 start_podman_api_service() {
-  if docker_runtime_ready; then
+  if forge_tcp_runtime_ready; then
     return 0
   fi
 
@@ -224,7 +228,7 @@ start_podman_api_service() {
   if command -v systemctl >/dev/null 2>&1 \
     && systemctl --user is-active "podman-forge-api.service" >/dev/null 2>&1; then
     for _ in $(seq 1 30); do
-      if docker_runtime_ready; then
+      if forge_tcp_runtime_ready; then
         return 0
       fi
       sleep 0.2
@@ -242,11 +246,21 @@ start_podman_api_service() {
   echo $! > "$PODMAN_API_PID_FILE"
 
   for _ in $(seq 1 30); do
-    if ss -tln 2>/dev/null | grep -q ":${FORGE_PODMAN_API_PORT} "; then
+    if forge_tcp_runtime_ready; then
       return 0
     fi
     sleep 0.2
   done
+
+  if command -v systemctl >/dev/null 2>&1 \
+    && systemctl --user is-active "podman-forge-api.service" >/dev/null 2>&1; then
+    for _ in $(seq 1 30); do
+      if forge_tcp_runtime_ready; then
+        return 0
+      fi
+      sleep 0.2
+    done
+  fi
 
   echo "Podman API service failed to start on port ${FORGE_PODMAN_API_PORT}" >&2
   exit 1
