@@ -76,6 +76,32 @@ rm -f "${AGENT_HOME}/.gitconfig.lock"
 
 GIT_USER_NAME="${FORGE_GIT_USER_NAME:-Forge Agent}"
 GIT_USER_EMAIL="${FORGE_GIT_USER_EMAIL:-forge-agent@localhost}"
+
+if [[ "${FORGE_RUN_AS_ROOT:-}" == "1" ]]; then
+  export HOME="/data/agent-home"
+  git config --global user.name "$GIT_USER_NAME"
+  git config --global user.email "$GIT_USER_EMAIL"
+  git config --global --add safe.directory '*'
+  GIT_PASSWORD="${FORGE_GITHUB_TOKEN:-${GITHUB_TOKEN:-${FORGE_GIT_PASSWORD:-}}}"
+  if [[ -n "$GIT_PASSWORD" ]]; then
+    GIT_USERNAME="${FORGE_GIT_USERNAME:-${FORGE_GIT_USER_NAME:-git}}"
+    CRED_FILE="${AGENT_HOME}/.git-credentials"
+    export GIT_USERNAME GIT_PASSWORD CRED_FILE
+    python3 - <<'PY'
+import os
+from urllib.parse import quote
+user = quote(os.environ["GIT_USERNAME"], safe="")
+password = quote(os.environ["GIT_PASSWORD"], safe="")
+path = os.environ["CRED_FILE"]
+with open(path, "w", encoding="utf-8") as f:
+    f.write(f"https://{user}:{password}@github.com\n")
+os.chmod(path, 0o600)
+PY
+    git config --global credential.helper "store --file ${CRED_FILE}"
+  fi
+  exec "$@"
+fi
+
 gosu node env HOME="$AGENT_HOME" git config --global user.name "$GIT_USER_NAME"
 gosu node env HOME="$AGENT_HOME" git config --global user.email "$GIT_USER_EMAIL"
 gosu node env HOME="$AGENT_HOME" git config --global --add safe.directory '*'
@@ -96,14 +122,6 @@ with open(path, "w", encoding="utf-8") as f:
 os.chmod(path, 0o600)
 PY
   gosu node env HOME="$AGENT_HOME" git config --global credential.helper "store --file ${CRED_FILE}"
-fi
-
-if [[ "${FORGE_RUN_AS_ROOT:-}" == "1" ]]; then
-  export HOME="/data/agent-home"
-  git config --global user.name "$GIT_USER_NAME"
-  git config --global user.email "$GIT_USER_EMAIL"
-  git config --global --add safe.directory '*'
-  exec "$@"
 fi
 
 exec gosu node env HOME="$AGENT_HOME" "$@"
