@@ -17,6 +17,77 @@ SKIP_LINT="${SKIP_LINT:-0}"
 PID_FILE="${PID_FILE:-./data/forge.pid}"
 PODMAN_API_PID_FILE="${PODMAN_API_PID_FILE:-./data/podman-api.pid}"
 FORGE_PODMAN_API_PORT="${FORGE_PODMAN_API_PORT:-18765}"
+FORGE_HOST_MOUNTS_FILE="${FORGE_HOST_MOUNTS_FILE:-/data/forge-host-mounts.json}"
+
+persist_host_mount_paths() {
+  if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then
+    return 0
+  fi
+  local dir
+  dir="$(dirname "$FORGE_HOST_MOUNTS_FILE")"
+  if ! mkdir -p "$dir" 2>/dev/null; then
+    return 0
+  fi
+  FORGE_HOST_MOUNTS_FILE="$FORGE_HOST_MOUNTS_FILE" python3 - <<'PY'
+import json, os
+from datetime import datetime, timezone
+
+path = os.environ["FORGE_HOST_MOUNTS_FILE"]
+payload = {
+    "cursorAgentDir": os.environ.get("FORGE_CURSOR_AGENT_DIR", "").strip(),
+    "cursorConfigDir": os.environ.get("FORGE_CURSOR_CONFIG_DIR", "").strip(),
+    "updatedAt": datetime.now(timezone.utc).isoformat(),
+}
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(payload, f, indent=2)
+    f.write("\n")
+PY
+}
+
+load_persisted_host_mount_paths() {
+  if [[ ! -f "$FORGE_HOST_MOUNTS_FILE" ]]; then
+    return 1
+  fi
+  eval "$(
+    FORGE_HOST_MOUNTS_FILE="$FORGE_HOST_MOUNTS_FILE" python3 - <<'PY'
+import json, os, shlex, sys
+
+path = os.environ["FORGE_HOST_MOUNTS_FILE"]
+with open(path, encoding="utf-8") as f:
+    data = json.load(f)
+agent = (data.get("cursorAgentDir") or "").strip()
+config = (data.get("cursorConfigDir") or "").strip()
+if agent:
+    print(f"export FORGE_CURSOR_AGENT_DIR={shlex.quote(agent)}")
+if config:
+    print(f"export FORGE_CURSOR_CONFIG_DIR={shlex.quote(config)}")
+PY
+  )"
+  [[ -n "${FORGE_CURSOR_AGENT_DIR:-}" ]]
+}
+
+ensure_cursor_mount_env() {
+  if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" || -z "${FORGE_CURSOR_CONFIG_DIR:-}" ]]; then
+    load_persisted_host_mount_paths || true
+  fi
+  if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then
+    FORGE_CURSOR_AGENT_DIR="$(resolve_cursor_agent_dir)"
+    export FORGE_CURSOR_AGENT_DIR
+  fi
+  if [[ -z "${FORGE_CURSOR_CONFIG_DIR:-}" ]]; then
+    FORGE_CURSOR_CONFIG_DIR="$(resolve_cursor_config_dir)"
+    export FORGE_CURSOR_CONFIG_DIR
+  fi
+  if [[ -z "${FORGE_CURSOR_CONFIG_DIR:-}" ]]; then
+    if [[ -n "${FORGE_CURSOR_API_KEY:-${CURSOR_API_KEY:-}}" ]]; then
+      local config_dir="${ROOT_DIR}/data/cursor-config-stub"
+      mkdir -p "$config_dir"
+      FORGE_CURSOR_CONFIG_DIR="$config_dir"
+      export FORGE_CURSOR_CONFIG_DIR
+    fi
+  fi
+  persist_host_mount_paths
+}
 
 compose_file_path() {
   if [[ -f "$COMPOSE_FILE" ]]; then
@@ -40,14 +111,7 @@ export_compose_env() {
   export COMPOSE_PROJECT_NAME
   export HOST_PORT
   export FORGE_PODMAN_API_PORT
-  if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then
-    FORGE_CURSOR_AGENT_DIR="$(resolve_cursor_agent_dir)"
-    export FORGE_CURSOR_AGENT_DIR
-  fi
-  if [[ -z "${FORGE_CURSOR_CONFIG_DIR:-}" ]]; then
-    FORGE_CURSOR_CONFIG_DIR="$(resolve_cursor_config_dir)"
-    export FORGE_CURSOR_CONFIG_DIR
-  fi
+  ensure_cursor_mount_env
 }
 
 resolve_cursor_config_dir() {
@@ -96,25 +160,33 @@ resolve_cursor_agent_dir() {
 }
 
 require_cursor_agent() {
-  local dir
-  dir="$(resolve_cursor_agent_dir)"
-  if [[ -z "$dir" || ! -x "${dir}/cursor-agent" ]]; then
+  ensure_cursor_mount_env
+
+  if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then
     echo "Cursor agent CLI not found. Install it on the host or set FORGE_CURSOR_AGENT_DIR." >&2
     exit 1
   fi
-  export FORGE_CURSOR_AGENT_DIR="$dir"
 
-  local config_dir
-  config_dir="$(resolve_cursor_config_dir)"
-  if [[ -n "$config_dir" ]]; then
-    export FORGE_CURSOR_CONFIG_DIR="$config_dir"
-  elif [[ -n "${FORGE_CURSOR_API_KEY:-${CURSOR_API_KEY:-}}" ]]; then
-    config_dir="${ROOT_DIR}/data/cursor-config-stub"
-    mkdir -p "$config_dir"
-    export FORGE_CURSOR_CONFIG_DIR="$config_dir"
+  if [[ -x "${FORGE_CURSOR_AGENT_DIR}/cursor-agent" ]]; then
+    :
+  elif [[ -f "$FORGE_HOST_MOUNTS_FILE" ]]; then
+    :
   else
-    echo "Cursor credentials required: run 'agent login' on the host or set FORGE_CURSOR_API_KEY in .env." >&2
+    echo "Cursor agent CLI not found at ${FORGE_CURSOR_AGENT_DIR}/cursor-agent. Install it on the host or set FORGE_CURSOR_AGENT_DIR." >&2
     exit 1
+  fi
+
+  if [[ -z "${FORGE_CURSOR_CONFIG_DIR:-}" ]]; then
+    if [[ -n "${FORGE_CURSOR_API_KEY:-${CURSOR_API_KEY:-}}" ]]; then
+      local config_dir="${ROOT_DIR}/data/cursor-config-stub"
+      mkdir -p "$config_dir"
+      FORGE_CURSOR_CONFIG_DIR="$config_dir"
+      export FORGE_CURSOR_CONFIG_DIR
+      persist_host_mount_paths
+    else
+      echo "Cursor credentials required: run 'agent login' on the host or set FORGE_CURSOR_API_KEY in .env." >&2
+      exit 1
+    fi
   fi
 }
 
@@ -160,7 +232,7 @@ compose_cmd() {
     exit 1
   fi
   export_compose_env
-  docker compose -f "$file" "$@"
+  docker compose -f "$file" -p "$COMPOSE_PROJECT_NAME" "$@"
 }
 
 resolve_docker_socket() {

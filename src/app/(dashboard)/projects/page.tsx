@@ -2,16 +2,19 @@ import Link from "next/link";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { deployments, projects } from "@/lib/db/schema";
+import { findForgeProject } from "@/lib/forge-project";
 import { formatRelativeTime, shortSha, statusColor } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
 export default function ProjectsPage() {
+  const forgeProject = findForgeProject();
   const allProjects = db
     .select()
     .from(projects)
     .orderBy(projects.name)
-    .all();
+    .all()
+    .filter((project) => project.id !== forgeProject?.id);
 
   const enriched = allProjects.map((project) => {
     const latest = db

@@ -13,6 +13,8 @@ import {
 } from "@/lib/utils";
 import type { RuntimeStatus } from "@/lib/project-status";
 import { AgentWorkspace } from "@/components/AgentWorkspace";
+import { ForgeSelfUpdateEditor } from "@/components/ForgeSelfUpdateEditor";
+import { ProjectRenameEditor } from "@/components/ProjectRenameEditor";
 import {
   DeployEnvVarsEditor,
   type DeployEnvVarRow,
@@ -55,6 +57,7 @@ interface ProjectDetail {
     updatedAt: string;
     deployEnvVars: DeployEnvVarRow[];
     deployEnvFileSource: ".env" | ".env.example" | null;
+    isForge?: boolean;
   };
   deployments: Deployment[];
   currentDeployment: Deployment | null;
@@ -63,6 +66,23 @@ interface ProjectDetail {
   runtimeStatus: RuntimeStatus;
   hasComposeFile: boolean;
   branches: string[];
+  supportsRollback: boolean;
+  hasRollbackImage: boolean;
+  forgeStatus: {
+    configured: boolean;
+    updateAvailable: boolean;
+    hasRollbackImage: boolean;
+    activeUpdate: { id: string; status: string } | null;
+    recentUpdates: Array<{
+      id: string;
+      status: string;
+      trigger: string;
+      targetCommitSha: string | null;
+      startedAt: string;
+      logs: string;
+      errorMessage: string | null;
+    }>;
+  } | null;
 }
 
 export default function ProjectDetailPage() {
@@ -97,7 +117,9 @@ export default function ProjectDetailPage() {
             d.status === "pulling" ||
             d.status === "building" ||
             d.status === "testing" ||
-            d.status === "deploying",
+            d.status === "staging" ||
+            d.status === "deploying" ||
+            d.status === "health_check",
         );
         return inProgress?.id ?? prev ?? json.deployments[0]?.id ?? null;
       });
@@ -193,6 +215,28 @@ export default function ProjectDetailPage() {
     }
   }
 
+  async function rollbackProject() {
+    if (
+      !confirm(
+        "Roll back to the previous working release? The current version will be replaced.",
+      )
+    ) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await fetch(`/api/projects/${id}/rollback`, { method: "POST" });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Rollback failed");
+        return;
+      }
+      await fetchData();
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   async function deleteProject() {
     if (!confirm("Remove this project from Forge? This will not stop running containers.")) {
       return;
@@ -216,8 +260,48 @@ export default function ProjectDetailPage() {
     );
   }
 
-  const { project, deployments, currentDeployment, containers, isDeploying, runtimeStatus, hasComposeFile, branches } =
-    data;
+  const {
+    project,
+    deployments: projectDeployments,
+    currentDeployment,
+    containers,
+    isDeploying,
+    runtimeStatus,
+    hasComposeFile,
+    branches,
+    supportsRollback,
+    hasRollbackImage,
+    forgeStatus,
+  } = data;
+
+  const isForge = project.isForge === true;
+  const forgeUpdateBusy = !!forgeStatus?.activeUpdate;
+  const deployBusy = isForge ? forgeUpdateBusy : isDeploying;
+
+  const forgeHistoryDeployments: Deployment[] =
+    isForge && forgeStatus
+      ? forgeStatus.recentUpdates.map((update) => ({
+          id: update.id,
+          commitSha: update.targetCommitSha,
+          branch: project.branch,
+          status: update.status,
+          trigger: update.trigger === "rollback" ? "rollback" : "manual",
+          logs: update.logs,
+          errorMessage: update.errorMessage,
+          startedAt: update.startedAt,
+          completedAt: null,
+        }))
+      : [];
+
+  const deployments =
+    isForge && forgeHistoryDeployments.length > 0
+      ? [
+          ...forgeHistoryDeployments,
+          ...projectDeployments.filter(
+            (d) => !forgeHistoryDeployments.some((f) => f.id === d.id),
+          ),
+        ]
+      : projectDeployments;
 
   const selectedDeployBranch = deployBranch ?? project.branch;
 
@@ -244,9 +328,12 @@ export default function ProjectDetailPage() {
       <div className="mb-4 flex shrink-0 flex-col gap-4 sm:mb-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <h1 className="text-xl font-semibold text-zinc-100 sm:text-2xl">
-              {project.name}
-            </h1>
+            <ProjectRenameEditor
+              projectId={id}
+              name={project.name}
+              disabled={actionLoading || isDeploying}
+              onRenamed={fetchData}
+            />
             <span
               className={`inline-flex rounded border px-2.5 py-0.5 text-xs font-medium ${runtimeStatusBadgeColor(runtimeStatus)}`}
             >
@@ -256,6 +343,11 @@ export default function ProjectDetailPage() {
           <p className="mt-1 break-all font-mono text-xs text-zinc-500 sm:text-sm">
             {project.githubRepo} · watch branch{" "}
             <span className="text-orange-400">{project.branch}</span>
+            {isForge && (
+              <span className="ml-2 text-orange-400/80">
+                · self-update via sidecar
+              </span>
+            )}
           </p>
         </div>
 
@@ -277,59 +369,80 @@ export default function ProjectDetailPage() {
 
       {activeTab === "deploy" ? (
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {isForge && <ForgeSelfUpdateEditor className="mb-6" hideHistory />}
+
           <div className="mb-6 flex flex-wrap items-end gap-2">
-            <label className="flex min-w-[12rem] flex-col gap-1.5">
-              <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Deploy branch
-              </span>
-              <select
-                value={selectedDeployBranch}
-                onChange={(e) => setDeployBranch(e.target.value)}
-                disabled={actionLoading || isDeploying}
-                className="min-h-11 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-200 disabled:opacity-50"
+            {!isForge && (
+              <label className="flex min-w-[12rem] flex-col gap-1.5">
+                <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  Deploy branch
+                </span>
+                <select
+                  value={selectedDeployBranch}
+                  onChange={(e) => setDeployBranch(e.target.value)}
+                  disabled={actionLoading || deployBusy}
+                  className="min-h-11 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-200 disabled:opacity-50"
+                >
+                  {branches.map((branch) => (
+                    <option key={branch} value={branch}>
+                      {branch}
+                      {branch === project.branch ? " (watch)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {!isForge && (
+              <button
+                onClick={deployNow}
+                disabled={actionLoading || deployBusy}
+                className="min-h-11 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
               >
-                {branches.map((branch) => (
-                  <option key={branch} value={branch}>
-                    {branch}
-                    {branch === project.branch ? " (watch)" : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              onClick={deployNow}
-              disabled={actionLoading || isDeploying}
-              className="min-h-11 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
-            >
-              {isDeploying ? "Deploying…" : "Deploy now"}
-            </button>
-            <button
-              onClick={toggleEnabled}
-              disabled={actionLoading}
-              className="min-h-11 rounded-lg border border-zinc-700 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-            >
-              {project.enabled ? "Pause watching" : "Resume watching"}
-            </button>
+                {deployBusy ? "Deploying…" : "Deploy now"}
+              </button>
+            )}
+            {!isForge && (
+              <button
+                onClick={toggleEnabled}
+                disabled={actionLoading}
+                className="min-h-11 rounded-lg border border-zinc-700 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {project.enabled ? "Pause watching" : "Resume watching"}
+              </button>
+            )}
+            {!isForge && supportsRollback && (
+              <button
+                onClick={rollbackProject}
+                disabled={
+                  actionLoading || deployBusy || !hasRollbackImage
+                }
+                className="min-h-11 rounded-lg border border-zinc-700 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                Roll back
+              </button>
+            )}
             <button
               onClick={stopProject}
-              disabled={actionLoading || isDeploying}
+              disabled={actionLoading || deployBusy}
               className="min-h-11 rounded-lg border border-amber-400/20 px-4 py-2.5 text-sm text-amber-400 hover:bg-amber-400/10 disabled:opacity-50"
             >
               Stop containers
             </button>
-            <button
-              onClick={deleteProject}
-              className="min-h-11 rounded-lg border border-red-400/20 px-4 py-2.5 text-sm text-red-400 hover:bg-red-400/10"
-            >
-              Remove project
-            </button>
+            {!isForge && (
+              <button
+                onClick={deleteProject}
+                className="min-h-11 rounded-lg border border-red-400/20 px-4 py-2.5 text-sm text-red-400 hover:bg-red-400/10"
+              >
+                Remove project
+              </button>
+            )}
           </div>
 
           <DeployEnvVarsEditor
             key={project.updatedAt}
             vars={project.deployEnvVars}
             envFileSource={project.deployEnvFileSource}
-            disabled={actionLoading || isDeploying}
+            disabled={actionLoading || deployBusy}
             saving={envSaving}
             onSave={saveDeployEnvVars}
           />
@@ -416,7 +529,7 @@ export default function ProjectDetailPage() {
 
           <section>
             <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
-              Deployment history
+              {isForge ? "Update history" : "Deployment history"}
             </h2>
             <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
               {deployments.length === 0 ? (

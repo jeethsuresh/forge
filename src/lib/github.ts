@@ -141,7 +141,7 @@ export async function runScript(
   scriptName: string,
   cwd: string,
   onLog: (line: string) => void,
-  options?: { env?: NodeJS.ProcessEnv },
+  options?: { env?: NodeJS.ProcessEnv; args?: string[] },
 ): Promise<void> {
   const resolvedCwd = resolveClonePath(cwd);
   const scriptPath = join(resolvedCwd, scriptName);
@@ -149,12 +149,17 @@ export async function runScript(
     throw new Error(`${scriptName} not found in repository root`);
   }
 
-  onLog(`Running ./${scriptName}...`);
-  const { stdout, stderr } = await execFileAsync("bash", [scriptName], {
-    cwd: resolvedCwd,
-    maxBuffer: 10 * 1024 * 1024,
-    env: options?.env ?? process.env,
-  });
+  const cliArgs = options?.args ?? [];
+  onLog(`Running ./${scriptName}${cliArgs.length ? ` ${cliArgs.join(" ")}` : ""}...`);
+  const { stdout, stderr } = await execFileAsync(
+    "bash",
+    [scriptName, ...cliArgs],
+    {
+      cwd: resolvedCwd,
+      maxBuffer: 10 * 1024 * 1024,
+      env: options?.env ?? process.env,
+    },
+  );
   if (stdout) onLog(stdout.trimEnd());
   if (stderr) onLog(stderr.trimEnd());
   onLog(`${scriptName} finished.`);

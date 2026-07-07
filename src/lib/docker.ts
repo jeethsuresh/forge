@@ -2,6 +2,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { existsSync } from "fs";
 import { join } from "path";
+import { composeProjectName } from "@/lib/compose-project-name";
 import { resolveClonePath } from "@/lib/paths";
 
 const execFileAsync = promisify(execFile);
@@ -15,6 +16,23 @@ export interface ContainerInfo {
 }
 
 const COMPOSE_FILES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml"];
+
+export { composeProjectName } from "@/lib/compose-project-name";
+
+export function composeDockerArgs(
+  composeFile: string,
+  projectName: string,
+  ...subcommand: string[]
+): string[] {
+  return [
+    "compose",
+    "-f",
+    composeFile,
+    "-p",
+    composeProjectName(projectName),
+    ...subcommand,
+  ];
+}
 
 function findComposeFile(repoPath: string): string | null {
   return COMPOSE_FILES.find((f) => existsSync(join(repoPath, f))) ?? null;
@@ -131,6 +149,7 @@ function normalizeContainer(record: ComposePsRecord): ContainerInfo | null {
 
 export async function getComposeContainerStatus(
   repoPath: string,
+  projectName: string,
 ): Promise<ContainerInfo[]> {
   const resolvedPath = resolveClonePath(repoPath);
   if (!existsSync(resolvedPath)) return [];
@@ -141,7 +160,7 @@ export async function getComposeContainerStatus(
   try {
     const { stdout } = await execFileAsync(
       "docker",
-      ["compose", "-f", composeFile, "ps", "--format", "json"],
+      composeDockerArgs(composeFile, projectName, "ps", "--format", "json"),
       { cwd: resolvedPath, maxBuffer: 5 * 1024 * 1024 },
     );
 
@@ -153,7 +172,10 @@ export async function getComposeContainerStatus(
   }
 }
 
-export async function stopComposeProject(repoPath: string): Promise<string> {
+export async function stopComposeProject(
+  repoPath: string,
+  projectName: string,
+): Promise<string> {
   const resolvedPath = resolveClonePath(repoPath);
   if (!existsSync(resolvedPath)) {
     throw new Error("Project directory not found");
@@ -166,7 +188,7 @@ export async function stopComposeProject(repoPath: string): Promise<string> {
 
   const { stdout, stderr } = await execFileAsync(
     "docker",
-    ["compose", "-f", composeFile, "down"],
+    composeDockerArgs(composeFile, projectName, "down"),
     { cwd: resolvedPath, maxBuffer: 5 * 1024 * 1024 },
   );
 

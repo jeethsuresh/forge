@@ -42,9 +42,13 @@ export function statusColor(status: string): string {
       return "text-zinc-400 bg-zinc-400/10 border-zinc-400/20";
     case "failed":
       return "text-red-400 bg-red-400/10 border-red-400/20";
+    case "rolled_back":
+      return "text-amber-400 bg-amber-400/10 border-amber-400/20";
     case "building":
     case "testing":
     case "deploying":
+    case "staging":
+    case "health_check":
     case "pulling":
     case "pending":
     case "running":

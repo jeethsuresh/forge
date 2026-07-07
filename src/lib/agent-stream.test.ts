@@ -3,10 +3,12 @@ import {
   eventsToDisplayMessages,
   formatToolDuration,
   groupMessagesForDisplay,
+  isFileEditToolName,
   mergeAssistantDeltas,
   mergeIncomingMessages,
   mergeToolCallMessages,
   mergeToolIntoExisting,
+  sessionEventsHaveFileEdits,
   streamEventToDisplay,
   summarizeToolCluster,
   toolStatusLabel,
@@ -512,5 +514,46 @@ describe("toolStatusLabel", () => {
         timestamp: 3,
       }),
     ).toBe("error");
+  });
+});
+
+describe("file edit detection", () => {
+  it("recognizes file-modifying tool names", () => {
+    expect(isFileEditToolName("write")).toBe(true);
+    expect(isFileEditToolName("Write")).toBe(true);
+    expect(isFileEditToolName("strReplace")).toBe(true);
+    expect(isFileEditToolName("edit")).toBe(true);
+    expect(isFileEditToolName("read")).toBe(false);
+    expect(isFileEditToolName("shell")).toBe(false);
+    expect(isFileEditToolName("grep")).toBe(false);
+  });
+
+  it("detects file edits from stored tool_call events", () => {
+    const writePayload = JSON.stringify({
+      type: "tool_call",
+      subtype: "completed",
+      tool_call: {
+        writeToolCall: { args: { path: "src/app.ts" } },
+      },
+    });
+    const readPayload = JSON.stringify({
+      type: "tool_call",
+      subtype: "completed",
+      tool_call: {
+        readToolCall: { args: { path: "src/app.ts" } },
+      },
+    });
+
+    expect(
+      sessionEventsHaveFileEdits([
+        { eventType: "tool_call", payload: readPayload },
+      ]),
+    ).toBe(false);
+    expect(
+      sessionEventsHaveFileEdits([
+        { eventType: "tool_call", payload: readPayload },
+        { eventType: "tool_call", payload: writePayload },
+      ]),
+    ).toBe(true);
   });
 });

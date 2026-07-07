@@ -5,7 +5,9 @@ import { projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
 import { runDeployment } from "@/lib/deployer";
 import { isAgentSessionActive } from "@/lib/agent-state";
+import { isForgeProject } from "@/lib/forge-project";
 import { validateBranchName } from "@/lib/github";
+import { startForgeUpdate } from "@/lib/self-update";
 
 export async function POST(
   request: Request,
@@ -34,6 +36,19 @@ export async function POST(
   const validationError = validateBranchName(branch);
   if (validationError) {
     return NextResponse.json({ error: validationError }, { status: 400 });
+  }
+
+  if (isForgeProject(project)) {
+    try {
+      const updateId = await startForgeUpdate();
+      return NextResponse.json(
+        { updateId, branch: project.branch, mode: "forge-self-update" },
+        { status: 202 },
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Update failed";
+      return NextResponse.json({ error: message }, { status: 409 });
+    }
   }
 
   try {

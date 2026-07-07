@@ -10,7 +10,7 @@ import {
   type AgentSessionStatus,
   type Project,
 } from "@/lib/db/schema";
-import { parseStreamEventLine } from "@/lib/agent-stream";
+import { parseStreamEventLine, sessionEventsHaveFileEdits } from "@/lib/agent-stream";
 import {
   canRetryFailedAgentTurn,
   failedTurnEventSeq,
@@ -24,6 +24,7 @@ import {
   prepareAgentWorkspace,
   commitAllChanges,
   buildAgentCommitMessage,
+  hasUncommittedChanges,
   hasUnpushedCommits,
   pushBranch,
   createLocalBranchFromBase,
@@ -180,6 +181,7 @@ export function isAgentProcessRunning(sessionId: string): boolean {
 export type AgentSessionForClient = NonNullable<ReturnType<typeof getAgentSession>> & {
   hasActiveProcess: boolean;
   canRetry: boolean;
+  hasFileEdits: boolean;
 };
 
 function withClientFields(session: NonNullable<ReturnType<typeof getAgentSession>>): AgentSessionForClient {
@@ -188,7 +190,46 @@ function withClientFields(session: NonNullable<ReturnType<typeof getAgentSession
     ...session,
     hasActiveProcess: isAgentProcessRunning(session.id),
     canRetry: canRetryFailedAgentTurn(session, events),
+    hasFileEdits: sessionEventsHaveFileEdits(events),
   };
+}
+
+async function maybeAutoFinishSessionIfNoEdits(
+  sessionId: string,
+  projectId: string,
+): Promise<void> {
+  const session = getAgentSession(sessionId);
+  if (!session || session.status !== "running") return;
+
+  const events = getAllAgentEventsAfter(sessionId, 0);
+  if (sessionEventsHaveFileEdits(events)) return;
+
+  const project = db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .get();
+  if (!project) return;
+
+  const log = (msg: string) => appendSessionLog(sessionId, msg);
+
+  try {
+    await prepareAgentWorkspace(
+      project.githubRepo,
+      project.branch,
+      project.clonePath,
+      session.branch,
+      log,
+    );
+  } catch {
+    return;
+  }
+
+  if (await hasUncommittedChanges(project.clonePath)) return;
+
+  log("No file edits in this session. Marking as finished.");
+  updateSessionStatus(sessionId, "completed", { completedAt: new Date() });
+  activeAgentProjects.delete(projectId);
 }
 
 export function reconcileStuckAgentSession(sessionId: string) {
@@ -325,6 +366,7 @@ async function runAgentTurn(
   sessionId: string,
   project: Project,
   prompt: string,
+  workspacePath?: string,
 ): Promise<void> {
   const session = db
     .select()
@@ -347,7 +389,7 @@ async function runAgentTurn(
 
   return new Promise((resolve, reject) => {
     const proc = spawnAgentProcess(args, {
-      cwd: resolveClonePath(project.clonePath),
+      cwd: resolveClonePath(workspacePath ?? project.clonePath),
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -512,6 +554,7 @@ async function executeAgentTurn(
   sessionId: string,
   projectId: string,
   prompt: string,
+  options?: { workspacePath?: string },
 ): Promise<void> {
   const project = db
     .select()
@@ -542,15 +585,23 @@ async function executeAgentTurn(
     await prepareAgentWorkspace(
       project.githubRepo,
       project.branch,
-      project.clonePath,
+      options?.workspacePath ?? project.clonePath,
       session.branch,
       log,
     );
 
-    await runAgentTurn(sessionId, project, prompt);
+    await runAgentTurn(sessionId, project, prompt, options?.workspacePath);
     const afterTurn = getAgentSession(sessionId);
     if (afterTurn && !TERMINAL_STATUSES.includes(afterTurn.status)) {
-      updateSessionStatus(sessionId, "running");
+      await maybeAutoFinishSessionIfNoEdits(sessionId, projectId);
+      const refreshed = getAgentSession(sessionId);
+      if (
+        refreshed &&
+        refreshed.status !== "completed" &&
+        !TERMINAL_STATUSES.includes(refreshed.status)
+      ) {
+        updateSessionStatus(sessionId, "running");
+      }
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -670,6 +721,83 @@ export async function createAgentSession(
   return sessionId;
 }
 
+export async function waitForAgentSessionTerminal(
+  sessionId: string,
+  timeoutMs = 30 * 60_000,
+): Promise<ReturnType<typeof getAgentSession>> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const session = getAgentSession(sessionId);
+    if (session && TERMINAL_STATUSES.includes(session.status)) {
+      return session;
+    }
+    if (session && !activeAgentProcesses.has(sessionId)) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const refreshed = getAgentSession(sessionId);
+      if (refreshed && TERMINAL_STATUSES.includes(refreshed.status)) {
+        return refreshed;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+  return getAgentSession(sessionId);
+}
+
+export async function createRecoveryAgentSession(
+  project: Project,
+  branch: string,
+  prompt: string,
+  options?: { workspacePath?: string },
+): Promise<string> {
+  const trimmedBranch = branch.trim();
+  if (!trimmedBranch) throw new Error("Branch is required");
+  if (!prompt.trim()) throw new Error("Prompt is required");
+
+  const localBranches = await listLocalBranches(
+    options?.workspacePath ?? project.clonePath,
+  );
+  if (!localBranches.includes(trimmedBranch)) {
+    throw new Error(
+      `Branch "${trimmedBranch}" not found locally. Fetch or create the branch in git first.`,
+    );
+  }
+
+  assertNoConflictingActiveSession(project.id, trimmedBranch);
+
+  const existing = getSessionForBranch(project.id, trimmedBranch);
+
+  if (existing) {
+    if (!TERMINAL_STATUSES.includes(existing.status)) {
+      await sendAgentMessage(existing.id, prompt.trim());
+      return existing.id;
+    }
+
+    reactivateSession(existing.id);
+    activeAgentProjects.add(project.id);
+    void executeAgentTurn(existing.id, project.id, prompt.trim(), options);
+    return existing.id;
+  }
+
+  const sessionId = randomUUID();
+  activeAgentProjects.add(project.id);
+
+  db.insert(agentSessions)
+    .values({
+      id: sessionId,
+      projectId: project.id,
+      branch: trimmedBranch,
+      status: "pending",
+      initialPrompt: prompt.trim(),
+      logs: "",
+      startedAt: new Date(),
+    })
+    .run();
+
+  void executeAgentTurn(sessionId, project.id, prompt.trim(), options);
+
+  return sessionId;
+}
+
 function assertSessionReadyForPostAgentAction(sessionId: string) {
   const session = db
     .select()
@@ -705,7 +833,7 @@ function assertSessionReadyForFinish(sessionId: string) {
 
 export async function commitAgentSessionChanges(
   sessionId: string,
-  options?: { message?: string },
+  options?: { message?: string; workspacePath?: string },
 ): Promise<{ commitSha: string | null; committed: boolean; pushed: boolean }> {
   const session = assertSessionReadyForPostAgentAction(sessionId);
 
@@ -718,11 +846,12 @@ export async function commitAgentSessionChanges(
   if (!project) throw new Error("Project not found");
 
   const log = (msg: string) => appendSessionLog(sessionId, msg);
+  const workspacePath = options?.workspacePath ?? project.clonePath;
 
   await prepareAgentWorkspace(
     project.githubRepo,
     project.branch,
-    project.clonePath,
+    workspacePath,
     session.branch,
     log,
   );
@@ -730,18 +859,14 @@ export async function commitAgentSessionChanges(
   const message =
     options?.message?.trim() || buildAgentCommitMessage(session.initialPrompt);
 
-  const commitSha = await commitAllChanges(
-    project.clonePath,
-    message,
-    log,
-  );
+  const commitSha = await commitAllChanges(workspacePath, message, log);
 
   const shouldPush =
     commitSha !== null ||
-    (await hasUnpushedCommits(project.clonePath, session.branch));
+    (await hasUnpushedCommits(workspacePath, session.branch));
 
   if (shouldPush) {
-    await pushBranch(project.clonePath, session.branch, log);
+    await pushBranch(workspacePath, session.branch, log);
   }
 
   if (commitSha) {
@@ -832,7 +957,18 @@ export async function sendAgentMessage(
       log,
     );
     await runAgentTurn(sessionId, project, prompt.trim());
-    updateSessionStatus(sessionId, "running");
+    const afterTurn = getAgentSession(sessionId);
+    if (afterTurn && !TERMINAL_STATUSES.includes(afterTurn.status)) {
+      await maybeAutoFinishSessionIfNoEdits(sessionId, session.projectId);
+      const refreshed = getAgentSession(sessionId);
+      if (
+        refreshed &&
+        refreshed.status !== "completed" &&
+        !TERMINAL_STATUSES.includes(refreshed.status)
+      ) {
+        updateSessionStatus(sessionId, "running");
+      }
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     appendSessionLog(sessionId, `ERROR: ${message}`);

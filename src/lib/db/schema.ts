@@ -25,12 +25,20 @@ export type DeploymentStatus =
   | "pulling"
   | "building"
   | "testing"
+  | "staging"
   | "deploying"
+  | "health_check"
   | "success"
   | "failed"
+  | "rolled_back"
   | "duplicate";
 
-export type DeploymentTrigger = "auto" | "manual" | "agent";
+export type DeploymentTrigger =
+  | "auto"
+  | "manual"
+  | "agent"
+  | "recovery"
+  | "rollback";
 
 export type AgentSessionStatus =
   | "pending"
@@ -39,6 +47,20 @@ export type AgentSessionStatus =
   | "completed"
   | "failed"
   | "cancelled";
+
+export type ForgeUpdateStatus =
+  | "pending"
+  | "pulling"
+  | "building"
+  | "testing"
+  | "staging"
+  | "cutover"
+  | "health_check"
+  | "success"
+  | "failed"
+  | "rolled_back";
+
+export type ForgeUpdateTrigger = "manual" | "rollback";
 
 export const deployments = sqliteTable("deployments", {
   id: text("id").primaryKey(),
@@ -74,6 +96,18 @@ export const agentSessions = sqliteTable("agent_sessions", {
   completedAt: integer("completed_at", { mode: "timestamp" }),
 });
 
+export const forgeUpdates = sqliteTable("forge_updates", {
+  id: text("id").primaryKey(),
+  status: text("status").$type<ForgeUpdateStatus>().notNull(),
+  trigger: text("trigger").$type<ForgeUpdateTrigger>().notNull(),
+  targetCommitSha: text("target_commit_sha"),
+  previousCommitSha: text("previous_commit_sha"),
+  logs: text("logs").notNull().default(""),
+  errorMessage: text("error_message"),
+  startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+});
+
 export const agentEvents = sqliteTable("agent_events", {
   id: text("id").primaryKey(),
   sessionId: text("session_id")
@@ -90,3 +124,4 @@ export type Project = typeof projects.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
 export type AgentSession = typeof agentSessions.$inferSelect;
 export type AgentEvent = typeof agentEvents.$inferSelect;
+export type ForgeUpdate = typeof forgeUpdates.$inferSelect;

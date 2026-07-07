@@ -3,7 +3,15 @@ import type { NextRequest } from "next/server";
 import { getIronSession } from "iron-session";
 import { sessionOptions, type SessionData } from "@/lib/auth/session";
 
-const publicPaths = ["/login", "/api/auth/login"];
+const publicPaths = [
+  "/login",
+  "/api/auth/login",
+  "/api/forge/health",
+  "/api/forge/recover",
+  "/api/caddy/logs",
+  "/api/caddy/logs/stream",
+  "/api/caddy/logs/ingest",
+];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

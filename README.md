@@ -59,13 +59,36 @@ Forge and every watched repository should provide executable root scripts with C
 
 Common flags (see `./build.sh --help`): `--project-name`, `--compose-file`, `--host-port`.
 
+### Compose project name (required)
+
+Every Docker Compose operation must use an explicit project name via `-p` / `--project-name`. Never rely on the implicit directory-based default.
+
+- **Forge-managed projects:** the compose name is derived from the Forge display name (e.g. `My App` → `my-app`). Forge passes `--project-name`, `COMPOSE_PROJECT_NAME`, and `PROJECT_NAME` to all pipeline scripts and uses the same name for `docker compose ps` / `down`.
+- **Repo scripts:** use `compose_cmd` from `scripts/lib/common.sh`, which always runs `docker compose -f … -p "$COMPOSE_PROJECT_NAME" …`.
+- **Named volumes/networks:** prefix with `${COMPOSE_PROJECT_NAME}` in `docker-compose.yml` so stacks do not collide.
+
 Example `build.sh` for a compose-based project:
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-docker compose build "$@"
+# shellcheck source=scripts/lib/common.sh
+source ./scripts/lib/common.sh
+parse_common_args "$@"
+compose_cmd build
+```
+
+Example `deploy.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+# shellcheck source=scripts/lib/common.sh
+source ./scripts/lib/common.sh
+parse_common_args "$@"
+compose_cmd up -d
 ```
 
 Example `test.sh`:
@@ -77,22 +100,26 @@ cd "$(dirname "$0")"
 npm test
 ```
 
-Example `deploy.sh`:
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-cd "$(dirname "$0")"
-docker compose up -d "$@"
-```
-
 Example `teardown.sh`:
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")"
-docker compose down -v --remove-orphans "$@"
+# shellcheck source=scripts/lib/common.sh
+source ./scripts/lib/common.sh
+parse_common_args "$@"
+compose_cmd down --remove-orphans
+```
+
+Legacy minimal examples (only if the repo has no `scripts/lib/common.sh`):
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+PROJECT_NAME="${COMPOSE_PROJECT_NAME:-${PROJECT_NAME:-myapp}}"
+docker compose -p "$PROJECT_NAME" up -d "$@"
 ```
 
 Make all four scripts executable (`chmod +x build.sh test.sh deploy.sh teardown.sh`).

@@ -18,11 +18,18 @@ import {
   runScript,
 } from "@/lib/github";
 import { isAgentSessionActive } from "@/lib/agent-state";
+import { handleProjectDeployFailure } from "@/lib/deploy-recovery";
+import {
+  projectSupportsRollback,
+  runComposeReleaseDeploy,
+  runProjectRollbackDeploy,
+} from "@/lib/deploy-rollback";
+import { isForgeProjectId } from "@/lib/forge-project";
 import { resolveClonePath } from "@/lib/paths";
 import {
-  mergeDeployEnvWithProcess,
-  parseDeployEnvJson,
-} from "@/lib/deploy-env";
+  buildProjectScriptEnv,
+  projectScriptArgs,
+} from "@/lib/projects";
 
 const activeDeployments = new Set<string>();
 
@@ -303,7 +310,9 @@ async function executeDeployment(
   const log = (msg: string) => appendLog(deploymentId, msg);
   const deployBranch = resolveDeploymentBranch(project, trigger, options);
   const runningSha = getCurrentlyRunningCommitSha(projectId);
-  const scriptEnv = mergeDeployEnvWithProcess(parseDeployEnvJson(project.deployEnvJson));
+  const { env: scriptEnv, composeProjectName: composeSlug } =
+    buildProjectScriptEnv(project.name, project.deployEnvJson);
+  const scriptArgs = projectScriptArgs(composeSlug, scriptEnv);
 
   try {
     const repoPath = resolveClonePath(project.clonePath);
@@ -355,17 +364,74 @@ async function executeDeployment(
     }
 
     updateStatus(deploymentId, "building");
-    await runScript("build.sh", repoPath, log, { env: scriptEnv });
+    await runScript("build.sh", repoPath, log, {
+      env: scriptEnv,
+      args: scriptArgs,
+    });
 
     updateStatus(deploymentId, "testing");
     if (existsSync(join(repoPath, "test.sh"))) {
-      await runScript("test.sh", repoPath, log, { env: scriptEnv });
+      await runScript("test.sh", repoPath, log, {
+        env: scriptEnv,
+        args: scriptArgs,
+      });
     } else {
       log("test.sh not found, skipping tests.");
     }
 
     updateStatus(deploymentId, "deploying");
-    await runScript("deploy.sh", repoPath, log, { env: scriptEnv });
+    if (projectSupportsRollback(project)) {
+      updateStatus(deploymentId, "staging");
+      const result = await runComposeReleaseDeploy({
+        project,
+        commitSha,
+        composeSlug,
+        scriptEnv,
+        scriptArgs,
+        log,
+      });
+
+      if (result === "success") {
+        updateStatus(deploymentId, "success", { completedAt: new Date() });
+        syncLastSeenCommit(projectId, commitSha);
+        log(`Deployment successful (${commitSha.slice(0, 7)}).`);
+        return;
+      }
+
+      if (result === "rolled_back") {
+        updateStatus(deploymentId, "rolled_back", {
+          errorMessage: "Production health check failed; rolled back to previous release",
+          completedAt: new Date(),
+        });
+        return;
+      }
+
+      updateStatus(deploymentId, "failed", {
+        errorMessage: "Release deploy failed",
+        completedAt: new Date(),
+      });
+
+      const failedRow = db
+        .select({ logs: deployments.logs })
+        .from(deployments)
+        .where(eq(deployments.id, deploymentId))
+        .get();
+
+      handleProjectDeployFailure({
+        deploymentId,
+        projectId,
+        branch: deployBranch,
+        trigger,
+        errorMessage: "Release deploy failed",
+        logs: failedRow?.logs ?? "",
+      });
+      return;
+    }
+
+    await runScript("deploy.sh", repoPath, log, {
+      env: scriptEnv,
+      args: scriptArgs,
+    });
 
     updateStatus(deploymentId, "success", { completedAt: new Date() });
 
@@ -379,10 +445,27 @@ async function executeDeployment(
       errorMessage: message,
       completedAt: new Date(),
     });
+
+    const failedRow = db
+      .select({ logs: deployments.logs })
+      .from(deployments)
+      .where(eq(deployments.id, deploymentId))
+      .get();
+
+    handleProjectDeployFailure({
+      deploymentId,
+      projectId,
+      branch: deployBranch,
+      trigger,
+      errorMessage: message,
+      logs: failedRow?.logs ?? "",
+    });
   }
 }
 
 export async function checkProjectForChanges(projectId: string): Promise<boolean> {
+  if (isForgeProjectId(projectId)) return false;
+
   const project = db
     .select()
     .from(projects)
@@ -416,4 +499,71 @@ export async function checkProjectForChanges(projectId: string): Promise<boolean
 
 export function isDeploymentActive(projectId: string): boolean {
   return activeDeployments.has(projectId);
+}
+
+export async function runProjectRollback(projectId: string): Promise<string> {
+  if (activeDeployments.has(projectId)) {
+    throw new Error("A deployment is already in progress for this project");
+  }
+
+  const project = db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .get();
+
+  if (!project) throw new Error("Project not found");
+  if (!projectSupportsRollback(project)) {
+    throw new Error("This project does not support rollback");
+  }
+
+  const deploymentId = randomUUID();
+  activeDeployments.add(projectId);
+
+  db.insert(deployments)
+    .values({
+      id: deploymentId,
+      projectId,
+      branch: project.branch,
+      status: "pending",
+      trigger: "rollback",
+      logs: "",
+      startedAt: new Date(),
+    })
+    .run();
+
+  void executeProjectRollback(deploymentId, project).finally(() => {
+    activeDeployments.delete(projectId);
+  });
+
+  return deploymentId;
+}
+
+async function executeProjectRollback(
+  deploymentId: string,
+  project: Project,
+): Promise<void> {
+  const log = (msg: string) => appendLog(deploymentId, msg);
+
+  try {
+    updateStatus(deploymentId, "deploying");
+    const rolled = await runProjectRollbackDeploy(project, log);
+    if (rolled) {
+      updateStatus(deploymentId, "rolled_back", { completedAt: new Date() });
+      log("Manual rollback completed.");
+      return;
+    }
+
+    updateStatus(deploymentId, "failed", {
+      errorMessage: "Rollback failed health check",
+      completedAt: new Date(),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log(`ERROR: ${message}`);
+    updateStatus(deploymentId, "failed", {
+      errorMessage: message,
+      completedAt: new Date(),
+    });
+  }
 }

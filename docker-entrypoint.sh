@@ -7,6 +7,28 @@ if [[ -x /opt/cursor-agent/cursor-agent ]]; then
   ln -sf /opt/cursor-agent/cursor-agent /usr/local/bin/agent
 fi
 
+if [[ -n "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then
+  python3 - <<'PY'
+import json, os
+from datetime import datetime, timezone
+
+path = os.environ.get("FORGE_HOST_MOUNTS_FILE", "/data/forge-host-mounts.json")
+agent = os.environ.get("FORGE_CURSOR_AGENT_DIR", "").strip()
+config = os.environ.get("FORGE_CURSOR_CONFIG_DIR", "").strip()
+if not agent:
+    raise SystemExit(0)
+os.makedirs(os.path.dirname(path), exist_ok=True)
+payload = {
+    "cursorAgentDir": agent,
+    "cursorConfigDir": config,
+    "updatedAt": datetime.now(timezone.utc).isoformat(),
+}
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(payload, f, indent=2)
+    f.write("\n")
+PY
+fi
+
 rm -rf /data/agent-home/.config/cursor
 mkdir -p /data/agent-home/.config/cursor
 if [[ -f /opt/cursor-config/auth.json ]]; then

@@ -75,6 +75,20 @@ CREATE TABLE IF NOT EXISTS agent_events (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS forge_updates (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL,
+  trigger TEXT NOT NULL,
+  target_commit_sha TEXT,
+  previous_commit_sha TEXT,
+  logs TEXT NOT NULL DEFAULT '',
+  error_message TEXT,
+  started_at INTEGER NOT NULL,
+  completed_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_forge_updates_started_at ON forge_updates(started_at);
+
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_project_id ON agent_sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_agent_events_session_id ON agent_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_agent_events_seq ON agent_events(session_id, seq);

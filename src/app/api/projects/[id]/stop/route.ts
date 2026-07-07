@@ -9,10 +9,7 @@ import { stopComposeProject } from "@/lib/docker";
 import { isDeploymentActive } from "@/lib/deployer";
 import { runScript } from "@/lib/github";
 import { resolveClonePath } from "@/lib/paths";
-import {
-  mergeDeployEnvWithProcess,
-  parseDeployEnvJson,
-} from "@/lib/deploy-env";
+import { buildProjectScriptEnv, projectScriptArgs } from "@/lib/projects";
 
 export async function POST(
   _request: Request,
@@ -38,19 +35,20 @@ export async function POST(
 
   try {
     const repoPath = resolveClonePath(project.clonePath);
-    const scriptEnv = mergeDeployEnvWithProcess(
-      parseDeployEnvJson(project.deployEnvJson),
-    );
+    const { env: scriptEnv, composeProjectName: composeSlug } =
+      buildProjectScriptEnv(project.name, project.deployEnvJson);
+    const scriptArgs = projectScriptArgs(composeSlug, scriptEnv);
     const teardownPath = join(repoPath, "teardown.sh");
     if (existsSync(teardownPath)) {
       const lines: string[] = [];
       await runScript("teardown.sh", repoPath, (line) => lines.push(line), {
         env: scriptEnv,
+        args: scriptArgs,
       });
       return NextResponse.json({ ok: true, output: lines.join("\n") });
     }
 
-    const output = await stopComposeProject(repoPath);
+    const output = await stopComposeProject(repoPath, project.name);
     return NextResponse.json({ ok: true, output });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Stop failed";

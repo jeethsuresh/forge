@@ -29,6 +29,7 @@ interface AgentSession {
   completedAt: string | null;
   hasActiveProcess?: boolean;
   canRetry?: boolean;
+  hasFileEdits?: boolean;
 }
 
 type StatusBanner =
@@ -1007,6 +1008,22 @@ export function AgentWorkspace({
               cancel it before working here.
             </p>
           )}
+
+          {sessionDetail &&
+            isTerminalSession &&
+            sessionDetail.hasFileEdits === false && (
+              <p className="border-b border-zinc-800 bg-zinc-800/40 px-4 py-2 text-xs text-zinc-400">
+                Session finished with no file changes.
+              </p>
+            )}
+
+          {sessionDetail &&
+            !isTerminalSession &&
+            sessionDetail.hasFileEdits === true && (
+              <p className="border-b border-zinc-800 bg-zinc-800/40 px-4 py-2 text-xs text-zinc-400">
+                Agent edited files on this branch.
+              </p>
+            )}
 
           {showNewAgentForm ? (
             <div className="flex flex-1 flex-col p-4">

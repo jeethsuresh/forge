@@ -1,5 +1,6 @@
 services:
   app:
+    image: forge-app:${FORGE_IMAGE_TAG:-stable}
     network_mode: host
     build:
       context: .
@@ -17,11 +18,18 @@ services:
       FORGE_ADMIN_PASSWORD: ${FORGE_ADMIN_PASSWORD:-admin}
       FORGE_CURSOR_API_KEY: ${FORGE_CURSOR_API_KEY:-}
       CURSOR_API_KEY: ${CURSOR_API_KEY:-}
+      FORGE_CURSOR_AGENT_DIR: ${FORGE_CURSOR_AGENT_DIR:-}
+      FORGE_CURSOR_CONFIG_DIR: ${FORGE_CURSOR_CONFIG_DIR:-}
+      FORGE_HOST_MOUNTS_FILE: /data/forge-host-mounts.json
       FORGE_AGENT_BIN: /usr/local/bin/agent
       FORGE_GIT_USER_NAME: ${FORGE_GIT_USER_NAME:-Forge Agent}
       FORGE_GIT_USER_EMAIL: ${FORGE_GIT_USER_EMAIL:-forge-agent@localhost}
       FORGE_GITHUB_TOKEN: ${FORGE_GITHUB_TOKEN:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      FORGE_SELF_REPO: ${FORGE_SELF_REPO:-}
+      FORGE_SELF_BRANCH: ${FORGE_SELF_BRANCH:-main}
+      FORGE_STAGING_PORT: ${FORGE_STAGING_PORT:-3456}
+      FORGE_CADDY_LOG_TCP_PORT: ${FORGE_CADDY_LOG_TCP_PORT:-3999}
       FORGE_GIT_PASSWORD: ${FORGE_GIT_PASSWORD:-}
       FORGE_GIT_USERNAME: ${FORGE_GIT_USERNAME:-}
       HOME: /data/agent-home

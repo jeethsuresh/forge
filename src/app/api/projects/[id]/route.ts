@@ -6,6 +6,15 @@ import { getSession } from "@/lib/auth/session";
 import { getComposeContainerStatus, projectHasComposeFile } from "@/lib/docker";
 import { isDeploymentActive } from "@/lib/deployer";
 import { deriveRuntimeStatus } from "@/lib/project-status";
+import { composeProjectName } from "@/lib/compose-project-name";
+import { composeNameConflict, validateProjectName } from "@/lib/projects";
+import {
+  hasRollbackImage,
+  projectSupportsRollback,
+  readProjectReleaseState,
+} from "@/lib/deploy-rollback";
+import { isForgeProject } from "@/lib/forge-project";
+import { getForgeStatus, isForgeUpdateInProgress } from "@/lib/self-update";
 import { listAvailableBranches } from "@/lib/github";
 import {
   buildDeployEnvVarViews,
@@ -24,6 +33,7 @@ function projectResponse(project: typeof projects.$inferSelect) {
   const repoEnv = readRepoEnvFile(project.clonePath);
   return {
     ...rest,
+    composeProjectName: composeProjectName(rest.name),
     deployEnvVars: buildDeployEnvVarViews(saved, repoEnv.vars, repoEnv.source),
     deployEnvFileSource: repoEnv.source,
   };
@@ -62,8 +72,13 @@ export async function GET(
   const currentDeployment =
     history.find((d) => d.status === "success") ?? history[0] ?? null;
 
-  const containers = await getComposeContainerStatus(project.clonePath);
-  const isDeploying = isDeploymentActive(id);
+  const containers = await getComposeContainerStatus(
+    project.clonePath,
+    project.name,
+  );
+  const isDeploying =
+    isDeploymentActive(id) ||
+    (isForgeProject(project) && isForgeUpdateInProgress());
   const hasSuccessfulDeploy = history.some((d) => d.status === "success");
   const runtimeStatus = deriveRuntimeStatus(containers, {
     isDeploying,
@@ -72,9 +87,19 @@ export async function GET(
   });
   const hasComposeFile = projectHasComposeFile(project.clonePath);
   const branches = await listAvailableBranches(project.branch, project.clonePath);
+  const supportsRollback = projectSupportsRollback(project);
+  const rollbackAvailable = supportsRollback
+    ? await hasRollbackImage(project)
+    : false;
+  const releaseState = readProjectReleaseState(id);
+  const forge = isForgeProject(project);
+  const forgeStatus = forge ? await getForgeStatus() : null;
 
   return NextResponse.json({
-    project: projectResponse(project),
+    project: {
+      ...projectResponse(project),
+      isForge: forge,
+    },
     deployments: history,
     currentDeployment,
     containers,
@@ -82,6 +107,10 @@ export async function GET(
     runtimeStatus,
     hasComposeFile,
     branches,
+    supportsRollback,
+    hasRollbackImage: rollbackAvailable,
+    releaseState,
+    forgeStatus,
   });
 }
 
@@ -101,11 +130,43 @@ export async function PATCH(
   }
 
   const body = (await request.json()) as {
+    name?: string;
     enabled?: boolean;
     deployEnvVars?: DeployEnvVarInput[];
   };
 
   const updates: Partial<typeof projects.$inferInsert> = {};
+
+  if (body.name !== undefined) {
+    if (typeof body.name !== "string") {
+      return NextResponse.json(
+        { error: "name must be a string" },
+        { status: 400 },
+      );
+    }
+
+    const trimmed = body.name.trim();
+    const nameError = validateProjectName(trimmed);
+    if (nameError) {
+      return NextResponse.json({ error: nameError }, { status: 400 });
+    }
+
+    if (trimmed !== project.name) {
+      if (isDeploymentActive(id)) {
+        return NextResponse.json(
+          { error: "Cannot rename while a deployment is in progress" },
+          { status: 409 },
+        );
+      }
+
+      const conflict = composeNameConflict(trimmed, id);
+      if (conflict) {
+        return NextResponse.json({ error: conflict }, { status: 409 });
+      }
+
+      updates.name = trimmed;
+    }
+  }
 
   if (typeof body.enabled === "boolean") {
     updates.enabled = body.enabled;
@@ -158,6 +219,18 @@ export async function DELETE(
   }
 
   const { id } = await params;
+  const project = db.select().from(projects).where(eq(projects.id, id)).get();
+  if (!project) {
+    return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  }
+
+  if (isForgeProject(project)) {
+    return NextResponse.json(
+      { error: "The Forge project cannot be removed from the dashboard" },
+      { status: 403 },
+    );
+  }
+
   db.delete(projects).where(eq(projects.id, id)).run();
   return NextResponse.json({ ok: true });
 }

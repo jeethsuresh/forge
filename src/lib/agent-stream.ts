@@ -196,6 +196,40 @@ function formatToolSummary(
   return toolName;
 }
 
+const FILE_EDIT_TOOL_NAMES = new Set([
+  "write",
+  "edit",
+  "strreplace",
+  "delete",
+  "editnotebook",
+  "applypatch",
+]);
+
+export function isFileEditToolName(name: string): boolean {
+  return FILE_EDIT_TOOL_NAMES.has(name.toLowerCase().replace(/_/g, ""));
+}
+
+export function streamEventHasFileEdit(event: StreamEvent): boolean {
+  if (event.type !== "tool_call") return false;
+  const tool = extractToolFromEvent(event);
+  return tool != null && isFileEditToolName(tool.name);
+}
+
+export function sessionEventsHaveFileEdits(
+  events: Array<{ eventType: string; payload: string }>,
+): boolean {
+  for (const event of events) {
+    if (event.eventType !== "tool_call") continue;
+    try {
+      const parsed = JSON.parse(event.payload) as StreamEvent;
+      if (streamEventHasFileEdit(parsed)) return true;
+    } catch {
+      // ignore malformed payloads
+    }
+  }
+  return false;
+}
+
 function extractToolFromEvent(event: StreamEvent): ExtractedTool | null {
   if (event.type !== "tool_call") return null;
 

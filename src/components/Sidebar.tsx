@@ -12,7 +12,14 @@ interface ProjectSummary {
   enabled: boolean;
   isDeploying: boolean;
   runtimeStatus: RuntimeStatus;
+  isForge?: boolean;
   latestDeployment: { status: string } | null;
+}
+
+interface ProjectsResponse {
+  forgeProject: ProjectSummary | null;
+  projects: ProjectSummary[];
+  forgeConfigured: boolean;
 }
 
 function sidebarDotClass(
@@ -40,6 +47,44 @@ function sidebarDotClass(
   }
 }
 
+function ProjectNavLink({
+  project,
+  active,
+  onNavigate,
+  variant = "default",
+}: {
+  project: ProjectSummary;
+  active: boolean;
+  onNavigate?: () => void;
+  variant?: "default" | "forge";
+}) {
+  return (
+    <Link
+      href={`/projects/${project.id}`}
+      onClick={onNavigate}
+      className={`flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+        active
+          ? variant === "forge"
+            ? "bg-orange-500/15 text-orange-100 ring-1 ring-orange-500/30"
+            : "bg-zinc-800 text-zinc-100"
+          : variant === "forge"
+            ? "text-orange-200/80 hover:bg-orange-500/10 hover:text-orange-100"
+            : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+      }`}
+    >
+      <span
+        className={`h-2 w-2 shrink-0 rounded-full ${sidebarDotClass(project.enabled, project.runtimeStatus)}`}
+      />
+      <span className="min-w-0 flex-1 truncate font-medium">{project.name}</span>
+      {variant === "forge" && (
+        <span className="shrink-0 rounded border border-orange-500/30 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-orange-300/90">
+          Self
+        </span>
+      )}
+    </Link>
+  );
+}
+
 interface SidebarProps {
   className?: string;
   onNavigate?: () => void;
@@ -48,17 +93,20 @@ interface SidebarProps {
 export function Sidebar({ className = "", onNavigate }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const [forgeProject, setForgeProject] = useState<ProjectSummary | null>(null);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   const fetchProjects = useCallback(() => {
     fetch("/api/projects")
       .then((r) => r.json())
-      .then((data) => {
-        setProjects(data);
+      .then((data: ProjectsResponse) => {
+        setForgeProject(data.forgeProject ?? null);
+        setProjects(data.projects ?? []);
         setLoaded(true);
       })
       .catch(() => {
+        setForgeProject(null);
         setProjects([]);
         setLoaded(true);
       });
@@ -96,6 +144,20 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
         </Link>
       </div>
 
+      {forgeProject && (
+        <div className="border-b border-zinc-800 px-3 py-3">
+          <div className="mb-2 px-2 text-xs font-medium uppercase tracking-wider text-orange-400/80">
+            Forge instance
+          </div>
+          <ProjectNavLink
+            project={forgeProject}
+            active={pathname === `/projects/${forgeProject.id}`}
+            onNavigate={onNavigate}
+            variant="forge"
+          />
+        </div>
+      )}
+
       <div className="flex items-center justify-between px-5 py-3">
         <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
           Projects
@@ -123,30 +185,15 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
           <p className="px-2 text-sm text-zinc-600">No projects yet</p>
         ) : (
           <ul className="space-y-1">
-            {projects.map((project) => {
-              const active = pathname === `/projects/${project.id}`;
-
-              return (
-                <li key={project.id}>
-                  <Link
-                    href={`/projects/${project.id}`}
-                    onClick={onNavigate}
-                    className={`flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
-                      active
-                        ? "bg-zinc-800 text-zinc-100"
-                        : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
-                    }`}
-                  >
-                    <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${sidebarDotClass(project.enabled, project.runtimeStatus)}`}
-                    />
-                    <span className="min-w-0 flex-1 truncate font-medium">
-                      {project.name}
-                    </span>
-                  </Link>
-                </li>
-              );
-            })}
+            {projects.map((project) => (
+              <li key={project.id}>
+                <ProjectNavLink
+                  project={project}
+                  active={pathname === `/projects/${project.id}`}
+                  onNavigate={onNavigate}
+                />
+              </li>
+            ))}
           </ul>
         )}
       </nav>

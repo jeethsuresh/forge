@@ -10,6 +10,14 @@ import { parseGithubRepo } from "@/lib/github";
 import { isDeploymentActive } from "@/lib/deployer";
 import { getComposeContainerStatus, projectHasComposeFile } from "@/lib/docker";
 import { deriveRuntimeStatus } from "@/lib/project-status";
+import { composeProjectName } from "@/lib/compose-project-name";
+import { composeNameConflict, validateProjectName } from "@/lib/projects";
+import {
+  findForgeProject,
+  isForgeProject,
+  isForgeSelfUpdateConfigured,
+} from "@/lib/forge-project";
+import { isForgeUpdateInProgress } from "@/lib/self-update";
 
 async function requireLogin() {
   const session = await getSession();
@@ -29,8 +37,9 @@ export async function GET() {
     .orderBy(projects.name)
     .all();
 
-  const enriched = await Promise.all(
-    allProjects.map(async (project) => {
+  const forgeProjectRow = findForgeProject();
+
+  const enrichProject = async (project: (typeof allProjects)[number]) => {
       const latest = db
         .select()
         .from(deployments)
@@ -47,8 +56,13 @@ export async function GET() {
         .all()
         .find((d) => d.status === "success");
 
-      const isDeploying = isDeploymentActive(project.id);
-      const containers = await getComposeContainerStatus(project.clonePath);
+      const isDeploying =
+        isDeploymentActive(project.id) ||
+        (isForgeProject(project) && isForgeUpdateInProgress());
+      const containers = await getComposeContainerStatus(
+        project.clonePath,
+        project.name,
+      );
       const runtimeStatus = deriveRuntimeStatus(containers, {
         isDeploying,
         hasSuccessfulDeploy: latestSuccess !== undefined,
@@ -58,6 +72,7 @@ export async function GET() {
       return {
         id: project.id,
         name: project.name,
+        composeProjectName: composeProjectName(project.name),
         githubRepo: project.githubRepo,
         branch: project.branch,
         clonePath: project.clonePath,
@@ -68,11 +83,25 @@ export async function GET() {
         latestDeployment: latest ?? null,
         isDeploying,
         runtimeStatus,
+        isForge: isForgeProject(project),
       };
-    }),
+  };
+
+  const forgeProject = forgeProjectRow
+    ? await enrichProject(forgeProjectRow)
+    : null;
+
+  const otherProjects = allProjects.filter(
+    (project) => project.id !== forgeProjectRow?.id,
   );
 
-  return NextResponse.json(enriched);
+  const projectsList = await Promise.all(otherProjects.map(enrichProject));
+
+  return NextResponse.json({
+    forgeProject,
+    projects: projectsList,
+    forgeConfigured: isForgeSelfUpdateConfigured(),
+  });
 }
 
 export async function POST(request: Request) {
@@ -92,6 +121,17 @@ export async function POST(request: Request) {
       { error: "Name and GitHub repository are required" },
       { status: 400 },
     );
+  }
+
+  const trimmedName = body.name.trim();
+  const nameError = validateProjectName(trimmedName);
+  if (nameError) {
+    return NextResponse.json({ error: nameError }, { status: 400 });
+  }
+
+  const conflict = composeNameConflict(trimmedName);
+  if (conflict) {
+    return NextResponse.json({ error: conflict }, { status: 409 });
   }
 
   let githubRepo: string;
@@ -114,7 +154,7 @@ export async function POST(request: Request) {
   db.insert(projects)
     .values({
       id,
-      name: body.name.trim(),
+      name: trimmedName,
       githubRepo,
       branch,
       clonePath,

@@ -25,7 +25,7 @@ FROM base AS runner
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    git bash curl gosu python3 \
+    git bash curl gosu python3 sqlite3 \
   && curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz \
     | tar xzf - --strip-components=1 -C /usr/local/bin docker/docker \
   && mkdir -p /usr/local/lib/docker/cli-plugins \
@@ -34,10 +34,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && chmod +x /usr/local/lib/docker/cli-plugins/docker-compose \
   && rm -rf /var/lib/apt/lists/*
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+COPY scripts/self-update.sh /usr/local/bin/forge-self-update.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/forge-self-update.sh
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY docker-compose.yml /opt/forge/docker-compose.yml
+COPY scripts/lib/common.sh /opt/forge/scripts/lib/common.sh
 USER root
 ENTRYPOINT ["docker-entrypoint.sh"]
 EXPOSE 3000

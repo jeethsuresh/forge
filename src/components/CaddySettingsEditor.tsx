@@ -5,13 +5,18 @@ import type {
   HttpServerSummary,
   ParsedRoute,
   RouteFormValues,
+  ServerLoggingFormValues,
 } from "@/lib/caddy-config";
 import {
+  applyAllServerLogging,
   defaultRouteFormValues,
+  defaultServerLoggingForServer,
+  parseAllServerLogging,
   removeRouteFromConfig,
   routeToFormValues,
   upsertRouteInConfig,
   validateRouteForm,
+  validateServerLogging,
 } from "@/lib/caddy-config";
 
 interface CaddyConfigResponse {
@@ -60,6 +65,8 @@ function routeSummary(route: ParsedRoute): string {
 function RouteForm({
   values,
   servers,
+  inheritedHosts = [],
+  inheritedPaths = [],
   onChange,
   onSubmit,
   onCancel,
@@ -68,6 +75,8 @@ function RouteForm({
 }: {
   values: RouteFormValues;
   servers: HttpServerSummary[];
+  inheritedHosts?: string[];
+  inheritedPaths?: string[];
   onChange: (values: RouteFormValues) => void;
   onSubmit: () => void;
   onCancel: () => void;
@@ -87,6 +96,23 @@ function RouteForm({
       }}
       className="space-y-4 rounded-xl border border-zinc-800 bg-zinc-900 p-5"
     >
+      {(inheritedHosts.length > 0 || inheritedPaths.length > 0) && (
+        <div className="rounded-lg border border-zinc-700/80 bg-zinc-950/60 px-3 py-2 text-xs text-zinc-500">
+          Inherited from parent subroute:{" "}
+          {inheritedHosts.length > 0 && (
+            <span className="text-zinc-400">
+              hosts {inheritedHosts.join(", ")}
+            </span>
+          )}
+          {inheritedHosts.length > 0 && inheritedPaths.length > 0 && " · "}
+          {inheritedPaths.length > 0 && (
+            <span className="text-zinc-400">
+              paths {inheritedPaths.join(", ")}
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="block sm:col-span-2">
           <span className="mb-1.5 block text-sm font-medium text-zinc-400">
@@ -247,6 +273,120 @@ function RouteForm({
   );
 }
 
+function ServerLoggingForm({
+  serverName,
+  values,
+  onChange,
+}: {
+  serverName: string;
+  values: ServerLoggingFormValues;
+  onChange: (values: ServerLoggingFormValues) => void;
+}) {
+  return (
+    <div className="space-y-4 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-medium text-zinc-200">{serverName}</h3>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            HTTP access logging for this server
+          </p>
+        </div>
+        <label className="inline-flex items-center gap-2 text-sm text-zinc-300">
+          <input
+            type="checkbox"
+            checked={values.enabled}
+            onChange={(e) =>
+              onChange({ ...values, enabled: e.target.checked })
+            }
+            className="rounded border-zinc-600 bg-zinc-950 text-orange-500 focus:ring-orange-500/40"
+          />
+          Enable access logs
+        </label>
+      </div>
+
+      {values.enabled && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-zinc-400">
+              Output
+            </span>
+            <select
+              value={values.output}
+              onChange={(e) =>
+                onChange({
+                  ...values,
+                  output: e.target.value as ServerLoggingFormValues["output"],
+                })
+              }
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-orange-500/50"
+            >
+              <option value="forge">Push to Forge</option>
+              <option value="file">File</option>
+              <option value="stdout">Standard output</option>
+              <option value="stderr">Standard error</option>
+            </select>
+          </label>
+
+          {values.output !== "forge" && (
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-medium text-zinc-400">
+              Format
+            </span>
+            <select
+              value={values.format}
+              onChange={(e) =>
+                onChange({
+                  ...values,
+                  format: e.target.value as ServerLoggingFormValues["format"],
+                })
+              }
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-orange-500/50"
+            >
+              <option value="json">JSON</option>
+              <option value="console">Console</option>
+            </select>
+          </label>
+          )}
+
+          {values.output === "forge" && (
+            <p className="sm:col-span-2 text-xs leading-relaxed text-zinc-500">
+              Caddy streams JSON access logs to Forge over TCP on{" "}
+              <code className="text-zinc-400">127.0.0.1:3999</code> (configurable
+              via{" "}
+              <code className="text-zinc-400">FORGE_CADDY_LOG_TCP_PORT</code>).
+              External shippers can also POST JSON to{" "}
+              <code className="text-zinc-400">/api/caddy/logs/ingest</code>.
+            </p>
+          )}
+
+          {values.output === "file" && (
+            <label className="block sm:col-span-2">
+              <span className="mb-1.5 block text-sm font-medium text-zinc-400">
+                Log file path
+              </span>
+              <input
+                type="text"
+                value={values.filePath}
+                onChange={(e) =>
+                  onChange({ ...values, filePath: e.target.value })
+                }
+                placeholder="/var/log/caddy/access.log"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:border-orange-500/50"
+                required
+              />
+              <span className="mt-1 block text-xs text-zinc-600">
+                Set{" "}
+                <code className="text-zinc-500">FORGE_CADDY_ACCESS_LOG_PATH</code>{" "}
+                to this path so Forge can tail the same file in Access logs.
+              </span>
+            </label>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CaddySettingsEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -263,6 +403,9 @@ export function CaddySettingsEditor() {
   const [editingRoute, setEditingRoute] = useState<ParsedRoute | null>(null);
   const [showRawJson, setShowRawJson] = useState(false);
   const [rawJson, setRawJson] = useState("");
+  const [loggingByServer, setLoggingByServer] = useState<
+    Record<string, ServerLoggingFormValues>
+  >({});
 
   const defaultServerName = useMemo(
     () => servers[0]?.name ?? "srv0",
@@ -283,6 +426,7 @@ export function CaddySettingsEditor() {
       setConfig(data.config);
       setServers(data.servers);
       setRoutes(data.routes);
+      setLoggingByServer(parseAllServerLogging(data.config));
       setRawJson(JSON.stringify(data.config, null, 2));
     } catch {
       setError("Network error while loading Caddy config");
@@ -344,7 +488,10 @@ export function CaddySettingsEditor() {
   }
 
   async function saveRoute() {
-    const validationError = validateRouteForm(formValues);
+    const validationError = validateRouteForm(
+      formValues,
+      editingRoute?.subroute,
+    );
     if (validationError) {
       setError(validationError);
       return;
@@ -354,7 +501,11 @@ export function CaddySettingsEditor() {
       config,
       formValues,
       editingRoute
-        ? { serverName: editingRoute.serverName, index: editingRoute.index }
+        ? {
+            serverName: editingRoute.serverName,
+            index: editingRoute.index,
+            subroute: editingRoute.subroute,
+          }
         : undefined,
     );
     setConfig(next);
@@ -363,7 +514,37 @@ export function CaddySettingsEditor() {
   }
 
   async function deleteRoute(route: ParsedRoute) {
-    const next = removeRouteFromConfig(config, route.serverName, route.index);
+    const next = removeRouteFromConfig(
+      config,
+      route.serverName,
+      route.index,
+      route.subroute,
+    );
+    setConfig(next);
+    setRawJson(JSON.stringify(next, null, 2));
+    await applyConfig(next);
+  }
+
+  function updateServerLogging(
+    serverName: string,
+    values: ServerLoggingFormValues,
+  ) {
+    setLoggingByServer((current) => ({
+      ...current,
+      [serverName]: values,
+    }));
+  }
+
+  async function saveLogging() {
+    for (const [serverName, values] of Object.entries(loggingByServer)) {
+      const validationError = validateServerLogging(values);
+      if (validationError) {
+        setError(`${serverName}: ${validationError}`);
+        return;
+      }
+    }
+
+    const next = applyAllServerLogging(config, loggingByServer);
     setConfig(next);
     setRawJson(JSON.stringify(next, null, 2));
     await applyConfig(next);
@@ -457,7 +638,57 @@ export function CaddySettingsEditor() {
       )}
 
       {mode === "list" ? (
-        <div className="space-y-4">
+        <div className="space-y-8">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-medium text-zinc-200">
+                  Access logging
+                </h2>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Enable JSON access logs per HTTP server and write them to a
+                  file Forge can tail.
+                </p>
+              </div>
+              {servers.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void saveLogging()}
+                  disabled={saving}
+                  className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+                >
+                  {saving ? "Applying…" : "Save logging"}
+                </button>
+              )}
+            </div>
+
+            {servers.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-zinc-700 bg-zinc-900/50 px-6 py-8 text-center">
+                <p className="text-sm text-zinc-500">
+                  Add an HTTP route to create a server before configuring
+                  logging.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {servers.map((server) => (
+                  <ServerLoggingForm
+                    key={server.name}
+                    serverName={server.name}
+                    values={
+                      loggingByServer[server.name] ??
+                      defaultServerLoggingForServer(server.name)
+                    }
+                    onChange={(values) =>
+                      updateServerLogging(server.name, values)
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-medium text-zinc-200">HTTP routes</h2>
@@ -518,6 +749,11 @@ export function CaddySettingsEditor() {
                         <span className="rounded-md bg-orange-500/10 px-2 py-1 text-xs font-medium text-orange-300">
                           {handlerLabel(route.handlerKind)}
                         </span>
+                        {route.subroute && (
+                          <span className="rounded-md bg-sky-500/10 px-2 py-1 text-xs font-medium text-sky-300">
+                            Subroute
+                          </span>
+                        )}
                       </div>
                       <div className="text-sm text-zinc-200">
                         {route.hosts.length > 0
@@ -557,6 +793,7 @@ export function CaddySettingsEditor() {
               ))}
             </ul>
           )}
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
@@ -566,6 +803,8 @@ export function CaddySettingsEditor() {
           <RouteForm
             values={formValues}
             servers={servers}
+            inheritedHosts={editingRoute?.subroute?.inheritedHosts}
+            inheritedPaths={editingRoute?.subroute?.inheritedPaths}
             onChange={setFormValues}
             onSubmit={() => void saveRoute()}
             onCancel={() => {
