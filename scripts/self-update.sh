@@ -471,6 +471,10 @@ ensure_container_runtime() {
   start_podman_api_inline
 }
 
+git_in_source() {
+  (cd "$SOURCE_DIR" && git "$@")
+}
+
 run_upgrade() {
   local repo="${FORGE_SELF_REPO:-}"
   local branch="${FORGE_SELF_BRANCH:-main}"
@@ -504,10 +508,10 @@ run_upgrade() {
     git clone --branch "$branch" "https://github.com/${repo}.git" "$SOURCE_DIR"
   else
     log "Fetching latest changes for ${repo}@${branch}"
-    git -C "$SOURCE_DIR" fetch origin "$branch"
-    git -C "$SOURCE_DIR" checkout "$branch" 2>/dev/null \
-      || git -C "$SOURCE_DIR" checkout -B "$branch" "origin/${branch}"
-    git -C "$SOURCE_DIR" reset --hard "origin/${branch}"
+    git_in_source fetch origin "$branch"
+    git_in_source checkout "$branch" 2>/dev/null \
+      || git_in_source checkout -B "$branch" "origin/${branch}"
+    git_in_source reset --hard "origin/${branch}"
   fi
 
   if ! load_common_sh; then
@@ -516,7 +520,7 @@ run_upgrade() {
   fi
 
   local target_commit
-  target_commit="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+  target_commit="$(git_in_source rev-parse HEAD)"
   log "Target commit: ${target_commit}"
 
   if [[ -n "$previous_commit" && "$target_commit" == "$previous_commit" ]]; then
@@ -534,7 +538,7 @@ run_upgrade() {
       return 0
     fi
     if [[ "$attempt" -eq 1 ]] && attempt_forge_recovery "$LAST_UPGRADE_ERROR"; then
-      target_commit="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+      target_commit="$(git_in_source rev-parse HEAD)"
       log "Retrying upgrade after recovery (attempt 2)"
       continue
     fi
