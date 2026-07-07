@@ -1,4 +1,4 @@
-import { execFile } from "child_process";
+import { execFile, execFileSync } from "child_process";
 import { accessSync, constants, existsSync, readFileSync } from "fs";
 import { promisify } from "util";
 
@@ -6,10 +6,26 @@ const execFileAsync = promisify(execFile);
 
 const DEFAULT_PODMAN_API_PORT = "18765";
 
+function isReachableDockerHost(host: string): boolean {
+  try {
+    execFileSync("docker", ["info"], {
+      env: { ...process.env, DOCKER_HOST: host },
+      timeout: 5_000,
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function unixSocketHost(): string | null {
   const socket = containerDockerSocket();
-  if (!isWritableSocket(socket)) return null;
-  return `unix://${socket}`;
+  const host = `unix://${socket}`;
+  if (!existsSync(socket)) return null;
+  if (isReachableDockerHost(host)) return host;
+  if (isWritableSocket(socket)) return host;
+  return null;
 }
 
 export function dockerHostForRuntime(): string {

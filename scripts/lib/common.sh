@@ -219,6 +219,18 @@ start_podman_api_service() {
     return 0
   fi
 
+  install_forge_podman_api_systemd_service || true
+
+  if command -v systemctl >/dev/null 2>&1 \
+    && systemctl --user is-active "podman-forge-api.service" >/dev/null 2>&1; then
+    for _ in $(seq 1 30); do
+      if docker_runtime_ready; then
+        return 0
+      fi
+      sleep 0.2
+    done
+  fi
+
   if ! command -v podman >/dev/null 2>&1; then
     echo "Container runtime is not reachable and podman is not installed to start an API service." >&2
     exit 1
@@ -238,6 +250,36 @@ start_podman_api_service() {
 
   echo "Podman API service failed to start on port ${FORGE_PODMAN_API_PORT}" >&2
   exit 1
+}
+
+install_forge_podman_api_systemd_service() {
+  if ! command -v podman >/dev/null 2>&1 || ! command -v systemctl >/dev/null 2>&1; then
+    return 1
+  fi
+
+  local unit_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/systemd/user"
+  mkdir -p "$unit_dir"
+
+  cat >"${unit_dir}/podman-forge-api.service" <<EOF
+[Unit]
+Description=Podman API for Forge self-deploy
+After=network.target
+
+[Service]
+ExecStart=$(command -v podman) system service --time=0 tcp://127.0.0.1:${FORGE_PODMAN_API_PORT}
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+EOF
+
+  systemctl --user daemon-reload
+  systemctl --user enable --now podman-forge-api.service >/dev/null 2>&1 || return 1
+
+  if command -v loginctl >/dev/null 2>&1; then
+    loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
+  fi
 }
 
 stop_podman_api_service() {

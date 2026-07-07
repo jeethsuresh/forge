@@ -43,7 +43,7 @@ describe("docker-runtime helpers", () => {
     return socketPath;
   }
 
-  it("prefers a writable mounted socket over configured TCP DOCKER_HOST", async () => {
+  it("prefers a reachable mounted socket over configured TCP DOCKER_HOST", async () => {
     const socketPath = mountWritableSocket();
     process.env.FORGE_DOCKER_SOCKET = socketPath;
     process.env.DOCKER_HOST = "tcp://127.0.0.1:18765";

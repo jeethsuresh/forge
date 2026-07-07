@@ -1,7 +1,11 @@
+x-podman:
+  in_pod: false
+
 services:
   app:
     image: forge-app:${FORGE_IMAGE_TAG:-stable}
     network_mode: host
+    userns_mode: keep-id
     build:
       context: .
       dockerfile: Dockerfile
