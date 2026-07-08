@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
+import { APP_DISPLAY_NAME, appDisplayInitial } from "@/lib/app-name";
 import type { RuntimeStatus } from "@/lib/project-status";
-import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 interface ProjectSummary {
   id: string;
@@ -136,7 +136,7 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
           className="flex items-center gap-2"
         >
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/20 text-sm font-bold text-orange-400">
-            O
+            {appDisplayInitial()}
           </span>
           <div>
             <div className="font-semibold text-zinc-100">{APP_DISPLAY_NAME}</div>

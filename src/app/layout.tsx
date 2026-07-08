@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -11,8 +12,6 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
-
-import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 export const metadata: Metadata = {
   title: APP_DISPLAY_NAME,
