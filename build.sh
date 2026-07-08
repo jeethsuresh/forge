@@ -48,7 +48,8 @@ while [[ ${#REMAINING_ARGS[@]} -gt 0 ]]; do
 done
 
 if has_compose_file; then
-  compose_cmd build
+  source_sha="$(git rev-parse HEAD 2>/dev/null || date -Iseconds)"
+  compose_cmd build --build-arg "SOURCE_SHA=${source_sha}"
   image_id="$(resolve_compose_app_image_id || true)"
   if [[ -n "$image_id" ]]; then
     docker tag "$image_id" forge-app:stable

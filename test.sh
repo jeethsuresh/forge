@@ -5,6 +5,9 @@ cd "$(dirname "$0")"
 # shellcheck source=scripts/lib/common.sh
 source ./scripts/lib/common.sh
 
+# Never lock the production SQLite file during unit tests (including self-update).
+export FORGE_DB_PATH="${FORGE_DB_PATH:-:memory:}"
+
 usage() {
   cat <<EOF
 Usage: ./test.sh [options]

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { composeProjectName } from "@/lib/compose-project-name";
+import { composeAppContainerName, composeProjectName } from "@/lib/compose-project-name";
 
 describe("composeProjectName", () => {
   it("lowercases and hyphenates display names", () => {
@@ -16,5 +16,12 @@ describe("composeProjectName", () => {
 
   it("falls back when the name has no usable characters", () => {
     expect(composeProjectName("!!!")).toBe("forge-project");
+  });
+});
+
+describe("composeAppContainerName", () => {
+  it("maps compose slugs to underscore container names", () => {
+    expect(composeAppContainerName("forge")).toBe("forge_app_1");
+    expect(composeAppContainerName("forge-staging")).toBe("forge_staging_app_1");
   });
 });

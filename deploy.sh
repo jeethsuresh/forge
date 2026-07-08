@@ -52,8 +52,18 @@ start_podman_api_service
 export_docker_socket
 require_cursor_agent
 
+prepare_named_container_deploy() {
+  if [[ -n "${FORGE_CONTAINER_NAME:-}" ]]; then
+    docker rm -f "${FORGE_CONTAINER_NAME}" >/dev/null 2>&1 || true
+  fi
+}
+
+prepare_named_container_deploy
+
 if [[ "$DETACH" -eq 1 ]]; then
   compose_cmd up -d --force-recreate
 else
   compose_cmd up
 fi
+
+remove_orphan_compose_container

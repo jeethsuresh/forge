@@ -61,6 +61,38 @@ describe("composeNameConflict", () => {
 });
 
 describe("buildProjectScriptEnv", () => {
+  let previousComposeProject: string | undefined;
+  let previousProjectName: string | undefined;
+  let previousForgeContainer: string | undefined;
+  let previousForgeSelfRepo: string | undefined;
+  let previousDockerHost: string | undefined;
+
+  beforeEach(() => {
+    previousComposeProject = process.env.COMPOSE_PROJECT_NAME;
+    previousProjectName = process.env.PROJECT_NAME;
+    previousForgeContainer = process.env.FORGE_CONTAINER_NAME;
+    previousForgeSelfRepo = process.env.FORGE_SELF_REPO;
+    previousDockerHost = process.env.DOCKER_HOST;
+    delete process.env.COMPOSE_PROJECT_NAME;
+    delete process.env.PROJECT_NAME;
+    delete process.env.FORGE_CONTAINER_NAME;
+    delete process.env.FORGE_SELF_REPO;
+    delete process.env.DOCKER_HOST;
+  });
+
+  afterEach(() => {
+    if (previousComposeProject === undefined) delete process.env.COMPOSE_PROJECT_NAME;
+    else process.env.COMPOSE_PROJECT_NAME = previousComposeProject;
+    if (previousProjectName === undefined) delete process.env.PROJECT_NAME;
+    else process.env.PROJECT_NAME = previousProjectName;
+    if (previousForgeContainer === undefined) delete process.env.FORGE_CONTAINER_NAME;
+    else process.env.FORGE_CONTAINER_NAME = previousForgeContainer;
+    if (previousForgeSelfRepo === undefined) delete process.env.FORGE_SELF_REPO;
+    else process.env.FORGE_SELF_REPO = previousForgeSelfRepo;
+    if (previousDockerHost === undefined) delete process.env.DOCKER_HOST;
+    else process.env.DOCKER_HOST = previousDockerHost;
+  });
+
   it("injects compose project name env vars when unset", () => {
     const { env, composeProjectName: slug } = buildProjectScriptEnv(
       "My App",
@@ -79,6 +111,17 @@ describe("buildProjectScriptEnv", () => {
       ]),
     );
     expect(env.COMPOSE_PROJECT_NAME).toBe("custom");
+  });
+
+  it("inherits Forge instance runtime env for the Forge project", () => {
+    process.env.FORGE_SELF_REPO = "acme/forge";
+    process.env.FORGE_CONTAINER_NAME = "forge_app_1";
+    process.env.DOCKER_HOST = "tcp://127.0.0.1:18765";
+
+    const { env } = buildProjectScriptEnv("Forge", "[]");
+    expect(env.COMPOSE_PROJECT_NAME).toBe("forge");
+    expect(env.FORGE_CONTAINER_NAME).toBe("forge_app_1");
+    expect(env.DOCKER_HOST).toBe("tcp://127.0.0.1:18765");
   });
 });
 

@@ -3,6 +3,7 @@ x-podman:
 
 services:
   app:
+    container_name: ${FORGE_CONTAINER_NAME}
     image: forge-app:${FORGE_IMAGE_TAG:-stable}
     network_mode: host
     userns_mode: keep-id
@@ -55,6 +56,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: test
+    environment:
+      FORGE_DB_PATH: ":memory:"
 
 volumes:
   forge-data:

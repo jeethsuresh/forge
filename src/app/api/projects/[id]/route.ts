@@ -13,6 +13,7 @@ import {
   projectSupportsRollback,
   readProjectReleaseState,
 } from "@/lib/deploy-rollback";
+import { reconcileInterruptedDeployments } from "@/lib/deploy-reconcile";
 import { isForgeProject } from "@/lib/forge-project";
 import { getForgeStatus, isForgeUpdateInProgress } from "@/lib/self-update";
 import { listAvailableBranches } from "@/lib/github";
@@ -61,6 +62,8 @@ export async function GET(
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
+  reconcileInterruptedDeployments(id);
+
   const history = db
     .select()
     .from(deployments)
@@ -78,8 +81,10 @@ export async function GET(
   );
   const isDeploying =
     isDeploymentActive(id) ||
-    (isForgeProject(project) && isForgeUpdateInProgress());
-  const hasSuccessfulDeploy = history.some((d) => d.status === "success");
+    (isForgeProject(project) && (await isForgeUpdateInProgress()));
+  const hasSuccessfulDeploy =
+    history.some((d) => d.status === "success") ||
+    Boolean(readProjectReleaseState(id, project)?.stableCommitSha);
   const runtimeStatus = deriveRuntimeStatus(containers, {
     isDeploying,
     hasSuccessfulDeploy,
@@ -91,7 +96,7 @@ export async function GET(
   const rollbackAvailable = supportsRollback
     ? await hasRollbackImage(project)
     : false;
-  const releaseState = readProjectReleaseState(id);
+  const releaseState = readProjectReleaseState(id, project);
   const forge = isForgeProject(project);
   const forgeStatus = forge ? await getForgeStatus() : null;
 

@@ -38,16 +38,6 @@ export function dockerHostForRuntime(): string {
   return `tcp://127.0.0.1:${port}`;
 }
 
-function isWritableSocket(path: string): boolean {
-  if (!existsSync(path)) return false;
-  try {
-    accessSync(path, constants.R_OK | constants.W_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function containerDockerSocket(): string {
   return process.env.FORGE_DOCKER_SOCKET ?? "/var/run/docker.sock";
 }

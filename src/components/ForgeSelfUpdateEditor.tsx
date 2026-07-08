@@ -1,6 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import {
+  statusLabel,
+  statusToneClass,
+} from "@/lib/self-update-helpers";
 
 interface ForgeUpdateView {
   id: string;
@@ -20,7 +24,9 @@ interface ForgeStatusResponse {
   selfBranch: string;
   runningCommitSha: string | null;
   remoteCommitSha: string | null;
+  remoteCommitLookupFailed?: boolean;
   updateAvailable: boolean;
+  deployAllowed: boolean;
   hasRollbackImage: boolean;
   activeUpdate: ForgeUpdateView | null;
   recentUpdates: ForgeUpdateView[];
@@ -29,46 +35,6 @@ interface ForgeStatusResponse {
 function shortSha(sha: string | null): string {
   if (!sha) return "—";
   return sha.slice(0, 7);
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case "pending":
-      return "Pending";
-    case "pulling":
-      return "Pulling source";
-    case "building":
-      return "Building";
-    case "testing":
-      return "Testing";
-    case "staging":
-      return "Staging";
-    case "cutover":
-      return "Deploying";
-    case "health_check":
-      return "Health check";
-    case "success":
-      return "Success";
-    case "failed":
-      return "Failed";
-    case "rolled_back":
-      return "Rolled back";
-    default:
-      return status;
-  }
-}
-
-function statusClass(status: string): string {
-  switch (status) {
-    case "success":
-      return "text-emerald-400";
-    case "failed":
-      return "text-red-400";
-    case "rolled_back":
-      return "text-amber-400";
-    default:
-      return "text-amber-300";
-  }
 }
 
 export function ForgeSelfUpdateEditor({
@@ -82,20 +48,30 @@ export function ForgeSelfUpdateEditor({
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [expandedUpdateId, setExpandedUpdateId] = useState<string | null>(null);
 
   const fetchStatus = useCallback(() => {
     fetch("/api/forge/status")
-      .then((r) => r.json())
-      .then((data: ForgeStatusResponse) => {
+      .then(async (r) => {
+        if (!r.ok) {
+          throw new Error(`Failed to load Forge status (${r.status})`);
+        }
+        return r.json() as Promise<ForgeStatusResponse>;
+      })
+      .then((data) => {
         setStatus(data);
+        setStatusError(null);
         setLoading(false);
         if (data.activeUpdate) {
           setExpandedUpdateId(data.activeUpdate.id);
         }
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         setLoading(false);
+        setStatusError(
+          err instanceof Error ? err.message : "Failed to load Forge status",
+        );
       });
   }, []);
 
@@ -147,6 +123,7 @@ export function ForgeSelfUpdateEditor({
   }
 
   const busy = actionLoading || !!status?.activeUpdate;
+  const latestFailed = status?.recentUpdates.find((u) => u.status === "failed");
 
   return (
     <section
@@ -163,6 +140,10 @@ export function ForgeSelfUpdateEditor({
       <div className="space-y-5 px-5 py-5">
         {loading ? (
           <div className="h-24 animate-pulse rounded-lg bg-zinc-800/60" />
+        ) : statusError ? (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {statusError}
+          </div>
         ) : !status?.configured ? (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
             Set{" "}
@@ -194,7 +175,9 @@ export function ForgeSelfUpdateEditor({
                   Latest remote
                 </dt>
                 <dd className="mt-1 font-mono text-sm text-zinc-200">
-                  {shortSha(status.remoteCommitSha)}
+                  {status.remoteCommitLookupFailed
+                    ? "Unavailable"
+                    : shortSha(status.remoteCommitSha)}
                   {status.updateAvailable && (
                     <span className="ml-2 text-xs text-orange-400">
                       Update available
@@ -212,34 +195,53 @@ export function ForgeSelfUpdateEditor({
               </div>
             </dl>
 
+            {status.remoteCommitLookupFailed && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                Could not reach GitHub to compare commits. Updates are paused
+                until the remote can be checked again.
+              </div>
+            )}
+
             {error && (
               <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                 {error}
               </div>
             )}
 
-            <div className="flex flex-wrap gap-3">
+            {!status.activeUpdate && latestFailed?.errorMessage && (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-200">
+                Last update failed: {latestFailed.errorMessage}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center gap-3">
               {!status.updateAvailable && !status.activeUpdate && (
                 <p className="text-sm text-zinc-400">
-                  Forge is up to date with{" "}
-                  <span className="font-mono text-zinc-300">
-                    {status.selfRepo}@{status.selfBranch}
-                  </span>
-                  .
+                  {status.remoteCommitLookupFailed
+                    ? "Waiting for GitHub before checking for updates."
+                    : (
+                      <>
+                        Forge is up to date with{" "}
+                        <span className="font-mono text-zinc-300">
+                          {status.selfRepo}@{status.selfBranch}
+                        </span>
+                        . You can still redeploy the same commit.
+                      </>
+                    )}
                 </p>
               )}
 
               <button
                 type="button"
                 onClick={runUpdate}
-                disabled={busy || !status.updateAvailable}
+                disabled={busy || !status.deployAllowed}
                 className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {status.activeUpdate
                   ? "Update in progress…"
                   : status.updateAvailable
                     ? "Update Forge"
-                    : "Up to date"}
+                    : "Redeploy Forge"}
               </button>
               <button
                 type="button"
@@ -258,7 +260,7 @@ export function ForgeSelfUpdateEditor({
                     Active update
                   </span>
                   <span
-                    className={`text-sm ${statusClass(status.activeUpdate.status)}`}
+                    className={`text-sm ${statusToneClass(status.activeUpdate.status)}`}
                   >
                     {statusLabel(status.activeUpdate.status)}
                   </span>
@@ -308,9 +310,14 @@ export function ForgeSelfUpdateEditor({
                         <div className="text-xs text-zinc-500">
                           {new Date(update.startedAt).toLocaleString()}
                         </div>
+                        {update.errorMessage && (
+                          <div className="mt-1 truncate text-xs text-red-300">
+                            {update.errorMessage}
+                          </div>
+                        )}
                       </div>
                       <span
-                        className={`shrink-0 text-sm ${statusClass(update.status)}`}
+                        className={`shrink-0 text-sm ${statusToneClass(update.status)}`}
                       >
                         {statusLabel(update.status)}
                       </span>

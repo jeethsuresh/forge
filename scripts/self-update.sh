@@ -19,6 +19,7 @@ FORGE_PODMAN_API_PORT="${FORGE_PODMAN_API_PORT:-18765}"
 HEALTH_PATH="/api/forge/health"
 HEALTH_RETRIES="${FORGE_HEALTH_RETRIES:-30}"
 HEALTH_INTERVAL="${FORGE_HEALTH_INTERVAL:-2}"
+SELF_UPDATE_DB_PY="${FORGE_SELF_UPDATE_DB_PY:-/opt/forge/scripts/lib/self-update-db.py}"
 
 usage() {
   cat <<EOF
@@ -74,13 +75,14 @@ fi
 mark_failed_exit() {
   local code="$1"
   if [[ -n "$UPDATE_ID" && -f "$DB_PATH" ]]; then
-    local existing
-    existing="$(
-      sqlite3 "$DB_PATH" \
-        "SELECT COALESCE(error_message, '') FROM forge_updates WHERE id = '${UPDATE_ID}';" \
-        2>/dev/null \
-        || true
-    )"
+    local existing=""
+    if resolve_self_update_db_py; then
+      existing="$(
+        python3 "$SELF_UPDATE_DB_PY" --db "$DB_PATH" --update-id "$UPDATE_ID" get-error \
+          2>/dev/null \
+          || true
+      )"
+    fi
     if [[ -z "$existing" ]]; then
       set_status "failed" "Updater exited with code ${code}"
     fi
@@ -99,6 +101,63 @@ load_common_sh() {
     return 0
   fi
   return 1
+}
+
+resolve_self_update_db_py() {
+  if [[ -f "$SELF_UPDATE_DB_PY" ]]; then
+    return 0
+  fi
+  if [[ -f "${SOURCE_DIR}/scripts/lib/self-update-db.py" ]]; then
+    SELF_UPDATE_DB_PY="${SOURCE_DIR}/scripts/lib/self-update-db.py"
+    return 0
+  fi
+  if [[ -f "/opt/forge/scripts/lib/self-update-db.py" ]]; then
+    SELF_UPDATE_DB_PY="/opt/forge/scripts/lib/self-update-db.py"
+    return 0
+  fi
+  return 1
+}
+
+forge_db_log() {
+  local message="$1"
+  if [[ ! -f "$DB_PATH" ]]; then
+    return 0
+  fi
+  resolve_self_update_db_py || return 0
+  python3 "$SELF_UPDATE_DB_PY" --db "$DB_PATH" --update-id "$UPDATE_ID" log "$message" \
+    2>/dev/null || true
+}
+
+forge_db_status() {
+  local status="$1"
+  local error="${2:-}"
+  local completed="${3:-0}"
+  local target_commit="${4:-}"
+  if [[ ! -f "$DB_PATH" ]]; then
+    return 0
+  fi
+  resolve_self_update_db_py || return 0
+  local args=(--db "$DB_PATH" --update-id "$UPDATE_ID" status "$status")
+  if [[ -n "$error" ]]; then
+    args+=(--error "$error")
+  fi
+  if [[ "$completed" == "1" ]]; then
+    args+=(--completed)
+  fi
+  if [[ -n "$target_commit" ]]; then
+    args+=(--target-commit "$target_commit")
+  fi
+  python3 "$SELF_UPDATE_DB_PY" "${args[@]}" 2>/dev/null || true
+}
+
+forge_db_set_previous_commit() {
+  local previous_commit="$1"
+  if [[ -z "$previous_commit" || ! -f "$DB_PATH" ]]; then
+    return 0
+  fi
+  resolve_self_update_db_py || return 0
+  python3 "$SELF_UPDATE_DB_PY" --db "$DB_PATH" --update-id "$UPDATE_ID" \
+    previous-commit "$previous_commit" 2>/dev/null || true
 }
 
 resolve_built_image_id() {
@@ -180,25 +239,16 @@ compose_inline() {
 log() {
   local message="[$(date -Iseconds)] $*"
   echo "$message"
-  if [[ -f "$DB_PATH" ]]; then
-    sqlite3 "$DB_PATH" "UPDATE forge_updates SET logs = logs || '${message//$'\n'/}' || char(10) WHERE id = '${UPDATE_ID}';" 2>/dev/null || true
-  fi
+  forge_db_log "$message"
 }
 
 set_status() {
   local status="$1"
   local error="${2:-}"
-  if [[ ! -f "$DB_PATH" ]]; then
-    return 0
-  fi
   if [[ -n "$error" ]]; then
-    sqlite3 "$DB_PATH" \
-      "UPDATE forge_updates SET status = '${status}', error_message = '${error//\'/''}', completed_at = $(date +%s) WHERE id = '${UPDATE_ID}';" \
-      2>/dev/null || true
+    forge_db_status "$status" "$error" 1
   else
-    sqlite3 "$DB_PATH" \
-      "UPDATE forge_updates SET status = '${status}' WHERE id = '${UPDATE_ID}';" \
-      2>/dev/null || true
+    forge_db_status "$status"
   fi
 }
 
@@ -206,20 +256,12 @@ trap '[[ $? -eq 0 ]] || mark_failed_exit $?' EXIT
 
 mark_success() {
   local commit_sha="${1:-}"
-  if [[ -f "$DB_PATH" ]]; then
-    sqlite3 "$DB_PATH" \
-      "UPDATE forge_updates SET status = 'success', target_commit_sha = '${commit_sha}', completed_at = $(date +%s) WHERE id = '${UPDATE_ID}';" \
-      2>/dev/null || true
-  fi
+  forge_db_status "success" "" 1 "$commit_sha"
 }
 
 mark_rolled_back() {
   local message="${1:-Rolled back to previous release}"
-  if [[ -f "$DB_PATH" ]]; then
-    sqlite3 "$DB_PATH" \
-      "UPDATE forge_updates SET status = 'rolled_back', error_message = '${message//\'/''}', completed_at = $(date +%s) WHERE id = '${UPDATE_ID}';" \
-      2>/dev/null || true
-  fi
+  forge_db_status "rolled_back" "$message" 1
 }
 
 wait_for_health() {
@@ -365,7 +407,7 @@ build_test_stage_and_cutover() {
   log "Running tests"
   if ! (
     cd "$SOURCE_DIR"
-    COMPOSE_PROJECT_NAME="$STAGING_PROJECT" ./test.sh --host-port "$STAGING_PORT"
+    FORGE_DB_PATH=":memory:" COMPOSE_PROJECT_NAME="$STAGING_PROJECT" ./test.sh --host-port "$STAGING_PORT"
   ); then
     LAST_UPGRADE_ERROR="Tests failed"
     return 1
@@ -509,22 +551,30 @@ run_upgrade() {
 
   local previous_commit
   previous_commit="$(read_release_commit)"
-  if [[ -n "$previous_commit" && -f "$DB_PATH" ]]; then
-    sqlite3 "$DB_PATH" \
-      "UPDATE forge_updates SET previous_commit_sha = '${previous_commit}' WHERE id = '${UPDATE_ID}';" \
-      2>/dev/null || true
-  fi
+  forge_db_set_previous_commit "$previous_commit"
 
   mkdir -p "$SOURCE_DIR"
   if [[ ! -d "${SOURCE_DIR}/.git" ]]; then
     log "Cloning https://github.com/${repo}.git (branch ${branch})"
-    git clone --branch "$branch" "https://github.com/${repo}.git" "$SOURCE_DIR"
+    if ! git clone --branch "$branch" "https://github.com/${repo}.git" "$SOURCE_DIR"; then
+      set_status "failed" "Failed to clone https://github.com/${repo}.git (branch ${branch})"
+      exit 1
+    fi
   else
     log "Fetching latest changes for ${repo}@${branch}"
-    git_in_source fetch origin "$branch"
-    git_in_source checkout "$branch" 2>/dev/null \
-      || git_in_source checkout -B "$branch" "origin/${branch}"
-    git_in_source reset --hard "origin/${branch}"
+    if ! git_in_source fetch origin "$branch"; then
+      set_status "failed" "Failed to fetch ${repo}@${branch} from GitHub"
+      exit 1
+    fi
+    if ! git_in_source checkout "$branch" 2>/dev/null \
+      && ! git_in_source checkout -B "$branch" "origin/${branch}"; then
+      set_status "failed" "Failed to checkout branch ${branch} in ${SOURCE_DIR}"
+      exit 1
+    fi
+    if ! git_in_source reset --hard "origin/${branch}"; then
+      set_status "failed" "Failed to reset ${SOURCE_DIR} to origin/${branch}"
+      exit 1
+    fi
   fi
 
   normalize_source_permissions
@@ -539,9 +589,7 @@ run_upgrade() {
   log "Target commit: ${target_commit}"
 
   if [[ -n "$previous_commit" && "$target_commit" == "$previous_commit" ]]; then
-    log "Already running the latest commit (${target_commit:0:7})"
-    mark_success "$target_commit"
-    exit 0
+    log "Redeploying the same commit (${target_commit:0:7}); rebuilding from source"
   fi
 
   if ! ensure_rollback_image; then

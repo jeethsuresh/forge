@@ -9,6 +9,11 @@ export async function register() {
     const { reconcileStaleForgeUpdates } = await import("@/lib/self-update");
     void reconcileStaleForgeUpdates();
 
+    const { reconcileForgeInterruptedDeploys } = await import(
+      "@/lib/deploy-reconcile"
+    );
+    reconcileForgeInterruptedDeploys();
+
     const { startWatcher } = await import("@/lib/watcher");
     await startWatcher();
 

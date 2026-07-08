@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { APP_DISPLAY_NAME, appDisplayInitial } from "@/lib/app-name";
 import { Sidebar } from "@/components/Sidebar";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
@@ -36,9 +37,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         </button>
         <Link href="/projects" className="flex items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-orange-500/20 text-xs font-bold text-orange-400">
-            F
+            {appDisplayInitial()}
           </span>
-          <span className="font-semibold text-zinc-100">Forge</span>
+          <span className="font-semibold text-zinc-100">{APP_DISPLAY_NAME}</span>
         </Link>
       </header>
 

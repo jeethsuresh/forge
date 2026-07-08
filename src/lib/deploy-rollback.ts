@@ -1,10 +1,20 @@
 import { execFile } from "child_process";
+import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { promisify } from "util";
-import { composeProjectName } from "@/lib/compose-project-name";
-import { dockerExecEnv } from "@/lib/docker-runtime";
-import { isForgeProject } from "@/lib/forge-project";
+import { composeAppContainerName, composeProjectName } from "@/lib/compose-project-name";
+import {
+  containerDockerSocket,
+  dockerExecEnv,
+  dockerHostForRuntime,
+  ensureDockerDaemon,
+  forgeDataVolumeName,
+  hostDockerSocket,
+  readForgeContainerName,
+} from "@/lib/docker-runtime";
+import { resolveForgeHostMounts } from "@/lib/forge-host-mounts";
+import { forgeSourceDir, isForgeProject } from "@/lib/forge-project";
 import { runScript } from "@/lib/github";
 import { resolveClonePath } from "@/lib/paths";
 import { buildProjectScriptEnv, projectScriptArgs } from "@/lib/projects";
@@ -21,6 +31,7 @@ const dockerOpts = { env: dockerExecEnv() };
 const COMPOSE_FILES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml"];
 const HEALTH_RETRIES = Number(process.env.FORGE_HEALTH_RETRIES ?? "30");
 const HEALTH_INTERVAL_MS = Number(process.env.FORGE_HEALTH_INTERVAL ?? "2") * 1000;
+const FORGE_CUTOVER_SCRIPT = "/usr/local/bin/forge-production-cutover.sh";
 
 export interface ProjectReleaseState {
   stableImageTag: string;
@@ -43,6 +54,19 @@ export function releaseStatePath(projectId: string): string {
   return join(base, `${projectId}.json`);
 }
 
+function forgeReleaseStatePath(): string {
+  return process.env.FORGE_RELEASE_STATE ?? "/data/forge-release.json";
+}
+
+function readReleaseStateFile(path: string): ProjectReleaseState | null {
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as ProjectReleaseState;
+  } catch {
+    return null;
+  }
+}
+
 export function stagingProjectName(composeSlug: string): string {
   return `${composeSlug}-staging`;
 }
@@ -53,29 +77,37 @@ function findComposeFile(repoPath: string): string | null {
 
 export function readProjectReleaseState(
   projectId: string,
+  project?: Project,
 ): ProjectReleaseState | null {
-  const path = releaseStatePath(projectId);
-  if (!existsSync(path)) return null;
-  try {
-    return JSON.parse(readFileSync(path, "utf8")) as ProjectReleaseState;
-  } catch {
-    return null;
+  if (project && isForgeProject(project)) {
+    return readReleaseStateFile(forgeReleaseStatePath());
   }
+  return readReleaseStateFile(releaseStatePath(projectId));
 }
 
 export function saveProjectReleaseState(
   projectId: string,
   commitSha: string,
+  project?: Project,
 ): void {
-  const path = releaseStatePath(projectId);
-  mkdirSync(join(path, ".."), { recursive: true });
   const state: ProjectReleaseState = {
     stableImageTag: "stable",
     rollbackImageTag: "rollback",
     stableCommitSha: commitSha,
     updatedAt: new Date().toISOString(),
   };
-  writeFileSync(path, JSON.stringify(state, null, 2));
+  const payload = JSON.stringify(state, null, 2);
+
+  if (project && isForgeProject(project)) {
+    const path = forgeReleaseStatePath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, payload);
+    return;
+  }
+
+  const path = releaseStatePath(projectId);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, payload);
 }
 
 export async function dockerImageExists(
@@ -137,6 +169,16 @@ async function getComposeAppImageId(
   composeFile: string,
   composeSlug: string,
 ): Promise<string | null> {
+  const imageRef = await getComposeAppImageRef(
+    repoPath,
+    composeFile,
+    composeSlug,
+  );
+  if (imageRef) {
+    const fromRef = await inspectDockerImageId(imageRef);
+    if (fromRef) return fromRef;
+  }
+
   try {
     const { stdout } = await execFileAsync(
       "docker",
@@ -146,16 +188,10 @@ async function getComposeAppImageId(
     const id = stdout.trim().split("\n")[0]?.trim();
     if (id) return id;
   } catch {
-    // fall through to configured image ref
+    // fall through
   }
 
-  const imageRef = await getComposeAppImageRef(
-    repoPath,
-    composeFile,
-    composeSlug,
-  );
-  if (!imageRef) return null;
-  return inspectDockerImageId(imageRef);
+  return null;
 }
 
 export async function tagComposeAppImage(
@@ -314,6 +350,87 @@ async function teardownStaging(
   }
 }
 
+async function spawnForgeProductionCutoverSidecar(options: {
+  composeSlug: string;
+  scriptEnv: NodeJS.ProcessEnv;
+  imageTag: string;
+  commitSha?: string;
+  log: (msg: string) => void;
+}): Promise<void> {
+  const { composeSlug, scriptEnv, imageTag, commitSha, log } = options;
+  await ensureDockerDaemon();
+
+  const imageName = process.env.FORGE_IMAGE_NAME ?? "forge-app";
+  const imageRef = (await dockerImageExists(imageName, "stable"))
+    ? `${imageName}:stable`
+    : `${imageName}:latest`;
+  const cutoverId = randomUUID().slice(0, 8);
+  const containerName = `forge-cutover-${cutoverId}`;
+  const dockerHost = dockerHostForRuntime();
+  const hostSocket = hostDockerSocket();
+  const hostPort = String(scriptEnv.HOST_PORT ?? "3000");
+  const forgeContainerName =
+    scriptEnv.FORGE_CONTAINER_NAME?.trim() ??
+    readForgeContainerName() ??
+    composeAppContainerName(composeSlug);
+
+  const args = [
+    "run",
+    "--rm",
+    "-d",
+    "--name",
+    containerName,
+    "--network",
+    "host",
+    "-v",
+    `${forgeDataVolumeName()}:/data`,
+    "-v",
+    `${hostSocket}:${containerDockerSocket()}`,
+    "-e",
+    `DOCKER_HOST=${dockerHost}`,
+    "-e",
+    `DOCKER_SOCKET=${hostSocket}`,
+    "-e",
+    `FORGE_RUN_AS_ROOT=1`,
+    "-e",
+    `FORGE_IMAGE_TAG=${imageTag}`,
+    "-e",
+    `FORGE_IMAGE_NAME=${imageName}`,
+    "-e",
+    `HOST_PORT=${hostPort}`,
+    "-e",
+    `COMPOSE_PROJECT_NAME=${composeSlug}`,
+    "-e",
+    `FORGE_CONTAINER_NAME=${forgeContainerName}`,
+    "-e",
+    `FORGE_SOURCE_DIR=${forgeSourceDir()}`,
+    "-e",
+    `FORGE_RELEASE_STATE=${process.env.FORGE_RELEASE_STATE ?? "/data/forge-release.json"}`,
+  ];
+
+  if (commitSha) {
+    args.push("-e", `FORGE_RELEASE_COMMIT_SHA=${commitSha}`);
+  }
+
+  const hostMounts = resolveForgeHostMounts();
+  if (hostMounts.cursorAgentDir) {
+    args.push("-e", `FORGE_CURSOR_AGENT_DIR=${hostMounts.cursorAgentDir}`);
+    args.push("-v", `${hostMounts.cursorAgentDir}:/opt/cursor-agent:ro,z`);
+  }
+  if (hostMounts.cursorConfigDir) {
+    args.push("-e", `FORGE_CURSOR_CONFIG_DIR=${hostMounts.cursorConfigDir}`);
+    args.push("-v", `${hostMounts.cursorConfigDir}:/opt/cursor-config:ro,z`);
+  }
+
+  args.push(imageRef, "bash", FORGE_CUTOVER_SCRIPT);
+
+  log(`Spawning production cutover sidecar ${containerName} (image tag ${imageTag})`);
+  await execFileAsync("docker", args, dockerOpts);
+  log(
+    `Cutover sidecar ${containerName} started; production container will be recreated`,
+  );
+}
+
 async function deployWithImageTag(
   project: Project,
   composeSlug: string,
@@ -324,6 +441,15 @@ async function deployWithImageTag(
 ): Promise<void> {
   const repoPath = resolveClonePath(project.clonePath);
   const env = withImageTagEnv(scriptEnv, imageTag);
+  if (isForgeProject(project)) {
+    await spawnForgeProductionCutoverSidecar({
+      composeSlug,
+      scriptEnv: env,
+      imageTag,
+      log,
+    });
+    return;
+  }
   log(`Deploying with image tag ${imageTag}`);
   await runScript("deploy.sh", repoPath, log, { env, args: scriptArgs });
 }
@@ -351,6 +477,11 @@ export async function rollbackProduction(
     log,
   );
 
+  if (isForgeProject(project)) {
+    log("Rollback cutover sidecar started; awaiting container restart");
+    return true;
+  }
+
   const healthPath = resolveHealthPath(project);
   const hostPort = String(scriptEnv.HOST_PORT ?? "3000");
   if (await waitForHealth(hostPort, healthPath, log, "Rollback")) {
@@ -375,7 +506,7 @@ export async function promoteNextToStable(
     ], dockerOpts);
   }
   await execFileAsync("docker", ["tag", `${imageName}:next`, `${imageName}:stable`], dockerOpts);
-  saveProjectReleaseState(project.id, commitSha);
+  saveProjectReleaseState(project.id, commitSha, project);
 }
 
 export function projectSupportsRollback(project: Project): boolean {
@@ -392,7 +523,7 @@ export interface ComposeReleaseDeployContext {
 }
 
 export interface ComposeReleaseDeployOutcome {
-  status: "success" | "rolled_back" | "failed";
+  status: "success" | "rolled_back" | "failed" | "cutover_pending";
   reason?: string;
 }
 
@@ -416,6 +547,7 @@ export async function runComposeReleaseDeploy(
       HOST_PORT: stagingPort,
       COMPOSE_PROJECT_NAME: stagingSlug,
       PROJECT_NAME: stagingSlug,
+      FORGE_CONTAINER_NAME: composeAppContainerName(stagingSlug),
     };
     const stagingArgs = projectScriptArgs(stagingSlug, stagingEnv);
 
@@ -443,6 +575,17 @@ export async function runComposeReleaseDeploy(
     }
 
     log(`Deploying new release to production port ${hostPort} (project ${composeSlug})`);
+    if (isForgeProject(project)) {
+      await spawnForgeProductionCutoverSidecar({
+        composeSlug,
+        scriptEnv,
+        imageTag: "next",
+        commitSha,
+        log,
+      });
+      return { status: "cutover_pending" };
+    }
+
     await deployWithImageTag(
       project,
       composeSlug,

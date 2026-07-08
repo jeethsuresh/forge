@@ -11,3 +11,8 @@ export function composeProjectName(name: string): string {
   if (/^[a-z0-9]/.test(slug)) return slug;
   return `p-${slug}`;
 }
+
+/** Stable container name for compose project slug + app service (matches export_compose_env). */
+export function composeAppContainerName(composeSlug: string): string {
+  return `${composeSlug.replace(/-/g, "_")}_app_1`;
+}

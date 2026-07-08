@@ -11,11 +11,12 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 FROM base AS builder
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+ARG SOURCE_SHA=unknown
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV FORGE_DB_PATH=:memory:
-RUN npm run lint && npm run build
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN echo "built-from ${SOURCE_SHA}" && npm run lint && npm run build
 
 FROM base AS test
 RUN apt-get update && apt-get install -y --no-install-recommends git \
@@ -38,7 +39,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY scripts/self-update.sh /usr/local/bin/forge-self-update.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/forge-self-update.sh
+COPY scripts/forge-production-cutover.sh /usr/local/bin/forge-production-cutover.sh
+COPY scripts/lib/self-update-db.py /opt/forge/scripts/lib/self-update-db.py
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh /usr/local/bin/forge-self-update.sh /usr/local/bin/forge-production-cutover.sh
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=node:node /app/.next/standalone ./
 COPY --from=builder --chown=node:node /app/.next/static ./.next/static

@@ -156,6 +156,18 @@ export function resolveAutoDeployBranch(
   return previousDeploymentBranch ?? watchBranch;
 }
 
+/**
+ * Duplicate / stale-commit guards only apply to automatic (watcher) deploys.
+ * Manual, agent, recovery, and rollback deploys may redeploy the currently
+ * running commit on demand — only `auto` is restricted from re-running the
+ * same SHA.
+ */
+export function deployGuardsApplyForTrigger(
+  trigger: DeploymentTrigger,
+): boolean {
+  return trigger === "auto";
+}
+
 export function isOlderThanRunningCommit(
   candidateSha: string,
   runningSha: string | null | undefined,
@@ -317,7 +329,7 @@ async function executeDeployment(
   try {
     const repoPath = resolveClonePath(project.clonePath);
 
-    if (trigger === "auto" && !options?.skipPull) {
+    if (deployGuardsApplyForTrigger(trigger) && !options?.skipPull) {
       const remoteSha = await getRemoteCommitSha(
         project.githubRepo,
         deployBranch,
@@ -354,7 +366,7 @@ async function executeDeployment(
       .where(eq(deployments.id, deploymentId))
       .run();
 
-    if (trigger === "auto") {
+    if (deployGuardsApplyForTrigger(trigger)) {
       if (runningSha && (await finishAutoDeployIfStale(deploymentId, project, commitSha, runningSha, log))) {
         return;
       }
@@ -395,6 +407,14 @@ async function executeDeployment(
         updateStatus(deploymentId, "success", { completedAt: new Date() });
         syncLastSeenCommit(projectId, commitSha);
         log(`Deployment successful (${commitSha.slice(0, 7)}).`);
+        return;
+      }
+
+      if (result.status === "cutover_pending") {
+        updateStatus(deploymentId, "deploying");
+        log(
+          "Production cutover sidecar started; deployment will reconcile after container restart.",
+        );
         return;
       }
 

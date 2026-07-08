@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Forge",
+  title: APP_DISPLAY_NAME,
   description: "Local Docker deployment orchestrator",
 };
 

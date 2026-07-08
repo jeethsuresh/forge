@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -6,6 +6,59 @@ import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { forgeUpdates } from "@/lib/db/schema";
+
+vi.mock("@/lib/github", () => ({
+  parseGithubRepo: (repo: string) => repo,
+  getRemoteCommitSha: vi.fn(),
+}));
+
+vi.mock("child_process", async () => {
+  const actual = await vi.importActual<typeof import("child_process")>(
+    "child_process",
+  );
+  return {
+    ...actual,
+    execFile: (
+      file: string,
+      args: string[],
+      options: unknown,
+      callback?: (
+        error: Error | null,
+        stdout: string,
+        stderr: string,
+      ) => void,
+    ) => {
+      const cb =
+        typeof options === "function"
+          ? (options as typeof callback)
+          : callback;
+      if (!cb) {
+        throw new Error("execFile callback required in tests");
+      }
+
+      if (file === "docker" && args[0] === "ps") {
+        cb(null, "", "");
+        return;
+      }
+      if (file === "docker" && args[0] === "image") {
+        cb(new Error("not found"), "", "");
+        return;
+      }
+      if (file === "docker" && args[0] === "run") {
+        cb(null, "container-id", "");
+        return;
+      }
+      if (file === "docker" && args[0] === "info") {
+        cb(null, "ok", "");
+        return;
+      }
+
+      return actual.execFile(file, args, options as never, cb as never);
+    },
+  };
+});
+
+import { getRemoteCommitSha } from "@/lib/github";
 
 describe("getForgeHealthPayload", () => {
   let tempDir: string;
@@ -56,6 +109,7 @@ describe("getForgeStatus configuration", () => {
   beforeEach(() => {
     previousRepo = process.env.FORGE_SELF_REPO;
     previousBranch = process.env.FORGE_SELF_BRANCH;
+    vi.mocked(getRemoteCommitSha).mockReset();
   });
 
   afterEach(() => {
@@ -82,11 +136,37 @@ describe("getForgeStatus configuration", () => {
   it("parses FORGE_SELF_REPO when set", async () => {
     process.env.FORGE_SELF_REPO = "acme/forge";
     process.env.FORGE_SELF_BRANCH = "main";
+    vi.mocked(getRemoteCommitSha).mockResolvedValue("remote123");
     const { getForgeStatus } = await import("@/lib/self-update");
     const status = await getForgeStatus();
     expect(status.configured).toBe(true);
     expect(status.selfRepo).toBe("acme/forge");
     expect(status.selfBranch).toBe("main");
+  });
+
+  it("flags remote lookup failures without offering an update", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "forge-status-"));
+    const previousState = process.env.FORGE_RELEASE_STATE;
+    process.env.FORGE_RELEASE_STATE = join(tempDir, "release.json");
+    writeFileSync(
+      process.env.FORGE_RELEASE_STATE,
+      JSON.stringify({
+        stableImageTag: "stable",
+        rollbackImageTag: "rollback",
+        stableCommitSha: "abc123",
+        updatedAt: "2026-07-07T00:00:00Z",
+      }),
+    );
+    process.env.FORGE_SELF_REPO = "acme/forge";
+    vi.mocked(getRemoteCommitSha).mockRejectedValue(new Error("network down"));
+    const { getForgeStatus } = await import("@/lib/self-update");
+    const status = await getForgeStatus();
+    expect(status.remoteCommitLookupFailed).toBe(true);
+    expect(status.updateAvailable).toBe(false);
+
+    if (previousState === undefined) delete process.env.FORGE_RELEASE_STATE;
+    else process.env.FORGE_RELEASE_STATE = previousState;
+    rmSync(tempDir, { recursive: true, force: true });
   });
 });
 
@@ -124,5 +204,125 @@ describe("reconcileStaleForgeUpdates", () => {
       .get();
     expect(row?.status).toBe("failed");
     expect(row?.errorMessage).toMatch(/updater container/i);
+  });
+
+  it("preserves existing error messages when reconciling", async () => {
+    const id = randomUUID();
+    ids.push(id);
+    db.insert(forgeUpdates)
+      .values({
+        id,
+        status: "building",
+        trigger: "manual",
+        logs: "partial",
+        errorMessage: "Build failed",
+        startedAt: new Date(),
+      })
+      .run();
+
+    const { reconcileStaleForgeUpdates } = await import("@/lib/self-update");
+    await reconcileStaleForgeUpdates();
+
+    const row = db
+      .select()
+      .from(forgeUpdates)
+      .where(eq(forgeUpdates.id, id))
+      .get();
+    expect(row?.errorMessage).toBe("Build failed");
+  });
+});
+
+describe("startForgeUpdate guards", () => {
+  let previousRepo: string | undefined;
+
+  beforeEach(() => {
+    previousRepo = process.env.FORGE_SELF_REPO;
+    process.env.FORGE_SELF_REPO = "acme/forge";
+    vi.mocked(getRemoteCommitSha).mockResolvedValue("same123456789");
+  });
+
+  afterEach(() => {
+    if (previousRepo === undefined) delete process.env.FORGE_SELF_REPO;
+    else process.env.FORGE_SELF_REPO = previousRepo;
+  });
+
+  it("allows a manual redeploy when already on the latest commit", async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "forge-release-"));
+    const previousState = process.env.FORGE_RELEASE_STATE;
+    process.env.FORGE_RELEASE_STATE = join(tempDir, "release.json");
+    writeFileSync(
+      process.env.FORGE_RELEASE_STATE,
+      JSON.stringify({
+        stableImageTag: "stable",
+        rollbackImageTag: "rollback",
+        stableCommitSha: "same123456789",
+        updatedAt: "2026-07-07T00:00:00Z",
+      }),
+    );
+
+    const beforeIds = new Set(
+      db.select({ id: forgeUpdates.id }).from(forgeUpdates).all().map((r) => r.id),
+    );
+
+    const { startForgeUpdate } = await import("@/lib/self-update");
+    // Same-SHA manual redeploy is allowed, so it proceeds past the "up to date"
+    // guard and attempts to spawn the updater (which fails under the mock).
+    await expect(startForgeUpdate()).rejects.not.toThrow(
+      /Already running the latest commit/,
+    );
+
+    const newRows = db
+      .select({ id: forgeUpdates.id })
+      .from(forgeUpdates)
+      .all()
+      .filter((r) => !beforeIds.has(r.id));
+    // The spawn attempt was recorded rather than rejected at the guard.
+    expect(newRows.length).toBe(1);
+    db.delete(forgeUpdates).where(eq(forgeUpdates.id, newRows[0].id)).run();
+
+    if (previousState === undefined) delete process.env.FORGE_RELEASE_STATE;
+    else process.env.FORGE_RELEASE_STATE = previousState;
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("rejects updates when GitHub is unreachable", async () => {
+    vi.mocked(getRemoteCommitSha).mockRejectedValue(new Error("offline"));
+    const { startForgeUpdate } = await import("@/lib/self-update");
+    await expect(startForgeUpdate()).rejects.toThrow(/Could not reach GitHub/);
+  });
+});
+
+describe("isForgeUpdateInProgress", () => {
+  const ids: string[] = [];
+
+  afterEach(() => {
+    for (const id of ids) {
+      db.delete(forgeUpdates).where(eq(forgeUpdates.id, id)).run();
+    }
+    ids.length = 0;
+  });
+
+  it("reconciles stale in-progress rows before reporting idle", async () => {
+    const id = randomUUID();
+    ids.push(id);
+    db.insert(forgeUpdates)
+      .values({
+        id,
+        status: "testing",
+        trigger: "manual",
+        logs: "running",
+        startedAt: new Date(),
+      })
+      .run();
+
+    const { isForgeUpdateInProgress } = await import("@/lib/self-update");
+    expect(await isForgeUpdateInProgress()).toBe(false);
+
+    const row = db
+      .select()
+      .from(forgeUpdates)
+      .where(eq(forgeUpdates.id, id))
+      .get();
+    expect(row?.status).toBe("failed");
   });
 });

@@ -58,7 +58,7 @@ export async function GET() {
 
       const isDeploying =
         isDeploymentActive(project.id) ||
-        (isForgeProject(project) && isForgeUpdateInProgress());
+        (isForgeProject(project) && (await isForgeUpdateInProgress()));
       const containers = await getComposeContainerStatus(
         project.clonePath,
         project.name,

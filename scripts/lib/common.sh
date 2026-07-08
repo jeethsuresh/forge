@@ -333,6 +333,14 @@ prune_stale_compose_networks() {
   docker network rm "$network" >/dev/null 2>&1 || true
 }
 
+remove_orphan_compose_container() {
+  local canonical="${FORGE_CONTAINER_NAME:-}"
+  [[ -z "$canonical" ]] && return 0
+  if [[ "$canonical" =~ ^(.+)_app_([0-9]+)$ ]]; then
+    docker rm -f "${BASH_REMATCH[1]}-app-${BASH_REMATCH[2]}" >/dev/null 2>&1 || true
+  fi
+}
+
 compose_cmd() {
   local file
   file="$(compose_file_path)"
@@ -346,21 +354,20 @@ compose_cmd() {
 }
 
 resolve_compose_app_image_id() {
-  local image_id
-  image_id="$(compose_cmd images -q app 2>/dev/null | head -1 || true)"
-  if [[ -n "$image_id" ]]; then
-    echo "$image_id"
-    return 0
-  fi
-
   local image_tag="${FORGE_IMAGE_TAG:-stable}"
-  local ref
+  local ref image_id
   for ref in "forge-app:${image_tag}" "localhost/forge-app:${image_tag}"; do
     if docker image inspect "$ref" >/dev/null 2>&1; then
       docker image inspect --format '{{.Id}}' "$ref"
       return 0
     fi
   done
+
+  image_id="$(compose_cmd images -q app 2>/dev/null | head -1 || true)"
+  if [[ -n "$image_id" ]]; then
+    echo "$image_id"
+    return 0
+  fi
 
   local image_ref
   image_ref="$(

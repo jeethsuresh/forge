@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
-import { startForgeRollback } from "@/lib/self-update";
+import { classifyForgeUpdateHttpError, startForgeRollback } from "@/lib/self-update";
 
 export async function POST() {
   const session = await getSession();
@@ -13,7 +13,9 @@ export async function POST() {
     return NextResponse.json({ updateId }, { status: 202 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Rollback failed";
-    const status = message.includes("already") ? 409 : 400;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json(
+      { error: message },
+      { status: classifyForgeUpdateHttpError(message) },
+    );
   }
 }

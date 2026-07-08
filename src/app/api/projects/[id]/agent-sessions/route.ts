@@ -8,6 +8,7 @@ import {
   getBranchAgentOverview,
   listAgentSessionsForClient,
 } from "@/lib/agent-runner";
+import { reconcileInterruptedDeployments } from "@/lib/deploy-reconcile";
 import { getActiveSessionForProject, isAgentSessionActive } from "@/lib/agent-state";
 
 async function requireLogin() {
@@ -30,6 +31,8 @@ export async function GET(
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
+
+  reconcileInterruptedDeployments(id);
 
   const sessions = listAgentSessionsForClient(id);
   const activeSession = getActiveSessionForProject(id);

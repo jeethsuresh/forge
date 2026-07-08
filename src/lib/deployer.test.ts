@@ -1,9 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
+  deployGuardsApplyForTrigger,
   isOlderThanRunningCommit,
   isSameAsPreviousBuild,
   resolveAutoDeployBranch,
 } from "@/lib/deployer";
+
+describe("deployGuardsApplyForTrigger", () => {
+  it("restricts only automatic (watcher) deploys", () => {
+    expect(deployGuardsApplyForTrigger("auto")).toBe(true);
+  });
+
+  it("allows same-SHA redeploys for manual, agent, recovery, and rollback", () => {
+    expect(deployGuardsApplyForTrigger("manual")).toBe(false);
+    expect(deployGuardsApplyForTrigger("agent")).toBe(false);
+    expect(deployGuardsApplyForTrigger("recovery")).toBe(false);
+    expect(deployGuardsApplyForTrigger("rollback")).toBe(false);
+  });
+});
 
 describe("isSameAsPreviousBuild", () => {
   it("returns true when SHAs match", () => {
