@@ -14,6 +14,7 @@ import {
 import type { RuntimeStatus } from "@/lib/project-status";
 import { AgentWorkspace } from "@/components/AgentWorkspace";
 import { ForgeSelfUpdateEditor } from "@/components/ForgeSelfUpdateEditor";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import { ProjectRenameEditor } from "@/components/ProjectRenameEditor";
 import {
   DeployEnvVarsEditor,
@@ -238,7 +239,7 @@ export default function ProjectDetailPage() {
   }
 
   async function deleteProject() {
-    if (!confirm("Remove this project from Forge? This will not stop running containers.")) {
+    if (!confirm(`Remove this project from ${APP_DISPLAY_NAME}? This will not stop running containers.`)) {
       return;
     }
     await fetch(`/api/projects/${id}`, { method: "DELETE" });
@@ -561,7 +562,7 @@ export default function ProjectDetailPage() {
               </h2>
               <div className="rounded-xl border border-red-400/20 bg-zinc-900 px-4 py-4">
                 <p className="mb-3 text-sm text-zinc-400">
-                  Remove this project from Forge. Running containers will not be
+                  Remove this project from {APP_DISPLAY_NAME}. Running containers will not be
                   stopped automatically.
                 </p>
                 <button

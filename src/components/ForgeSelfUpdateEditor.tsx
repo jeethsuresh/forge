@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 interface ForgeUpdateView {
   id: string;
@@ -125,7 +126,7 @@ export function ForgeSelfUpdateEditor({
   async function runRollback() {
     if (
       !window.confirm(
-        "Roll back Forge to the previous working release? The current version will be replaced.",
+        `Roll back ${APP_DISPLAY_NAME} to the previous working release? The current version will be replaced.`,
       )
     ) {
       return;
@@ -153,9 +154,9 @@ export function ForgeSelfUpdateEditor({
       className={`rounded-xl border border-zinc-800 bg-zinc-900/50 ${className}`}
     >
       <div className="border-b border-zinc-800 px-5 py-4">
-        <h2 className="text-lg font-medium text-zinc-100">Forge self-update</h2>
+        <h2 className="text-lg font-medium text-zinc-100">{APP_DISPLAY_NAME} self-update</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Update and redeploy Forge from its GitHub repository. Failed upgrades
+          Update and redeploy {APP_DISPLAY_NAME} from its GitHub repository. Failed upgrades
           automatically roll back to the previous release.
         </p>
       </div>
@@ -221,7 +222,7 @@ export function ForgeSelfUpdateEditor({
             <div className="flex flex-wrap gap-3">
               {!status.updateAvailable && !status.activeUpdate && (
                 <p className="text-sm text-zinc-400">
-                  Forge is up to date with{" "}
+                  {APP_DISPLAY_NAME} is up to date with{" "}
                   <span className="font-mono text-zinc-300">
                     {status.selfRepo}@{status.selfBranch}
                   </span>
@@ -238,7 +239,7 @@ export function ForgeSelfUpdateEditor({
                 {status.activeUpdate
                   ? "Update in progress…"
                   : status.updateAvailable
-                    ? "Update Forge"
+                    ? `Update ${APP_DISPLAY_NAME}`
                     : "Up to date"}
               </button>
               <button

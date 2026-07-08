@@ -4,6 +4,7 @@ import { chmod, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import { DEFAULT_GIT_USER_NAME } from "@/lib/app-name";
 import { resolveClonePath } from "@/lib/paths";
 
 const execFileAsync = promisify(execFile);
@@ -388,7 +389,7 @@ export function buildAgentCommitMessage(initialPrompt: string): string {
 }
 
 export function gitAuthorIdentity(): { name: string; email: string } {
-  const name = process.env.FORGE_GIT_USER_NAME?.trim() || "Forge Agent";
+  const name = process.env.FORGE_GIT_USER_NAME?.trim() || DEFAULT_GIT_USER_NAME;
   const email = process.env.FORGE_GIT_USER_EMAIL?.trim() || "forge-agent@localhost";
   return { name, email };
 }

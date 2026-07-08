@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { forgeUpdates } from "@/lib/db/schema";
 import { attemptForgeSelfUpdateRecovery } from "@/lib/deploy-recovery";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 1800;
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
   const branch = process.env.FORGE_SELF_BRANCH?.trim() || "main";
   const recovered = await attemptForgeSelfUpdateRecovery({
     updateId,
-    errorMessage: body?.errorMessage ?? update.errorMessage ?? "Forge update failed",
+    errorMessage: body?.errorMessage ?? update.errorMessage ?? `${APP_DISPLAY_NAME} update failed`,
     logs: update.logs,
     branch,
   });

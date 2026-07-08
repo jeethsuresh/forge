@@ -14,6 +14,7 @@ import {
   stagingProjectName,
 } from "@/lib/deploy-rollback";
 import { isForgeProject } from "@/lib/forge-project";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 describe("deploy-rollback helpers", () => {
   const ids: string[] = [];
@@ -54,9 +55,9 @@ describe("deploy-rollback helpers", () => {
     return db.select().from(projects).where(eq(projects.id, id)).get()!;
   }
 
-  it("uses forge-app image name for the Forge project", () => {
+  it("uses forge-app image name for the Orchestrator project", () => {
     process.env.FORGE_SELF_REPO = "acme/forge";
-    const forge = insertProject("Forge", "/data/forge-source", "acme/forge");
+    const forge = insertProject(APP_DISPLAY_NAME, "/data/forge-source", "acme/forge");
     expect(isForgeProject(forge)).toBe(true);
     expect(projectImageName(forge)).toBe("forge-app");
     expect(resolveHealthPath(forge)).toBe("/api/forge/health");

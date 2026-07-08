@@ -2,9 +2,10 @@ import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { projects, type Project } from "@/lib/db/schema";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import { cloneOrPull, parseGithubRepo } from "@/lib/github";
 
-export const FORGE_DISPLAY_NAME = "Forge";
+export const FORGE_DISPLAY_NAME = APP_DISPLAY_NAME;
 
 export function forgeSourceDir(): string {
   return process.env.FORGE_SOURCE_DIR ?? "/data/forge-source";
@@ -79,7 +80,7 @@ export function ensureForgeProject(): Project | null {
   return db.select().from(projects).where(eq(projects.id, id)).get() ?? null;
 }
 
-/** Clone or pull the Forge self-repo so agents can edit and deploy like any project. */
+/** Clone or pull the Orchestrator self-repo so agents can edit and deploy like any project. */
 export async function ensureForgeSourceRepo(): Promise<Project | null> {
   const project = ensureForgeProject();
   if (!project) return null;

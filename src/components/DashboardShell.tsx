@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Sidebar } from "@/components/Sidebar";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -38,7 +39,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-orange-500/20 text-xs font-bold text-orange-400">
             F
           </span>
-          <span className="font-semibold text-zinc-100">Forge</span>
+          <span className="font-semibold text-zinc-100">{APP_DISPLAY_NAME}</span>
         </Link>
       </header>
 

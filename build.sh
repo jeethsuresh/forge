@@ -9,7 +9,7 @@ usage() {
   cat <<EOF
 Usage: ./build.sh [options]
 
-Build Forge or a compose-based project.
+Build Orchestrator or a compose-based project.
 
 $(common_usage)
 

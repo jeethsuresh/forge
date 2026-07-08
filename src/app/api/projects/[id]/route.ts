@@ -14,6 +14,7 @@ import {
   readProjectReleaseState,
 } from "@/lib/deploy-rollback";
 import { isForgeProject } from "@/lib/forge-project";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import { getForgeStatus, isForgeUpdateInProgress } from "@/lib/self-update";
 import { listAvailableBranches } from "@/lib/github";
 import {
@@ -226,7 +227,7 @@ export async function DELETE(
 
   if (isForgeProject(project)) {
     return NextResponse.json(
-      { error: "The Forge project cannot be removed from the dashboard" },
+      { error: `The ${APP_DISPLAY_NAME} project cannot be removed from the dashboard` },
       { status: 403 },
     );
   }

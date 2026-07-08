@@ -10,6 +10,7 @@ import {
   RECOVERY_PROMPT_PREFIX,
 } from "@/lib/deploy-recovery";
 import { parseGithubRepo } from "@/lib/github";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 function deleteProjectsForRepo(repo: string): void {
   for (const row of db.select().from(projects).all()) {
@@ -53,7 +54,7 @@ describe("buildRecoveryPrompt", () => {
       logs: "",
       kind: "forge-self-update",
     });
-    expect(prompt).toContain("Forge self-update");
+    expect(prompt).toContain(`${APP_DISPLAY_NAME} self-update`);
   });
 });
 
@@ -84,7 +85,7 @@ describe("findForgeProject", () => {
     db.insert(projects)
       .values({
         id,
-        name: "Forge",
+        name: APP_DISPLAY_NAME,
         githubRepo,
         branch: "main",
         clonePath: `/tmp/${id}`,

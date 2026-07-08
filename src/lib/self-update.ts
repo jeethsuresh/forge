@@ -20,6 +20,7 @@ import {
 } from "@/lib/docker-runtime";
 import { getRemoteCommitSha, parseGithubRepo } from "@/lib/github";
 import { resolveForgeHostMounts } from "@/lib/forge-host-mounts";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 const execFileAsync = promisify(execFile);
 
@@ -388,10 +389,10 @@ async function assertCanStartUpdate(): Promise<void> {
   await reconcileStaleForgeUpdates();
 
   if (activeUpdateId) {
-    throw new Error("A Forge update is already in progress");
+    throw new Error(`A ${APP_DISPLAY_NAME} update is already in progress`);
   }
   if (await updaterContainerRunning()) {
-    throw new Error("A Forge updater container is already running");
+    throw new Error(`A ${APP_DISPLAY_NAME} updater container is already running`);
   }
   if (!getSelfRepoConfig()) {
     throw new Error(

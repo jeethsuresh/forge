@@ -17,7 +17,7 @@ link_cursor_agent() {
 }
 
 if ! link_cursor_agent; then
-  echo "WARNING: Cursor agent not found under /opt/cursor-agent. Agent sessions will fail until Forge is redeployed with ./deploy.sh." >&2
+  echo "WARNING: Cursor agent not found under /opt/cursor-agent. Agent sessions will fail until Orchestrator is redeployed with ./deploy.sh." >&2
 fi
 
 if [[ -n "${FORGE_CONTAINER_NAME:-}" ]]; then
@@ -74,7 +74,7 @@ fi
 chown -R node:node /data/agent-home /data/forge-source 2>/dev/null || true
 rm -f "${AGENT_HOME}/.gitconfig.lock"
 
-GIT_USER_NAME="${FORGE_GIT_USER_NAME:-Forge Agent}"
+GIT_USER_NAME="${FORGE_GIT_USER_NAME:-Orchestrator Agent}"
 GIT_USER_EMAIL="${FORGE_GIT_USER_EMAIL:-forge-agent@localhost}"
 
 if [[ "${FORGE_RUN_AS_ROOT:-}" == "1" ]]; then

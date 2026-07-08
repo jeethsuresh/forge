@@ -9,7 +9,7 @@ usage() {
   cat <<EOF
 Usage: ./test.sh [options]
 
-Run unit tests for Forge or a compose-based project test service.
+Run unit tests for Orchestrator or a compose-based project test service.
 
 $(common_usage)
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import type { RuntimeStatus } from "@/lib/project-status";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 interface ProjectSummary {
   id: string;
@@ -135,10 +136,10 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
           className="flex items-center gap-2"
         >
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/20 text-sm font-bold text-orange-400">
-            F
+            O
           </span>
           <div>
-            <div className="font-semibold text-zinc-100">Forge</div>
+            <div className="font-semibold text-zinc-100">{APP_DISPLAY_NAME}</div>
             <div className="text-xs text-zinc-500">Deploy orchestrator</div>
           </div>
         </Link>
@@ -147,7 +148,7 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
       {forgeProject && (
         <div className="border-b border-zinc-800 px-3 py-3">
           <div className="mb-2 px-2 text-xs font-medium uppercase tracking-wider text-orange-400/80">
-            Forge instance
+            {APP_DISPLAY_NAME} instance
           </div>
           <ProjectNavLink
             project={forgeProject}

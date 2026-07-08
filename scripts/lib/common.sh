@@ -279,7 +279,7 @@ install_forge_podman_api_systemd_service() {
 
   cat >"${unit_dir}/podman-forge-api.service" <<EOF
 [Unit]
-Description=Podman API for Forge self-deploy
+Description=Podman API for Orchestrator self-deploy
 After=network.target
 
 [Service]
@@ -437,7 +437,7 @@ resolve_docker_socket() {
   fi
 
   if [[ -n "$configured" && -S /var/run/docker.sock ]]; then
-    # Inside Forge: env holds the host socket path for compose volume mounts.
+    # Inside Orchestrator: env holds the host socket path for compose volume mounts.
     echo "$configured"
     return
   fi

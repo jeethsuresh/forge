@@ -12,8 +12,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
+
 export const metadata: Metadata = {
-  title: "Forge",
+  title: APP_DISPLAY_NAME,
   description: "Local Docker deployment orchestrator",
 };
 

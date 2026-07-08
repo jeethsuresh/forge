@@ -29,6 +29,7 @@ import {
 } from "@/lib/forge-project";
 import { runScript } from "@/lib/github";
 import { startForgeRollback } from "@/lib/self-update";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 export const RECOVERY_PROMPT_PREFIX = "[deploy-recovery]";
 
@@ -67,7 +68,7 @@ export function buildRecoveryPrompt(context: {
   const tail = context.logs.trim().split("\n").slice(-80).join("\n");
   const kindLabel =
     context.kind === "forge-self-update"
-      ? "Forge self-update"
+      ? `${APP_DISPLAY_NAME} self-update`
       : "Project deployment";
 
   return `${RECOVERY_PROMPT_PREFIX} ${kindLabel} failed on branch ${context.branch}.
@@ -124,9 +125,9 @@ async function rollbackProjectIfPossible(
 ): Promise<void> {
   try {
     if (isForgeProject(project)) {
-      log("Starting Forge self-update rollback after failed recovery.");
+      log(`Starting ${APP_DISPLAY_NAME} self-update rollback after failed recovery.`);
       await startForgeRollback();
-      log("Forge rollback initiated.");
+      log(`${APP_DISPLAY_NAME} rollback initiated.`);
       return;
     }
 
@@ -247,7 +248,7 @@ export async function retryForgeSourceBuildAndTest(
 ): Promise<void> {
   const sourceDir = forgeSourceDir();
   if (!existsSync(join(sourceDir, "build.sh"))) {
-    throw new Error(`Forge source directory is missing build.sh (${sourceDir})`);
+    throw new Error(`${APP_DISPLAY_NAME} source directory is missing build.sh (${sourceDir})`);
   }
 
   const stagingPort = process.env.FORGE_STAGING_PORT ?? "3466";
@@ -257,11 +258,11 @@ export async function retryForgeSourceBuildAndTest(
     COMPOSE_PROJECT_NAME: process.env.FORGE_STAGING_PROJECT_NAME ?? "forge-staging",
   };
 
-  log("Re-running Forge build after recovery.");
+  log(`Re-running ${APP_DISPLAY_NAME} build after recovery.`);
   await runScript("build.sh", sourceDir, log, { env: scriptEnv });
 
   if (existsSync(join(sourceDir, "test.sh"))) {
-    log("Re-running Forge tests after recovery.");
+    log(`Re-running ${APP_DISPLAY_NAME} tests after recovery.`);
     await runScript("test.sh", sourceDir, log, { env: scriptEnv });
   }
 }
@@ -291,7 +292,7 @@ export async function attemptForgeSelfUpdateRecovery(
   const log = appendUpdateLog;
 
   try {
-    log("Forge update failed; starting recovery agent.");
+    log(`${APP_DISPLAY_NAME} update failed; starting recovery agent.`);
     const workspacePath = forgeSourceDir();
     const sessionId = await createRecoveryAgentSession(
       project,
@@ -315,7 +316,7 @@ export async function attemptForgeSelfUpdateRecovery(
     }
 
     if (!agentFixedIssue(sessionId)) {
-      log("Recovery agent finished without fixing the Forge update issue.");
+      log(`Recovery agent finished without fixing the ${APP_DISPLAY_NAME} update issue.`);
       if (project) {
         await rollbackProjectIfPossible(project, log);
       }
@@ -324,7 +325,7 @@ export async function attemptForgeSelfUpdateRecovery(
 
     await commitAgentSessionChanges(sessionId, { workspacePath });
     await retryForgeSourceBuildAndTest(log);
-    log("Forge source build and test passed after recovery.");
+    log(`${APP_DISPLAY_NAME} source build and test passed after recovery.`);
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

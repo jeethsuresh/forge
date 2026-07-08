@@ -26,7 +26,7 @@ services:
       FORGE_CURSOR_CONFIG_DIR: ${FORGE_CURSOR_CONFIG_DIR:-}
       FORGE_HOST_MOUNTS_FILE: /data/forge-host-mounts.json
       FORGE_AGENT_BIN: /usr/local/bin/agent
-      FORGE_GIT_USER_NAME: ${FORGE_GIT_USER_NAME:-Forge Agent}
+      FORGE_GIT_USER_NAME: ${FORGE_GIT_USER_NAME:-Orchestrator Agent}
       FORGE_GIT_USER_EMAIL: ${FORGE_GIT_USER_EMAIL:-forge-agent@localhost}
       FORGE_GITHUB_TOKEN: ${FORGE_GITHUB_TOKEN:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}

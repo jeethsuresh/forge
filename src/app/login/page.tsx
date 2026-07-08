@@ -2,6 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 function LoginForm() {
   const router = useRouter();
@@ -44,9 +45,9 @@ function LoginForm() {
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500/20 text-2xl font-bold text-orange-400">
-            F
+            O
           </div>
-          <h1 className="text-2xl font-semibold text-zinc-100">Forge</h1>
+          <h1 className="text-2xl font-semibold text-zinc-100">{APP_DISPLAY_NAME}</h1>
           <p className="mt-1 text-sm text-zinc-500">
             Local Docker deployment orchestrator
           </p>
