@@ -5,6 +5,7 @@ import {
   mergeDeployEnvWithProcess,
   parseDeployEnvJson,
 } from "@/lib/deploy-env";
+import { getForgeRepoConfig } from "@/lib/forge-project";
 
 export function validateProjectName(name: string): string | null {
   const trimmed = name.trim();
@@ -33,6 +34,30 @@ export function composeNameConflict(
   return `Another project (“${conflict.name}”) already uses compose name “${slug}”`;
 }
 
+function applyForgeInstanceScriptEnv(env: NodeJS.ProcessEnv): void {
+  for (const key of [
+    "COMPOSE_PROJECT_NAME",
+    "FORGE_CONTAINER_NAME",
+    "DOCKER_HOST",
+    "DOCKER_SOCKET",
+    "FORGE_CURSOR_AGENT_DIR",
+    "FORGE_CURSOR_CONFIG_DIR",
+    "FORGE_PODMAN_API_PORT",
+    "HOST_PORT",
+  ] as const) {
+    const value = process.env[key]?.trim();
+    if (value) {
+      env[key] = value;
+    }
+  }
+}
+
+function isForgeScriptProject(projectName: string): boolean {
+  return (
+    getForgeRepoConfig() !== null && composeProjectName(projectName) === "forge"
+  );
+}
+
 export function buildProjectScriptEnv(
   projectName: string,
   deployEnvJson: string,
@@ -44,6 +69,9 @@ export function buildProjectScriptEnv(
   }
   if (!env.PROJECT_NAME) {
     env.PROJECT_NAME = slug;
+  }
+  if (isForgeScriptProject(projectName)) {
+    applyForgeInstanceScriptEnv(env);
   }
   return { env, composeProjectName: slug };
 }

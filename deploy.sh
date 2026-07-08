@@ -52,8 +52,18 @@ start_podman_api_service
 export_docker_socket
 require_cursor_agent
 
+remove_orphan_compose_container() {
+  local canonical="${FORGE_CONTAINER_NAME:-}"
+  [[ -z "$canonical" ]] && return 0
+  if [[ "$canonical" =~ ^(.+)_app_([0-9]+)$ ]]; then
+    docker rm -f "${BASH_REMATCH[1]}-app-${BASH_REMATCH[2]}" >/dev/null 2>&1 || true
+  fi
+}
+
 if [[ "$DETACH" -eq 1 ]]; then
   compose_cmd up -d --force-recreate
 else
   compose_cmd up
 fi
+
+remove_orphan_compose_container
