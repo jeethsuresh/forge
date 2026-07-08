@@ -449,6 +449,16 @@ resolve_docker_socket() {
     return
   fi
 
+  # Inside the updater sidecar the bind-mounted socket may be owned by an
+  # unmapped host UID (the sidecar runs without userns keep-id), so -S fails
+  # even though the path is valid on the host and podman is reachable over the
+  # TCP API. In that case trust the configured host path: compose runs on the
+  # host via podman and bind-mounts this path into the app container.
+  if [[ -n "$configured" ]] && forge_tcp_runtime_ready; then
+    echo "$configured"
+    return
+  fi
+
   if [[ -n "$configured" ]]; then
     echo "DOCKER_SOCKET is set but not a socket: $configured (falling back to auto-detect)" >&2
   fi
