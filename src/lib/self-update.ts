@@ -27,6 +27,7 @@ import {
   isInProgressForgeUpdateStatus,
   sidecarHasStarted,
 } from "@/lib/self-update-helpers";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 const execFileAsync = promisify(execFile);
 
@@ -407,10 +408,10 @@ async function assertCanStartUpdate(): Promise<void> {
   await reconcileStaleForgeUpdates();
 
   if (activeUpdateId) {
-    throw new Error("A Forge update is already in progress");
+    throw new Error(`A ${APP_DISPLAY_NAME} update is already in progress`);
   }
   if (await updaterContainerRunning()) {
-    throw new Error("A Forge updater container is already running");
+    throw new Error(`A ${APP_DISPLAY_NAME} updater container is already running`);
   }
   if (findInProgressUpdates().length > 0) {
     throw new Error("A Forge update is already in progress");

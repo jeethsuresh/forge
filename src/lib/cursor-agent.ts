@@ -1,5 +1,6 @@
 import { existsSync } from "fs";
 import { isExecutable } from "@/lib/docker-runtime";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 const AGENT_CANDIDATES = [
   () => process.env.FORGE_AGENT_BIN?.trim(),
@@ -18,7 +19,7 @@ export function resolveCursorAgentBin(): string {
   }
 
   throw new Error(
-    "Cursor agent CLI is not available in this container. Redeploy Forge with ./deploy.sh so the host agent directory is bind-mounted.",
+    `Cursor agent CLI is not available in this container. Redeploy ${APP_DISPLAY_NAME} with ./deploy.sh so the host agent directory is bind-mounted.`,
   );
 }
 

@@ -8,6 +8,7 @@ import {
 } from "react";
 import type { BufferedCaddyLogEntry } from "@/lib/caddy-log-buffer";
 import type { CaddyLogEntry } from "@/lib/caddy-logs";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 type LogEntry = CaddyLogEntry & { seq?: number };
 
@@ -177,7 +178,7 @@ export function CaddyLogsViewer() {
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-medium text-zinc-200">Live access logs</h2>
           <p className="truncate font-mono text-xs text-zinc-500">
-            Push to Forge (in-memory)
+            Push to {APP_DISPLAY_NAME} (in-memory)
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -223,7 +224,7 @@ export function CaddyLogsViewer() {
       </div>
 
       <p className="border-b border-zinc-800 px-4 py-3 text-xs text-zinc-500">
-        In-memory buffer only — logs are not persisted. Enable Push to Forge on
+        In-memory buffer only — logs are not persisted. Enable Push to {APP_DISPLAY_NAME} on
         the Routes tab or POST JSON to{" "}
         <code className="text-zinc-400">/api/caddy/logs/ingest</code>.
       </p>
@@ -253,7 +254,7 @@ export function CaddyLogsViewer() {
           <p className="px-2 py-4 text-sm text-zinc-500">
             {paused
               ? "Paused. New log lines will queue until you resume."
-              : "No logs yet. Enable Push to Forge on the Routes tab or POST access log JSON to the ingest API."}
+              : `No logs yet. Enable Push to ${APP_DISPLAY_NAME} on the Routes tab or POST access log JSON to the ingest API.`}
           </p>
         ) : (
           <ul className="space-y-1">

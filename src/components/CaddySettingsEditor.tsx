@@ -7,6 +7,7 @@ import type {
   RouteFormValues,
   ServerLoggingFormValues,
 } from "@/lib/caddy-config";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import {
   applyAllServerLogging,
   defaultRouteFormValues,
@@ -320,7 +321,7 @@ function ServerLoggingForm({
               }
               className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-orange-500/50"
             >
-              <option value="forge">Push to Forge</option>
+              <option value="forge">Push to {APP_DISPLAY_NAME}</option>
               <option value="file">File</option>
               <option value="stdout">Standard output</option>
               <option value="stderr">Standard error</option>
@@ -350,7 +351,7 @@ function ServerLoggingForm({
 
           {values.output === "forge" && (
             <p className="sm:col-span-2 text-xs leading-relaxed text-zinc-500">
-              Caddy streams JSON access logs to Forge over TCP on{" "}
+              Caddy streams JSON access logs to {APP_DISPLAY_NAME} over TCP on{" "}
               <code className="text-zinc-400">127.0.0.1:3999</code> (configurable
               via{" "}
               <code className="text-zinc-400">FORGE_CADDY_LOG_TCP_PORT</code>).
@@ -377,7 +378,7 @@ function ServerLoggingForm({
               <span className="mt-1 block text-xs text-zinc-600">
                 Set{" "}
                 <code className="text-zinc-500">FORGE_CADDY_ACCESS_LOG_PATH</code>{" "}
-                to this path so Forge can tail the same file in Access logs.
+                to this path so {APP_DISPLAY_NAME} can tail the same file in Access logs.
               </span>
             </label>
           )}
@@ -647,7 +648,7 @@ export function CaddySettingsEditor() {
                 </h2>
                 <p className="mt-1 text-xs text-zinc-500">
                   Enable JSON access logs per HTTP server and write them to a
-                  file Forge can tail.
+                  file {APP_DISPLAY_NAME} can tail.
                 </p>
               </div>
               {servers.length > 0 && (

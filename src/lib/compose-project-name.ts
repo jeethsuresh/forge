@@ -1,4 +1,4 @@
-/** Docker Compose project name derived from a Forge project display name. */
+/** Docker Compose project name derived from an Orchestrator project display name. */
 export function composeProjectName(name: string): string {
   const slug = name
     .trim()

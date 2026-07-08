@@ -1,6 +1,6 @@
-# Forge
+# Orchestrator
 
-A local Docker deployment orchestrator with a web dashboard. Forge watches GitHub repositories, detects changes every minute, and automatically builds, tests, and deploys them using each repo's root scripts.
+A local Docker deployment orchestrator with a web dashboard. Orchestrator watches GitHub repositories, detects changes every minute, and automatically builds, tests, and deploys them using each repo's root scripts.
 
 ## Features
 
@@ -48,7 +48,7 @@ Open [http://localhost:3000](http://localhost:3000) and sign in with your config
 
 ## Repository Scripts
 
-Forge and every watched repository should provide executable root scripts with CLI flags:
+Orchestrator and every watched repository should provide executable root scripts with CLI flags:
 
 | Script | Purpose |
 |--------|---------|
@@ -63,7 +63,7 @@ Common flags (see `./build.sh --help`): `--project-name`, `--compose-file`, `--h
 
 Every Docker Compose operation must use an explicit project name via `-p` / `--project-name`. Never rely on the implicit directory-based default.
 
-- **Forge-managed projects:** the compose name is derived from the Forge display name (e.g. `My App` → `my-app`). Forge passes `--project-name`, `COMPOSE_PROJECT_NAME`, and `PROJECT_NAME` to all pipeline scripts and uses the same name for `docker compose ps` / `down`.
+- **Orchestrator-managed projects:** the compose name is derived from the Orchestrator display name (e.g. `My App` → `my-app`). Orchestrator passes `--project-name`, `COMPOSE_PROJECT_NAME`, and `PROJECT_NAME` to all pipeline scripts and uses the same name for `docker compose ps` / `down`.
 - **Repo scripts:** use `compose_cmd` from `scripts/lib/common.sh`, which always runs `docker compose -f … -p "$COMPOSE_PROJECT_NAME" …`.
 - **Named volumes/networks:** prefix with `${COMPOSE_PROJECT_NAME}` in `docker-compose.yml` so stacks do not collide.
 
@@ -139,9 +139,9 @@ Each repository you add must have these files in its root:
 1. Sign in to the dashboard
 2. Click **Add project** in the sidebar
 3. Enter a display name, GitHub repo (`owner/repo`), and branch
-4. Forge clones the repo to `FORGE_REPOS_DIR` and begins watching
+4. Orchestrator clones the repo to `FORGE_REPOS_DIR` and begins watching
 
-On the first detected change (or a manual **Deploy now**), Forge runs the full pipeline.
+On the first detected change (or a manual **Deploy now**), Orchestrator runs the full pipeline.
 
 ## Environment Variables
 
@@ -163,7 +163,7 @@ cp .env.example .env
 ./deploy.sh --host-port 3000
 ```
 
-Forge runs in Docker with the host container socket mounted so it can deploy watched repositories. `deploy.sh` auto-detects Podman/Docker sockets (and starts `podman.socket` on rootless hosts when needed); override with `DOCKER_SOCKET` if required.
+Orchestrator runs in Docker with the host container socket mounted so it can deploy watched repositories. `deploy.sh` auto-detects Podman/Docker sockets (and starts `podman.socket` on rootless hosts when needed); override with `DOCKER_SOCKET` if required.
 
 ## Architecture
 

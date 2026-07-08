@@ -1,6 +1,7 @@
 import { execFile, execFileSync } from "child_process";
 import { accessSync, constants, existsSync, readFileSync } from "fs";
 import { promisify } from "util";
+import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 const execFileAsync = promisify(execFile);
 
@@ -92,12 +93,12 @@ export async function ensureDockerDaemon(): Promise<void> {
 
   if (primary.startsWith("unix://") || socketHost) {
     throw new Error(
-      `Cannot reach container runtime at ${primary}. Redeploy Forge with ./deploy.sh so the host socket is mounted.`,
+      `Cannot reach container runtime at ${primary}. Redeploy ${APP_DISPLAY_NAME} with ./deploy.sh so the host socket is mounted.`,
     );
   }
 
   throw new Error(
-    `Cannot connect to container runtime at ${primary}. Start podman API on the host with ./deploy.sh (port ${port}) or mount DOCKER_SOCKET into Forge.`,
+    `Cannot connect to container runtime at ${primary}. Start podman API on the host with ./deploy.sh (port ${port}) or mount DOCKER_SOCKET into ${APP_DISPLAY_NAME}.`,
   );
 }
 

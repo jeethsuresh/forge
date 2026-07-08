@@ -3,7 +3,7 @@ x-podman:
 
 services:
   app:
-    container_name: ${FORGE_CONTAINER_NAME}
+    container_name: ${FORGE_CONTAINER_NAME:-forge_app_1}
     image: forge-app:${FORGE_IMAGE_TAG:-stable}
     network_mode: host
     userns_mode: keep-id

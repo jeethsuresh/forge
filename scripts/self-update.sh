@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Orchestrates Forge self-update with staging health checks and automatic rollback.
+# Orchestrates Orchestrator self-update with staging health checks and automatic rollback.
 # Runs in a detached container so it survives production container recreation.
 set -euo pipefail
 
@@ -25,12 +25,12 @@ usage() {
   cat <<EOF
 Usage: forge-self-update.sh --update-id ID [options]
 
-Update Forge from its GitHub source with staging validation and rollback.
+Update Orchestrator from its GitHub source with staging validation and rollback.
 
 Options:
-  --update-id ID        Forge update record ID (required)
+  --update-id ID        Orchestrator update record ID (required)
   --rollback            Redeploy the previous stable image instead of pulling new code
-  --source-dir PATH     Forge source checkout (default: /data/forge-source)
+  --source-dir PATH     Orchestrator source checkout (default: /data/forge-source)
   --staging-port PORT   Staging port for health checks (default: 3466)
   -h, --help            Show help
 EOF
@@ -230,7 +230,7 @@ compose_inline() {
     compose_file="$FORGE_COMPOSE_FILE"
   fi
   if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then
-    echo "Cursor agent host mount path is missing. Redeploy Forge from the host with ./deploy.sh." >&2
+    echo "Cursor agent host mount path is missing. Redeploy Orchestrator from the host with ./deploy.sh." >&2
     exit 1
   fi
   docker compose -f "$compose_file" -p "$COMPOSE_PROJECT_NAME" "$@"
@@ -494,7 +494,7 @@ rollback_production() {
 }
 
 run_rollback_trigger() {
-  log "Starting manual Forge rollback"
+  log "Starting manual Orchestrator rollback"
   set_status "cutover"
   ensure_container_runtime
   if ! ensure_rollback_image; then
@@ -538,7 +538,7 @@ run_upgrade() {
     exit 1
   fi
 
-  log "Starting Forge upgrade for ${repo}@${branch}"
+  log "Starting Orchestrator upgrade for ${repo}@${branch}"
   set_status "pulling"
   ensure_container_runtime
   log "Container runtime is ready"
@@ -580,7 +580,7 @@ run_upgrade() {
   normalize_source_permissions
 
   if ! load_common_sh; then
-    set_status "failed" "Forge source is missing scripts/lib/common.sh"
+    set_status "failed" "Orchestrator source is missing scripts/lib/common.sh"
     exit 1
   fi
 
@@ -611,9 +611,9 @@ run_upgrade() {
 }
 
 if [[ "$ROLLBACK" -eq 1 ]]; then
-  log "Forge self-update orchestrator started (rollback)"
+  log "Orchestrator self-update orchestrator started (rollback)"
   run_rollback_trigger
 else
-  log "Forge self-update orchestrator started (upgrade)"
+  log "Orchestrator self-update orchestrator started (upgrade)"
   run_upgrade
 fi
