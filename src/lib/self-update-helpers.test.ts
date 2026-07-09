@@ -4,6 +4,9 @@ import {
   computeForgeUpdateAvailability,
   defaultStaleUpdateErrorMessage,
   forgeUpdateUnavailableMessage,
+  latestActionableFailedUpdate,
+  parseTargetCommitFromUpdateLogs,
+  shouldDisplayUpdateError,
   sidecarHasStarted,
   statusLabel,
   statusToneClass,
@@ -133,6 +136,15 @@ describe("sidecarHasStarted", () => {
   it("detects orchestrator startup marker", () => {
     expect(
       sidecarHasStarted(
+        "[2026-07-07T00:00:00+00:00] Orchestrator self-update orchestrator started (upgrade)",
+        "pending",
+      ),
+    ).toBe(true);
+  });
+
+  it("detects legacy forge startup marker", () => {
+    expect(
+      sidecarHasStarted(
         "[2026-07-07T00:00:00+00:00] Forge self-update orchestrator started (upgrade)",
         "pending",
       ),
@@ -167,5 +179,51 @@ describe("status helpers", () => {
   it("assigns tone classes", () => {
     expect(statusToneClass("success")).toContain("emerald");
     expect(statusToneClass("failed")).toContain("red");
+  });
+});
+
+describe("latestActionableFailedUpdate", () => {
+  it("hides failed banner after a newer success", () => {
+    const failed = latestActionableFailedUpdate([
+      {
+        status: "success",
+        errorMessage: "stale",
+        startedAt: "2026-07-08T23:00:00Z",
+      },
+      {
+        status: "failed",
+        errorMessage: "real failure",
+        startedAt: "2026-07-08T22:00:00Z",
+      },
+    ]);
+    expect(failed).toBeUndefined();
+  });
+
+  it("shows failed banner when latest terminal update failed", () => {
+    const failed = latestActionableFailedUpdate([
+      {
+        status: "failed",
+        errorMessage: "real failure",
+        startedAt: "2026-07-08T23:00:00Z",
+      },
+    ]);
+    expect(failed?.errorMessage).toBe("real failure");
+  });
+});
+
+describe("shouldDisplayUpdateError", () => {
+  it("never shows errors on success rows", () => {
+    expect(shouldDisplayUpdateError("success", "stale error")).toBe(false);
+    expect(shouldDisplayUpdateError("failed", "real error")).toBe(true);
+  });
+});
+
+describe("parseTargetCommitFromUpdateLogs", () => {
+  it("extracts target commit sha from updater logs", () => {
+    expect(
+      parseTargetCommitFromUpdateLogs(
+        "[2026-07-08T23:05:59+00:00] Target commit: 41e1c62b7c7ac0330677cc7e8aed6b4d56244745",
+      ),
+    ).toBe("41e1c62b7c7ac0330677cc7e8aed6b4d56244745");
   });
 });

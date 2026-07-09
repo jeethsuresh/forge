@@ -1,5 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
+import { activeAgentProcesses } from "@/lib/agent-state";
 import {
   agentSessions,
   deployments,
@@ -14,6 +15,9 @@ const INTERRUPTED_DEPLOY_STATUSES = [
   "deploying",
   "health_check",
 ] as const;
+
+/** Agent deploy polling dies on container restart; abandon stale rows after this. */
+const ABANDONED_DEPLOYING_SESSION_MS = 10 * 60 * 1000;
 
 function appendDeploymentLog(deploymentId: string, message: string): void {
   const row = db
@@ -147,4 +151,152 @@ export function reconcileForgeInterruptedDeploys(): number {
   const forge = findForgeProject();
   if (!forge) return 0;
   return reconcileInterruptedDeployments(forge.id);
+}
+
+function releaseSupersedesDeployment(
+  project: Project,
+  deploymentStartedAt: Date,
+  deploymentCommitSha: string | null,
+): boolean {
+  const release = readProjectReleaseState(project.id, project);
+  if (!release?.stableCommitSha) return false;
+
+  const releasedAt = Date.parse(release.updatedAt);
+  if (Number.isNaN(releasedAt)) return false;
+  if (releasedAt < deploymentStartedAt.getTime() - 5_000) return false;
+
+  if (!deploymentCommitSha) {
+    return true;
+  }
+
+  return release.stableCommitSha !== deploymentCommitSha;
+}
+
+/**
+ * Agent sessions stay `deploying` when waitForDeploymentAndFinalize polling is
+ * lost to a container restart. Reconcile them once the deploy is clearly dead.
+ */
+export function reconcileAbandonedDeployingSessions(
+  projectId?: string,
+): number {
+  let reconciled = 0;
+  const now = Date.now();
+
+  const sessions = db
+    .select()
+    .from(agentSessions)
+    .where(
+      projectId
+        ? and(
+            eq(agentSessions.projectId, projectId),
+            eq(agentSessions.status, "deploying"),
+            isNull(agentSessions.completedAt),
+          )
+        : and(
+            eq(agentSessions.status, "deploying"),
+            isNull(agentSessions.completedAt),
+          ),
+    )
+    .all();
+
+  for (const session of sessions) {
+    if (activeAgentProcesses.has(session.id)) continue;
+
+    const project = db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, session.projectId))
+      .get();
+    if (!project) continue;
+
+    const deployment = session.deploymentId
+      ? db
+          .select()
+          .from(deployments)
+          .where(eq(deployments.id, session.deploymentId))
+          .get()
+      : undefined;
+
+    if (deployment && !deployment.completedAt) {
+      if (
+        deployment.commitSha &&
+        releaseConfirmsDeployment(
+          project,
+          deployment.commitSha,
+          deployment.startedAt,
+        )
+      ) {
+        continue;
+      }
+
+      const deploymentAge = now - deployment.startedAt.getTime();
+      const superseded = releaseSupersedesDeployment(
+        project,
+        deployment.startedAt,
+        deployment.commitSha,
+      );
+
+      if (deploymentAge < ABANDONED_DEPLOYING_SESSION_MS && !superseded) {
+        continue;
+      }
+
+      const message = superseded
+        ? "Deployment interrupted (superseded by a newer release after container restart)"
+        : "Deployment interrupted (orchestrator restarted during agent deploy)";
+
+      appendDeploymentLog(deployment.id, message);
+      db.update(deployments)
+        .set({
+          status: "failed",
+          completedAt: new Date(),
+          errorMessage: message,
+        })
+        .where(eq(deployments.id, deployment.id))
+        .run();
+
+      appendSessionLogForReconcile(session.id, message);
+      db.update(agentSessions)
+        .set({
+          status: "failed",
+          completedAt: new Date(),
+          errorMessage: message,
+        })
+        .where(eq(agentSessions.id, session.id))
+        .run();
+      reconciled += 1;
+      continue;
+    }
+
+    const sessionAge = now - session.startedAt.getTime();
+    if (sessionAge < ABANDONED_DEPLOYING_SESSION_MS) continue;
+
+    const message =
+      "Agent deploy did not complete (orchestrator restarted during deployment)";
+
+    appendSessionLogForReconcile(session.id, message);
+    db.update(agentSessions)
+      .set({
+        status: "failed",
+        completedAt: new Date(),
+        errorMessage: message,
+      })
+      .where(eq(agentSessions.id, session.id))
+      .run();
+    reconciled += 1;
+  }
+
+  return reconciled;
+}
+
+function appendSessionLogForReconcile(sessionId: string, message: string): void {
+  const row = db
+    .select({ logs: agentSessions.logs })
+    .from(agentSessions)
+    .where(eq(agentSessions.id, sessionId))
+    .get();
+  const line = `[${new Date().toISOString()}] ${message}`;
+  db.update(agentSessions)
+    .set({ logs: `${row?.logs ?? ""}${line}\n` })
+    .where(eq(agentSessions.id, sessionId))
+    .run();
 }

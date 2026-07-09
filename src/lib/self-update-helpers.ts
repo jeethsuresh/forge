@@ -16,8 +16,9 @@ export const FORGE_TERMINAL_STATUSES: ForgeUpdateStatus[] = [
   "rolled_back",
 ];
 
-export const FORGE_SIDECAR_STARTED_MARKER =
-  "Forge self-update orchestrator started";
+export const FORGE_SIDECAR_STARTED_MARKER = "self-update orchestrator started";
+
+export const FORGE_UPDATE_SUCCESS_MARKER = "Update completed successfully";
 
 export interface ForgeUpdateAvailabilityInput {
   runningCommitSha: string | null;
@@ -142,6 +143,44 @@ export function defaultStaleUpdateErrorMessage(
     existing ??
     "Update did not start or the updater container exited unexpectedly"
   );
+}
+
+export interface ForgeUpdateErrorView {
+  status: string;
+  errorMessage: string | null;
+  startedAt: string;
+}
+
+/** Only surface failed-update banners when the latest terminal update failed. */
+export function latestActionableFailedUpdate<
+  T extends ForgeUpdateErrorView,
+>(updates: T[]): T | undefined {
+  if (updates.length === 0) return undefined;
+
+  const latest = updates[0]!;
+  if (latest.status === "success" || latest.status === "rolled_back") {
+    return undefined;
+  }
+  if (latest.status === "failed" && latest.errorMessage) {
+    return latest;
+  }
+  return undefined;
+}
+
+export function shouldDisplayUpdateError(
+  status: string,
+  errorMessage: string | null | undefined,
+): boolean {
+  if (!errorMessage) return false;
+  if (status === "success") return false;
+  return status === "failed" || status === "rolled_back";
+}
+
+export function parseTargetCommitFromUpdateLogs(
+  logs: string,
+): string | null {
+  const match = logs.match(/Target commit: ([0-9a-f]{40})/i);
+  return match?.[1] ?? null;
 }
 
 export function statusLabel(status: ForgeUpdateStatus | string): string {

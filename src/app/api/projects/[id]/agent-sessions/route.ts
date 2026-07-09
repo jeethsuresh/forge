@@ -8,7 +8,10 @@ import {
   getBranchAgentOverview,
   listAgentSessionsForClient,
 } from "@/lib/agent-runner";
-import { reconcileInterruptedDeployments } from "@/lib/deploy-reconcile";
+import {
+  reconcileAbandonedDeployingSessions,
+  reconcileInterruptedDeployments,
+} from "@/lib/deploy-reconcile";
 import { getActiveSessionForProject, isAgentSessionActive } from "@/lib/agent-state";
 
 async function requireLogin() {
@@ -33,6 +36,7 @@ export async function GET(
   }
 
   reconcileInterruptedDeployments(id);
+  reconcileAbandonedDeployingSessions(id);
 
   const sessions = listAgentSessionsForClient(id);
   const activeSession = getActiveSessionForProject(id);

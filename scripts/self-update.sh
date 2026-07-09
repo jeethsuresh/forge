@@ -147,6 +147,9 @@ forge_db_status() {
   if [[ -n "$target_commit" ]]; then
     args+=(--target-commit "$target_commit")
   fi
+  if [[ "$status" == "success" ]]; then
+    args+=(--clear-error)
+  fi
   python3 "$SELF_UPDATE_DB_PY" "${args[@]}" 2>/dev/null || true
 }
 

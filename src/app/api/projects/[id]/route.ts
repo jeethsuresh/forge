@@ -13,7 +13,10 @@ import {
   projectSupportsRollback,
   readProjectReleaseState,
 } from "@/lib/deploy-rollback";
-import { reconcileInterruptedDeployments } from "@/lib/deploy-reconcile";
+import {
+  reconcileAbandonedDeployingSessions,
+  reconcileInterruptedDeployments,
+} from "@/lib/deploy-reconcile";
 import { isForgeProject } from "@/lib/forge-project";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import { getForgeStatus, isForgeUpdateInProgress } from "@/lib/self-update";
@@ -64,6 +67,7 @@ export async function GET(
   }
 
   reconcileInterruptedDeployments(id);
+  reconcileAbandonedDeployingSessions(id);
 
   const history = db
     .select()

@@ -133,26 +133,40 @@ describe("self-update-db.py", () => {
       "--update-id",
       updateId,
       "status",
+      "failed",
+      "--error",
+      "interrupted",
+      "--completed",
+    ]);
+    runPy([
+      "--db",
+      path,
+      "--update-id",
+      updateId,
+      "status",
       "success",
       "--target-commit",
       "def456",
       "--completed",
+      "--clear-error",
     ]);
 
     const db = new Database(path);
     const row = db
       .prepare(
-        "SELECT previous_commit_sha, target_commit_sha, status FROM forge_updates WHERE id = ?",
+        "SELECT previous_commit_sha, target_commit_sha, status, error_message FROM forge_updates WHERE id = ?",
       )
       .get(updateId) as {
       previous_commit_sha: string;
       target_commit_sha: string;
       status: string;
+      error_message: string | null;
     };
     db.close();
 
     expect(row.previous_commit_sha).toBe("abc123");
     expect(row.target_commit_sha).toBe("def456");
     expect(row.status).toBe("success");
+    expect(row.error_message).toBeNull();
   });
 });

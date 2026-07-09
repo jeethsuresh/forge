@@ -2,7 +2,7 @@ import { execFile } from "child_process";
 import { randomUUID } from "crypto";
 import { existsSync, readFileSync } from "fs";
 import { promisify } from "util";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   forgeUpdates,
@@ -23,8 +23,10 @@ import { resolveForgeHostMounts } from "@/lib/forge-host-mounts";
 import {
   computeForgeUpdateAvailability,
   defaultStaleUpdateErrorMessage,
+  FORGE_UPDATE_SUCCESS_MARKER,
   forgeUpdateUnavailableMessage,
   isInProgressForgeUpdateStatus,
+  parseTargetCommitFromUpdateLogs,
   sidecarHasStarted,
 } from "@/lib/self-update-helpers";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
@@ -193,6 +195,13 @@ export async function reconcileStaleForgeUpdates(): Promise<number> {
     return 0;
   }
 
+  db.update(forgeUpdates)
+    .set({ errorMessage: null })
+    .where(
+      and(eq(forgeUpdates.status, "success"), isNotNull(forgeUpdates.errorMessage)),
+    )
+    .run();
+
   const stale = findInProgressUpdates();
 
   if (stale.length === 0) {
@@ -200,7 +209,48 @@ export async function reconcileStaleForgeUpdates(): Promise<number> {
     return 0;
   }
 
+  let reconciled = 0;
+  const releaseState = readReleaseState();
+
   for (const row of stale) {
+    const logs = row.logs ?? "";
+
+    if (logs.includes(FORGE_UPDATE_SUCCESS_MARKER)) {
+      const target =
+        row.targetCommitSha ?? parseTargetCommitFromUpdateLogs(logs);
+      db.update(forgeUpdates)
+        .set({
+          status: "success",
+          errorMessage: null,
+          completedAt: new Date(),
+          targetCommitSha: target,
+        })
+        .where(eq(forgeUpdates.id, row.id))
+        .run();
+      reconciled += 1;
+      continue;
+    }
+
+    const target =
+      row.targetCommitSha ?? parseTargetCommitFromUpdateLogs(logs);
+    if (
+      target &&
+      releaseState?.stableCommitSha &&
+      releaseState.stableCommitSha === target
+    ) {
+      db.update(forgeUpdates)
+        .set({
+          status: "success",
+          errorMessage: null,
+          completedAt: new Date(),
+          targetCommitSha: target,
+        })
+        .where(eq(forgeUpdates.id, row.id))
+        .run();
+      reconciled += 1;
+      continue;
+    }
+
     db.update(forgeUpdates)
       .set({
         status: "failed",
@@ -209,10 +259,11 @@ export async function reconcileStaleForgeUpdates(): Promise<number> {
       })
       .where(eq(forgeUpdates.id, row.id))
       .run();
+    reconciled += 1;
   }
 
   activeUpdateId = null;
-  return stale.length;
+  return reconciled;
 }
 
 export async function getForgeStatus(): Promise<ForgeStatusView> {

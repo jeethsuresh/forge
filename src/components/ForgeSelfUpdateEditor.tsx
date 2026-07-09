@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
+  latestActionableFailedUpdate,
+  shouldDisplayUpdateError,
   statusLabel,
   statusToneClass,
 } from "@/lib/self-update-helpers";
@@ -124,7 +126,9 @@ export function ForgeSelfUpdateEditor({
   }
 
   const busy = actionLoading || !!status?.activeUpdate;
-  const latestFailed = status?.recentUpdates.find((u) => u.status === "failed");
+  const latestFailed = status
+    ? latestActionableFailedUpdate(status.recentUpdates)
+    : undefined;
 
   return (
     <section
@@ -266,7 +270,11 @@ export function ForgeSelfUpdateEditor({
                     {statusLabel(status.activeUpdate.status)}
                   </span>
                 </div>
-                {status.activeUpdate.errorMessage && (
+                {status.activeUpdate.errorMessage &&
+                  shouldDisplayUpdateError(
+                    status.activeUpdate.status,
+                    status.activeUpdate.errorMessage,
+                  ) && (
                   <p className="mb-2 text-sm text-red-300">
                     {status.activeUpdate.errorMessage}
                   </p>
@@ -311,7 +319,10 @@ export function ForgeSelfUpdateEditor({
                         <div className="text-xs text-zinc-500">
                           {new Date(update.startedAt).toLocaleString()}
                         </div>
-                        {update.errorMessage && (
+                        {shouldDisplayUpdateError(
+                          update.status,
+                          update.errorMessage,
+                        ) && (
                           <div className="mt-1 truncate text-xs text-red-300">
                             {update.errorMessage}
                           </div>

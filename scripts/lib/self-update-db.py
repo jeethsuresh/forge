@@ -28,6 +28,7 @@ def set_status(
     status: str,
     *,
     error: str | None = None,
+    clear_error: bool = False,
     completed: bool = False,
     target_commit: str | None = None,
     previous_commit: str | None = None,
@@ -35,7 +36,9 @@ def set_status(
     fields: list[str] = ["status = ?"]
     values: list[object] = [status]
 
-    if error is not None:
+    if clear_error:
+        fields.append("error_message = NULL")
+    elif error is not None:
         fields.append("error_message = ?")
         values.append(error)
 
@@ -89,6 +92,7 @@ def main() -> int:
     status_cmd = sub.add_parser("status")
     status_cmd.add_argument("status")
     status_cmd.add_argument("--error")
+    status_cmd.add_argument("--clear-error", action="store_true")
     status_cmd.add_argument("--completed", action="store_true")
     status_cmd.add_argument("--target-commit")
     status_cmd.add_argument("--previous-commit")
@@ -115,6 +119,7 @@ def main() -> int:
                 args.update_id,
                 args.status,
                 error=args.error,
+                clear_error=args.clear_error,
                 completed=args.completed,
                 target_commit=args.target_commit,
                 previous_commit=args.previous_commit,
