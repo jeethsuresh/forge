@@ -1,6 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
+import { isAgentProcessRunning } from "@/lib/agent-runner";
 import { db } from "@/lib/db";
-import { activeAgentProcesses } from "@/lib/agent-state";
 import {
   agentSessions,
   deployments,
@@ -200,7 +200,7 @@ export function reconcileAbandonedDeployingSessions(
     .all();
 
   for (const session of sessions) {
-    if (activeAgentProcesses.has(session.id)) continue;
+    if (isAgentProcessRunning(session.id)) continue;
 
     const project = db
       .select()
