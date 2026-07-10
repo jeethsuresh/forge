@@ -391,6 +391,8 @@ async function spawnForgeProductionCutoverSidecar(options: {
     "-e",
     `DOCKER_SOCKET=${hostSocket}`,
     "-e",
+    `FORGE_DOCKER_SOCKET=${containerDockerSocket()}`,
+    "-e",
     `FORGE_RUN_AS_ROOT=1`,
     "-e",
     `FORGE_IMAGE_TAG=${imageTag}`,

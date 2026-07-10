@@ -77,6 +77,7 @@ describe("docker-runtime helpers", () => {
   let previousContainerName: string | undefined;
   let previousForgeDockerSocket: string | undefined;
   let previousPodmanApiPort: string | undefined;
+  let previousUseSocket: string | undefined;
   let tempDir: string | null = null;
 
   beforeEach(() => {
@@ -86,10 +87,12 @@ describe("docker-runtime helpers", () => {
     previousContainerName = process.env.FORGE_CONTAINER_NAME;
     previousForgeDockerSocket = process.env.FORGE_DOCKER_SOCKET;
     previousPodmanApiPort = process.env.FORGE_PODMAN_API_PORT;
+    previousUseSocket = process.env.FORGE_DOCKER_USE_SOCKET;
     delete process.env.DOCKER_HOST;
     delete process.env.FORGE_CONTAINER_NAME;
     delete process.env.FORGE_DOCKER_SOCKET;
     delete process.env.FORGE_PODMAN_API_PORT;
+    delete process.env.FORGE_DOCKER_USE_SOCKET;
     process.env.COMPOSE_PROJECT_NAME = "forge";
   });
 
@@ -108,6 +111,8 @@ describe("docker-runtime helpers", () => {
     else process.env.FORGE_DOCKER_SOCKET = previousForgeDockerSocket;
     if (previousPodmanApiPort === undefined) delete process.env.FORGE_PODMAN_API_PORT;
     else process.env.FORGE_PODMAN_API_PORT = previousPodmanApiPort;
+    if (previousUseSocket === undefined) delete process.env.FORGE_DOCKER_USE_SOCKET;
+    else process.env.FORGE_DOCKER_USE_SOCKET = previousUseSocket;
   });
 
   function mountWritableSocket(): string {
@@ -117,15 +122,24 @@ describe("docker-runtime helpers", () => {
     return socketPath;
   }
 
-  it("prefers a reachable mounted socket over configured TCP DOCKER_HOST", async () => {
+  it("uses configured TCP DOCKER_HOST without probing unix socket", async () => {
     const socketPath = mountWritableSocket();
     process.env.FORGE_DOCKER_SOCKET = socketPath;
+    process.env.DOCKER_HOST = "tcp://127.0.0.1:18765";
+    const { dockerHostForRuntime } = await import("@/lib/docker-runtime");
+    expect(dockerHostForRuntime()).toBe("tcp://127.0.0.1:18765");
+  });
+
+  it("prefers a reachable mounted socket when FORGE_DOCKER_USE_SOCKET=1", async () => {
+    const socketPath = mountWritableSocket();
+    process.env.FORGE_DOCKER_SOCKET = socketPath;
+    process.env.FORGE_DOCKER_USE_SOCKET = "1";
     process.env.DOCKER_HOST = "tcp://127.0.0.1:18765";
     const { dockerHostForRuntime } = await import("@/lib/docker-runtime");
     expect(dockerHostForRuntime()).toBe(`unix://${socketPath}`);
   });
 
-  it("falls back to configured DOCKER_HOST when no socket is mounted", async () => {
+  it("falls back to configured DOCKER_HOST when probe path is missing", async () => {
     process.env.DOCKER_HOST = "tcp://127.0.0.1:18765";
     process.env.FORGE_DOCKER_SOCKET = "/tmp/missing-forge-docker.sock";
     const { dockerHostForRuntime } = await import("@/lib/docker-runtime");
@@ -136,6 +150,13 @@ describe("docker-runtime helpers", () => {
     process.env.FORGE_DOCKER_SOCKET = "/tmp/missing-forge-docker.sock";
     const { dockerHostForRuntime } = await import("@/lib/docker-runtime");
     expect(dockerHostForRuntime()).toBe("tcp://127.0.0.1:18765");
+  });
+
+  it("defaults container socket path to skip-probe location", async () => {
+    const { containerDockerSocket, SKIP_DOCKER_SOCKET_PROBE } = await import(
+      "@/lib/docker-runtime"
+    );
+    expect(containerDockerSocket()).toBe(SKIP_DOCKER_SOCKET_PROBE);
   });
 
   it("builds the forge data volume name from compose project", async () => {
