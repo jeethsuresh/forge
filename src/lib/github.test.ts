@@ -65,7 +65,7 @@ describe("gitAuthorIdentity", () => {
     delete process.env.FORGE_GIT_USER_EMAIL;
     try {
       expect(gitAuthorIdentity()).toEqual({
-        name: "Orchestrator Agent",
+        name: "Forge Agent",
         email: "forge-agent@localhost",
       });
     } finally {

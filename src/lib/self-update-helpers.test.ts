@@ -179,15 +179,6 @@ describe("sidecarHasStarted", () => {
   it("detects orchestrator startup marker", () => {
     expect(
       sidecarHasStarted(
-        "[2026-07-07T00:00:00+00:00] Orchestrator self-update orchestrator started (upgrade)",
-        "pending",
-      ),
-    ).toBe(true);
-  });
-
-  it("detects legacy forge startup marker", () => {
-    expect(
-      sidecarHasStarted(
         "[2026-07-07T00:00:00+00:00] Forge self-update orchestrator started (upgrade)",
         "pending",
       ),

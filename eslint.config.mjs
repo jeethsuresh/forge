@@ -12,7 +12,7 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Cloned project workspaces — not part of Orchestrator source
+    // Cloned project workspaces — not part of Forge source
     "data/**",
   ]),
 ]);

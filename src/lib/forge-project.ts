@@ -80,7 +80,7 @@ export function ensureForgeProject(): Project | null {
   return db.select().from(projects).where(eq(projects.id, id)).get() ?? null;
 }
 
-/** Clone or pull the Orchestrator self-repo so agents can edit and deploy like any project. */
+/** Clone or pull the Forge self-repo so agents can edit and deploy like any project. */
 export async function ensureForgeSourceRepo(): Promise<Project | null> {
   const project = ensureForgeProject();
   if (!project) return null;

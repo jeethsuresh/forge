@@ -55,7 +55,7 @@ describe("deploy-rollback helpers", () => {
     return db.select().from(projects).where(eq(projects.id, id)).get()!;
   }
 
-  it("uses forge-app image name for the Orchestrator project", () => {
+  it("uses forge-app image name for the Forge project", () => {
     process.env.FORGE_SELF_REPO = "acme/forge";
     const forge = insertProject(APP_DISPLAY_NAME, "/data/forge-source", "acme/forge");
     expect(isForgeProject(forge)).toBe(true);

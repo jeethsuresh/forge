@@ -7,7 +7,7 @@ export interface SessionData {
   isLoggedIn: boolean;
 }
 
-/** Enable only when Orchestrator is served over HTTPS (e.g. TLS-terminated reverse proxy). */
+/** Enable only when Forge is served over HTTPS (e.g. TLS-terminated reverse proxy). */
 export function sessionCookieSecure(): boolean {
   const value = process.env.FORGE_SESSION_SECURE_COOKIE?.trim().toLowerCase();
   return value === "1" || value === "true" || value === "yes";

@@ -46,7 +46,7 @@ describe("forge-project", () => {
     expect(ensureForgeProject()).toBeNull();
   });
 
-  it("creates and reuses the Orchestrator project row", () => {
+  it("creates and reuses the Forge project row", () => {
     process.env.FORGE_SELF_REPO = "acme/forge";
     process.env.FORGE_SELF_BRANCH = "main";
 
@@ -70,7 +70,7 @@ describe("forge-project", () => {
     db.insert(projects)
       .values({
         id,
-        name: "Existing Orchestrator",
+        name: "Existing Forge",
         githubRepo: "acme/forge",
         branch: "main",
         clonePath: "/tmp/forge",
