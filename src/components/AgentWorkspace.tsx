@@ -190,7 +190,9 @@ export function AgentWorkspace({
   useEffect(() => {
     if (!selectedId || sessionDetail?.status !== "deploying") return;
 
-    void fetchSessionDetail(selectedId, { refreshMessages: false });
+    queueMicrotask(() => {
+      void fetchSessionDetail(selectedId, { refreshMessages: false });
+    });
     const interval = setInterval(() => {
       void fetchSessionDetail(selectedId, { refreshMessages: false });
     }, 5000);
