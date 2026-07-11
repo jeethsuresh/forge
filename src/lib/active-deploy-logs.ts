@@ -12,6 +12,16 @@ export interface ActiveDeployLogView {
   startedAt: string;
 }
 
+export interface DeploymentLogSource {
+  id: string;
+  status: string;
+  branch: string;
+  commitSha: string | null;
+  logs: string;
+  errorMessage: string | null;
+  startedAt: Date | string;
+}
+
 interface DeploymentLike {
   id: string;
   status: string;
@@ -94,5 +104,37 @@ export function resolveActiveDeployLogView(input: {
     logs: activeDeployment.logs,
     errorMessage: activeDeployment.errorMessage,
     startedAt: activeDeployment.startedAt,
+  };
+}
+
+export function resolveAgentSessionDeployLogView(input: {
+  sessionStatus: string;
+  deployment: DeploymentLogSource | null | undefined;
+}): ActiveDeployLogView | null {
+  const deployment = input.deployment;
+  if (!deployment) return null;
+
+  const inProgress =
+    input.sessionStatus === "deploying" ||
+    isActiveDeploymentStatus(deployment.status);
+  const failedTogether =
+    input.sessionStatus === "failed" && deployment.status === "failed";
+
+  if (!inProgress && !failedTogether) return null;
+
+  const startedAt =
+    deployment.startedAt instanceof Date
+      ? deployment.startedAt.toISOString()
+      : deployment.startedAt;
+
+  return {
+    title: "Agent deployment",
+    status: deployment.status,
+    statusLabel: deployStatusLabel(deployment.status),
+    branch: deployment.branch,
+    commitSha: deployment.commitSha,
+    logs: deployment.logs,
+    errorMessage: deployment.errorMessage,
+    startedAt,
   };
 }

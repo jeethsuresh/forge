@@ -18,6 +18,8 @@ import {
   isInactiveAgentSessionStatus,
 } from "@/lib/agent-session-source";
 import { AgentMessageList } from "@/components/AgentMessageList";
+import { ActiveDeployLogsPanel } from "@/components/ActiveDeployLogsPanel";
+import type { ActiveDeployLogView } from "@/lib/active-deploy-logs";
 
 interface AgentSession {
   id: string;
@@ -76,6 +78,7 @@ interface SessionDetailResponse {
   session: AgentSession;
   events: Array<{ seq: number }>;
   messages: AgentDisplayMessage[];
+  deployLogView: ActiveDeployLogView | null;
 }
 
 const ACTIVE_AGENT_STATUSES = new Set<string>([
@@ -105,6 +108,9 @@ export function AgentWorkspace({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<AgentDisplayMessage[]>([]);
   const [sessionDetail, setSessionDetail] = useState<AgentSession | null>(null);
+  const [deployLogView, setDeployLogView] = useState<ActiveDeployLogView | null>(
+    null,
+  );
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
@@ -162,6 +168,7 @@ export function AgentWorkspace({
       lastStreamSeqRef.current = lastSeq;
 
       setSessionDetail(json.session);
+      setDeployLogView(json.deployLogView ?? null);
       if (options?.refreshMessages !== false) {
         setMessages(json.messages);
       }
@@ -179,6 +186,16 @@ export function AgentWorkspace({
     }, 8000);
     return () => clearInterval(interval);
   }, [fetchSessions]);
+
+  useEffect(() => {
+    if (!selectedId || sessionDetail?.status !== "deploying") return;
+
+    void fetchSessionDetail(selectedId, { refreshMessages: false });
+    const interval = setInterval(() => {
+      void fetchSessionDetail(selectedId, { refreshMessages: false });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [selectedId, sessionDetail?.status, fetchSessionDetail]);
 
   useEffect(() => {
     if (!data || selectedBranch) return;
@@ -390,6 +407,7 @@ export function AgentWorkspace({
 
     setSelectedId(null);
     setSessionDetail(null);
+    setDeployLogView(null);
     setMessages([]);
   }
 
@@ -804,6 +822,7 @@ export function AgentWorkspace({
               setSelectedBranch("");
               setSelectedId(null);
               setSessionDetail(null);
+              setDeployLogView(null);
               setMessages([]);
             }}
             disabled={loading || blockedByOtherBranch}
@@ -1167,6 +1186,13 @@ export function AgentWorkspace({
               )}
             </div>
           </div>
+
+          {deployLogView && (
+            <ActiveDeployLogsPanel
+              view={deployLogView}
+              className="mx-4 mt-3 shrink-0"
+            />
+          )}
 
           {blockedByOtherBranch && (
             <p className="border-b border-zinc-800 bg-amber-400/5 px-4 py-2 text-xs text-amber-400">

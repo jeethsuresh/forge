@@ -8,6 +8,7 @@ import {
   getAgentSessionForClient,
   getAllAgentEventsAfter,
 } from "@/lib/agent-runner";
+import { resolveAgentSessionDeployLogs } from "@/lib/agent-session-deploy";
 
 async function requireLogin() {
   const session = await getSession();
@@ -37,10 +38,15 @@ export async function GET(
 
   const events = getAllAgentEventsAfter(sessionId, 0);
   const messages = eventsToDisplayMessages(events);
+  const deployLogView = resolveAgentSessionDeployLogs({
+    sessionStatus: agentSession.status,
+    deploymentId: agentSession.deploymentId,
+  });
 
   return NextResponse.json({
     session: agentSession,
     events,
     messages,
+    deployLogView,
   });
 }

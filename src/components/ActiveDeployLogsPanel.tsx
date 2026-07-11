@@ -6,8 +6,10 @@ import type { ActiveDeployLogView } from "@/lib/active-deploy-logs";
 
 export function ActiveDeployLogsPanel({
   view,
+  className = "",
 }: {
   view: ActiveDeployLogView;
+  className?: string;
 }) {
   const logRef = useRef<HTMLPreElement>(null);
 
@@ -18,7 +20,9 @@ export function ActiveDeployLogsPanel({
   }, [view.logs]);
 
   return (
-    <section className="mb-8 rounded-xl border border-amber-400/20 bg-amber-400/5">
+    <section
+      className={`mb-8 rounded-xl border border-amber-400/20 bg-amber-400/5 ${className}`}
+    >
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-400/10 px-4 py-3">
         <div className="min-w-0">
           <h2 className="text-sm font-medium text-zinc-100">{view.title}</h2>

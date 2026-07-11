@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   deployStatusLabel,
   resolveActiveDeployLogView,
+  resolveAgentSessionDeployLogView,
 } from "@/lib/active-deploy-logs";
 
 describe("resolveActiveDeployLogView", () => {
@@ -80,6 +81,68 @@ describe("resolveActiveDeployLogView", () => {
           },
         ],
         activeForgeUpdate: null,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("resolveAgentSessionDeployLogView", () => {
+  it("returns logs while the session is deploying", () => {
+    expect(
+      resolveAgentSessionDeployLogView({
+        sessionStatus: "deploying",
+        deployment: {
+          id: "dep-1",
+          status: "building",
+          branch: "feature",
+          commitSha: null,
+          logs: "running tests",
+          errorMessage: null,
+          startedAt: "2026-01-02T00:00:00.000Z",
+        },
+      }),
+    ).toMatchObject({
+      title: "Agent deployment",
+      status: "building",
+      logs: "running tests",
+      branch: "feature",
+    });
+  });
+
+  it("returns failed deployment logs for failed sessions", () => {
+    expect(
+      resolveAgentSessionDeployLogView({
+        sessionStatus: "failed",
+        deployment: {
+          id: "dep-1",
+          status: "failed",
+          branch: "feature",
+          commitSha: "abc123",
+          logs: "health check failed",
+          errorMessage: "Health check failed",
+          startedAt: "2026-01-02T00:00:00.000Z",
+        },
+      }),
+    ).toMatchObject({
+      status: "failed",
+      logs: "health check failed",
+      errorMessage: "Health check failed",
+    });
+  });
+
+  it("hides logs after a successful deploy completes", () => {
+    expect(
+      resolveAgentSessionDeployLogView({
+        sessionStatus: "completed",
+        deployment: {
+          id: "dep-1",
+          status: "success",
+          branch: "feature",
+          commitSha: "abc123",
+          logs: "done",
+          errorMessage: null,
+          startedAt: "2026-01-02T00:00:00.000Z",
+        },
       }),
     ).toBeNull();
   });
