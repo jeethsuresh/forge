@@ -18,7 +18,7 @@ import {
   forgeDataVolumeName,
   hostDockerSocket,
 } from "@/lib/docker-runtime";
-import { getRemoteCommitSha, parseGithubRepo } from "@/lib/github";
+import { getRemoteCommitSha, parseGithubRepo, validateBranchName, formatGitError } from "@/lib/github";
 import { resolveForgeHostMounts } from "@/lib/forge-host-mounts";
 import {
   computeForgeUpdateAvailability,
@@ -27,6 +27,7 @@ import {
   forgeUpdateUnavailableMessage,
   isInProgressForgeUpdateStatus,
   parseTargetCommitFromUpdateLogs,
+  resolveForgeBranchDeployAllowed,
   sidecarHasStarted,
 } from "@/lib/self-update-helpers";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
@@ -348,7 +349,7 @@ export async function getForgeStatus(): Promise<ForgeStatusView> {
 
 async function spawnUpdater(
   updateId: string,
-  options: { rollback?: boolean },
+  options: { rollback?: boolean; branch?: string },
 ): Promise<void> {
   await ensureDockerDaemon();
 
@@ -362,6 +363,10 @@ async function spawnUpdater(
   const cursorConfigDir = hostMounts.cursorConfigDir;
 
   const hostSocket = hostDockerSocket();
+  const deployBranch =
+    options.branch?.trim() ||
+    process.env.FORGE_SELF_BRANCH?.trim() ||
+    "main";
 
   const args = [
     "run",
@@ -388,7 +393,7 @@ async function spawnUpdater(
     "-e",
     `FORGE_SELF_REPO=${process.env.FORGE_SELF_REPO ?? ""}`,
     "-e",
-    `FORGE_SELF_BRANCH=${process.env.FORGE_SELF_BRANCH ?? "main"}`,
+    `FORGE_SELF_BRANCH=${deployBranch}`,
     "-e",
     `HOST_PORT=${process.env.PORT ?? process.env.HOST_PORT ?? "3000"}`,
     "-e",
@@ -476,23 +481,49 @@ async function assertCanStartUpdate(): Promise<void> {
   }
 }
 
-export async function startForgeUpdate(): Promise<string> {
+export async function startForgeUpdate(options?: {
+  branch?: string;
+}): Promise<string> {
   await assertCanStartUpdate();
 
-  const status = await getForgeStatus();
-  const availability = computeForgeUpdateAvailability({
-    runningCommitSha: status.runningCommitSha,
-    remoteCommitSha: status.remoteCommitSha,
-    remoteCommitLookupFailed: status.remoteCommitLookupFailed,
+  const config = getSelfRepoConfig();
+  if (!config) {
+    throw new Error(
+      "FORGE_SELF_REPO is not configured. Set it in the environment to enable self-updates.",
+    );
+  }
+
+  const branch = options?.branch?.trim() || config.branch;
+  const validationError = validateBranchName(branch);
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  const releaseState = readReleaseState();
+  const runningCommitSha = releaseState?.stableCommitSha ?? null;
+
+  let remoteCommitSha: string | null = null;
+  let remoteCommitLookupFailed = false;
+  try {
+    remoteCommitSha = await getRemoteCommitSha(config.repo, branch);
+  } catch (err) {
+    if (branch !== config.branch) {
+      throw new Error(formatGitError(err));
+    }
+    remoteCommitLookupFailed = true;
+  }
+
+  const availability = resolveForgeBranchDeployAllowed(branch, config.branch, {
+    runningCommitSha,
+    remoteCommitSha,
+    remoteCommitLookupFailed,
   });
-  // Manual self-update is allowed even when already up to date (redeploy the
-  // same commit); only block when we cannot determine a target commit.
   if (!availability.deployAllowed) {
     throw new Error(
       forgeUpdateUnavailableMessage(
         availability,
-        status.runningCommitSha,
-        status.remoteCommitSha,
+        runningCommitSha,
+        remoteCommitSha,
       ),
     );
   }
@@ -510,8 +541,15 @@ export async function startForgeUpdate(): Promise<string> {
     })
     .run();
 
+  if (branch !== config.branch) {
+    appendUpdateLog(
+      updateId,
+      `Redeploying ${APP_DISPLAY_NAME} from branch ${branch} (watch branch is ${config.branch})…`,
+    );
+  }
+
   try {
-    await spawnUpdater(updateId, { rollback: false });
+    await spawnUpdater(updateId, { rollback: false, branch });
   } catch (err) {
     activeUpdateId = null;
     const message = err instanceof Error ? err.message : "Failed to start updater";
@@ -580,5 +618,6 @@ export {
   classifyForgeUpdateHttpError,
   computeForgeUpdateAvailability,
   forgeUpdateUnavailableMessage,
+  resolveForgeBranchDeployAllowed,
   sidecarHasStarted,
 } from "@/lib/self-update-helpers";

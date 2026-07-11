@@ -1,11 +1,11 @@
 import { db } from "@/lib/db";
-import { projects } from "@/lib/db/schema";
+import { projects, type Project } from "@/lib/db/schema";
 import { composeProjectName } from "@/lib/compose-project-name";
 import {
   mergeDeployEnvWithProcess,
   parseDeployEnvJson,
 } from "@/lib/deploy-env";
-import { getForgeRepoConfig } from "@/lib/forge-project";
+import { findForgeProject, getForgeRepoConfig, isForgeProject } from "@/lib/forge-project";
 
 export function validateProjectName(name: string): string | null {
   const trimmed = name.trim();
@@ -34,6 +34,14 @@ export function composeNameConflict(
   return `Another project (“${conflict.name}”) already uses compose name “${slug}”`;
 }
 
+/** Compose `-p` slug used for container status and deploy scripts. */
+export function projectComposeSlug(project: Project): string {
+  if (isForgeProject(project)) {
+    return process.env.COMPOSE_PROJECT_NAME?.trim() || "forge";
+  }
+  return composeProjectName(project.name);
+}
+
 function applyForgeInstanceScriptEnv(env: NodeJS.ProcessEnv): void {
   for (const key of [
     "COMPOSE_PROJECT_NAME",
@@ -53,6 +61,10 @@ function applyForgeInstanceScriptEnv(env: NodeJS.ProcessEnv): void {
 }
 
 function isForgeScriptProject(projectName: string): boolean {
+  const forge = findForgeProject();
+  if (forge !== null && forge.name === projectName) {
+    return true;
+  }
   return (
     getForgeRepoConfig() !== null && composeProjectName(projectName) === "forge"
   );
@@ -61,8 +73,14 @@ function isForgeScriptProject(projectName: string): boolean {
 export function buildProjectScriptEnv(
   projectName: string,
   deployEnvJson: string,
+  hostPort?: number | null,
 ): { env: NodeJS.ProcessEnv; composeProjectName: string } {
   const env = mergeDeployEnvWithProcess(parseDeployEnvJson(deployEnvJson));
+  const resolvedPort =
+    hostPort ?? (env.HOST_PORT ? Number.parseInt(String(env.HOST_PORT), 10) : null);
+  if (resolvedPort !== null && Number.isInteger(resolvedPort)) {
+    env.HOST_PORT = String(resolvedPort);
+  }
   const slug = composeProjectName(projectName);
   if (!env.COMPOSE_PROJECT_NAME) {
     env.COMPOSE_PROJECT_NAME = slug;

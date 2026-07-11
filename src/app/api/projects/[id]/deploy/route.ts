@@ -4,9 +4,13 @@ import { db } from "@/lib/db";
 import { projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
 import { runDeployment } from "@/lib/deployer";
-import { isAgentSessionActive } from "@/lib/agent-state";
+import { isAgentSessionActive, getBlockingAgentSession } from "@/lib/agent-state";
 import { isForgeProject } from "@/lib/forge-project";
 import { validateBranchName } from "@/lib/github";
+import {
+  invalidateProjectBranches,
+} from "@/lib/project-branches-cache";
+import { invalidateProjectRuntimeCache } from "@/lib/project-runtime-cache";
 import { startForgeUpdate } from "@/lib/self-update";
 
 export async function POST(
@@ -25,8 +29,18 @@ export async function POST(
   }
 
   if (isAgentSessionActive(id)) {
+    const blocking = getBlockingAgentSession(id);
     return NextResponse.json(
-      { error: "An agent session is active. Finish or cancel it before deploying." },
+      {
+        error: "An agent session is active. End it on the Agents tab before deploying.",
+        blockingAgentSession: blocking
+          ? {
+              id: blocking.id,
+              branch: blocking.branch,
+              status: blocking.status,
+            }
+          : null,
+      },
       { status: 409 },
     );
   }
@@ -40,9 +54,10 @@ export async function POST(
 
   if (isForgeProject(project)) {
     try {
-      const updateId = await startForgeUpdate();
+      const updateId = await startForgeUpdate({ branch });
+      invalidateProjectRuntimeCache(id);
       return NextResponse.json(
-        { updateId, branch: project.branch, mode: "forge-self-update" },
+        { updateId, branch, mode: "forge-self-update" },
         { status: 202 },
       );
     } catch (err) {
@@ -53,6 +68,8 @@ export async function POST(
 
   try {
     const deploymentId = await runDeployment(id, "manual", { branch });
+    invalidateProjectRuntimeCache(id);
+    invalidateProjectBranches(id);
     return NextResponse.json({ deploymentId, branch }, { status: 202 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Deploy failed";

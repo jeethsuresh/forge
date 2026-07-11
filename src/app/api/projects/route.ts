@@ -11,7 +11,7 @@ import { isDeploymentActive } from "@/lib/deployer";
 import { getComposeContainerStatus, projectHasComposeFile } from "@/lib/docker";
 import { deriveRuntimeStatus } from "@/lib/project-status";
 import { composeProjectName } from "@/lib/compose-project-name";
-import { composeNameConflict, validateProjectName } from "@/lib/projects";
+import { composeNameConflict, projectComposeSlug, validateProjectName } from "@/lib/projects";
 import {
   findForgeProject,
   isForgeProject,
@@ -61,7 +61,7 @@ export async function GET() {
         (isForgeProject(project) && (await isForgeUpdateInProgress()));
       const containers = await getComposeContainerStatus(
         project.clonePath,
-        project.name,
+        projectComposeSlug(project),
       );
       const runtimeStatus = deriveRuntimeStatus(containers, {
         isDeploying,

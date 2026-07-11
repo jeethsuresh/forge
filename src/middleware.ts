@@ -9,7 +9,6 @@ const publicPaths = [
   "/api/forge/health",
   "/api/forge/recover",
   "/api/caddy/logs",
-  "/api/caddy/logs/stream",
   "/api/caddy/logs/ingest",
 ];
 

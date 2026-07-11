@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { ProjectRoutingOverview } from "@/components/ProjectRoutingOverview";
 import { CaddyLogsViewer } from "@/components/CaddyLogsViewer";
 import { CaddySettingsEditor } from "@/components/CaddySettingsEditor";
 
-type SettingsTab = "routes" | "logs";
+type SettingsTab = "routing" | "routes" | "logs";
 
 function TabButton({
   active,
@@ -31,7 +32,7 @@ function TabButton({
 }
 
 export function GlobalSettings() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("routes");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("routing");
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 sm:py-6 lg:p-8">
@@ -40,10 +41,17 @@ export function GlobalSettings() {
           Global settings
         </h1>
         <p className="mb-6 text-sm text-zinc-500">
-          Manage Caddy reverse proxy routes and monitor access logs
+          Manage per-project host ports and Caddy route associations, edit the
+          full live Caddy config, and browse access logs
         </p>
 
         <div className="mb-6 flex rounded-lg border border-zinc-800 bg-zinc-900/50 p-1">
+          <TabButton
+            active={activeTab === "routing"}
+            onClick={() => setActiveTab("routing")}
+          >
+            Project routing
+          </TabButton>
           <TabButton
             active={activeTab === "routes"}
             onClick={() => setActiveTab("routes")}
@@ -58,7 +66,9 @@ export function GlobalSettings() {
           </TabButton>
         </div>
 
-        {activeTab === "routes" ? (
+        {activeTab === "routing" ? (
+          <ProjectRoutingOverview />
+        ) : activeTab === "routes" ? (
           <CaddySettingsEditor />
         ) : (
           <CaddyLogsViewer />

@@ -92,6 +92,43 @@ export function computeForgeUpdateAvailability(
   };
 }
 
+/**
+ * Whether a manual self-update may run for a specific branch. The default
+ * watch branch uses {@link computeForgeUpdateAvailability}; any other branch
+ * only requires a reachable remote tip (redeploy that branch on demand).
+ */
+export function resolveForgeBranchDeployAllowed(
+  branch: string,
+  defaultBranch: string,
+  input: ForgeUpdateAvailabilityInput,
+): ForgeUpdateAvailabilityResult {
+  if (branch !== defaultBranch) {
+    if (input.remoteCommitLookupFailed) {
+      return {
+        updateAvailable: false,
+        deployAllowed: false,
+        remoteCommitLookupFailed: true,
+        reason: "remote_unavailable",
+      };
+    }
+    if (!input.remoteCommitSha) {
+      return {
+        updateAvailable: false,
+        deployAllowed: false,
+        remoteCommitLookupFailed: false,
+        reason: "unknown_remote",
+      };
+    }
+    return {
+      updateAvailable: true,
+      deployAllowed: true,
+      remoteCommitLookupFailed: false,
+      reason: "new_commit",
+    };
+  }
+  return computeForgeUpdateAvailability(input);
+}
+
 export function forgeUpdateUnavailableMessage(
   availability: ForgeUpdateAvailabilityResult,
   runningCommitSha: string | null,

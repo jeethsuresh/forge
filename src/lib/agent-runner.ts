@@ -28,6 +28,7 @@ import {
   hasUncommittedChanges,
   hasUnpushedCommits,
   pushBranch,
+  revertAgentBranchWorkspace,
   createLocalBranchFromBase,
   validateBranchName,
 } from "@/lib/github";
@@ -38,6 +39,10 @@ import { resolveClonePath } from "@/lib/paths";
 const activeAgentProcesses = new Map<string, ChildProcess>();
 const stoppingSessions = new Set<string>();
 const cancelledSessions = new Set<string>();
+const deploymentPollTimers = new Map<string, NodeJS.Timeout>();
+const deploymentPollActive = new Set<string>();
+
+const AGENT_KILL_GRACE_MS = 5000;
 
 const TERMINAL_STATUSES: AgentSessionStatus[] = [
   "completed",
@@ -55,6 +60,35 @@ function spawnAgentProcess(
     return spawn("stdbuf", ["-oL", "-eL", agentPath, ...args], options);
   }
   return spawn(agentPath, args, options);
+}
+
+function terminateAgentProcess(proc: ChildProcess): void {
+  const pid = proc.pid;
+  if (!pid || proc.killed) return;
+
+  try {
+    proc.kill("SIGTERM");
+  } catch {
+    // process may already be gone
+  }
+
+  setTimeout(() => {
+    try {
+      process.kill(pid, 0);
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // already exited
+    }
+  }, AGENT_KILL_GRACE_MS);
+}
+
+function cancelDeploymentPoll(sessionId: string): void {
+  deploymentPollActive.delete(sessionId);
+  const timer = deploymentPollTimers.get(sessionId);
+  if (timer) {
+    clearTimeout(timer);
+    deploymentPollTimers.delete(sessionId);
+  }
 }
 
 function appendSessionLog(sessionId: string, message: string): void {
@@ -76,7 +110,7 @@ function updateSessionStatus(
   status: AgentSessionStatus,
   extra?: {
     cursorSessionId?: string;
-    errorMessage?: string;
+    errorMessage?: string | null;
     completedAt?: Date;
     deploymentId?: string;
     commitSha?: string;
@@ -449,6 +483,7 @@ async function runAgentTurn(
         updateSessionStatus(sessionId, "failed", {
           errorMessage: "Stopped by user.",
         });
+        appendSessionLog(sessionId, "Agent stopped by user.");
         activeAgentProjects.delete(project.id);
         resolve();
         return;
@@ -501,6 +536,8 @@ async function waitForDeploymentAndFinalize(
   sessionId: string,
   projectId: string,
 ): Promise<void> {
+  cancelDeploymentPoll(sessionId);
+
   const session = db
     .select()
     .from(agentSessions)
@@ -513,14 +550,21 @@ async function waitForDeploymentAndFinalize(
     return;
   }
 
+  deploymentPollActive.add(sessionId);
+
   const poll = (): void => {
+    if (!deploymentPollActive.has(sessionId)) return;
+
     const current = db
       .select()
       .from(agentSessions)
       .where(eq(agentSessions.id, sessionId))
       .get();
 
-    if (!current?.deploymentId) return;
+    if (!current?.deploymentId) {
+      cancelDeploymentPoll(sessionId);
+      return;
+    }
 
     const dep = db
       .select()
@@ -529,9 +573,11 @@ async function waitForDeploymentAndFinalize(
       .get();
 
     if (!dep || !dep.completedAt) {
-      setTimeout(poll, 2000);
+      deploymentPollTimers.set(sessionId, setTimeout(poll, 2000));
       return;
     }
+
+    cancelDeploymentPoll(sessionId);
 
     if (dep.status === "success") {
       appendSessionLog(sessionId, "Rebuild and release completed successfully.");
@@ -549,7 +595,7 @@ async function waitForDeploymentAndFinalize(
     activeAgentProjects.delete(projectId);
   };
 
-  setTimeout(poll, 2000);
+  deploymentPollTimers.set(sessionId, setTimeout(poll, 2000));
 }
 
 async function executeAgentTurn(
@@ -1016,16 +1062,18 @@ export async function stopAgentTurn(sessionId: string): Promise<void> {
   if (!session) throw new Error("Session not found");
   if (TERMINAL_STATUSES.includes(session.status)) return;
   if (session.status === "deploying") {
-    throw new Error("Cannot stop during deploy");
+    await endAgentSession(sessionId);
+    return;
   }
   if (!activeAgentProcesses.has(sessionId)) {
-    throw new Error("Agent is not running");
+    await endAgentSession(sessionId);
+    return;
   }
 
   stoppingSessions.add(sessionId);
   const proc = activeAgentProcesses.get(sessionId);
   if (proc) {
-    proc.kill("SIGTERM");
+    terminateAgentProcess(proc);
   }
 
   appendSessionLog(sessionId, "Agent stopped by user.");
@@ -1044,6 +1092,60 @@ export function clearAgentSessionLogs(sessionId: string): void {
     .run();
 }
 
+export async function endAgentSession(
+  sessionId: string,
+  options?: { revertChanges?: boolean },
+): Promise<void> {
+  const session = db
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.id, sessionId))
+    .get();
+
+  if (!session) throw new Error("Session not found");
+  if (TERMINAL_STATUSES.includes(session.status)) return;
+
+  cancelDeploymentPoll(sessionId);
+
+  const project = db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, session.projectId))
+    .get();
+  if (!project) throw new Error("Project not found");
+
+  const proc = activeAgentProcesses.get(sessionId);
+  if (proc) {
+    stoppingSessions.add(sessionId);
+    terminateAgentProcess(proc);
+    activeAgentProcesses.delete(sessionId);
+  }
+
+  cancelDeploymentPoll(sessionId);
+
+  const log = (msg: string) => appendSessionLog(sessionId, msg);
+
+  if (options?.revertChanges) {
+    try {
+      await revertAgentBranchWorkspace(project.clonePath, session.branch, log);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to revert workspace: ${message}`);
+    }
+  }
+
+  updateSessionStatus(sessionId, "completed", {
+    completedAt: new Date(),
+    errorMessage: null,
+  });
+  log(
+    options?.revertChanges
+      ? "Session ended by user; uncommitted workspace changes were reverted."
+      : "Session ended by user.",
+  );
+  activeAgentProjects.delete(session.projectId);
+}
+
 export async function cancelAgentSession(sessionId: string): Promise<void> {
   const session = db
     .select()
@@ -1055,9 +1157,11 @@ export async function cancelAgentSession(sessionId: string): Promise<void> {
   if (TERMINAL_STATUSES.includes(session.status)) return;
 
   cancelledSessions.add(sessionId);
+  cancelDeploymentPoll(sessionId);
   const proc = activeAgentProcesses.get(sessionId);
   if (proc) {
-    proc.kill("SIGTERM");
+    terminateAgentProcess(proc);
+    activeAgentProcesses.delete(sessionId);
   }
 
   appendSessionLog(sessionId, "Session cancelled by user.");

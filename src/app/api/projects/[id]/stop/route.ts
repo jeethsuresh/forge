@@ -36,7 +36,7 @@ export async function POST(
   try {
     const repoPath = resolveClonePath(project.clonePath);
     const { env: scriptEnv, composeProjectName: composeSlug } =
-      buildProjectScriptEnv(project.name, project.deployEnvJson);
+      buildProjectScriptEnv(project.name, project.deployEnvJson, project.hostPort);
     const scriptArgs = projectScriptArgs(composeSlug, scriptEnv);
     const teardownPath = join(repoPath, "teardown.sh");
     if (existsSync(teardownPath)) {
@@ -48,7 +48,7 @@ export async function POST(
       return NextResponse.json({ ok: true, output: lines.join("\n") });
     }
 
-    const output = await stopComposeProject(repoPath, project.name);
+    const output = await stopComposeProject(repoPath, composeSlug);
     return NextResponse.json({ ok: true, output });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Stop failed";

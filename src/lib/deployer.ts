@@ -323,7 +323,7 @@ async function executeDeployment(
   const deployBranch = resolveDeploymentBranch(project, trigger, options);
   const runningSha = getCurrentlyRunningCommitSha(projectId);
   const { env: scriptEnv, composeProjectName: composeSlug } =
-    buildProjectScriptEnv(project.name, project.deployEnvJson);
+    buildProjectScriptEnv(project.name, project.deployEnvJson, project.hostPort);
   const scriptArgs = projectScriptArgs(composeSlug, scriptEnv);
 
   try {

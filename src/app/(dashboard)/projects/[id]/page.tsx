@@ -1,7 +1,8 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   formatDuration,
   formatRelativeTime,
@@ -12,18 +13,57 @@ import {
   statusColor,
 } from "@/lib/utils";
 import type { RuntimeStatus } from "@/lib/project-status";
-import { AgentWorkspace } from "@/components/AgentWorkspace";
+import { mergePolledProjectDetail } from "@/lib/project-detail-client";
 import { ForgeSelfUpdateEditor } from "@/components/ForgeSelfUpdateEditor";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import { ProjectRenameEditor } from "@/components/ProjectRenameEditor";
+import { ProjectRoutingEditor } from "@/components/ProjectRoutingEditor";
+import type { ProjectCaddySettings } from "@/lib/project-routing-shared";
 import {
   DeployEnvVarsEditor,
   type DeployEnvVarRow,
 } from "@/components/DeployEnvVarsEditor";
+import { ProjectGitTreePanel } from "@/components/ProjectGitTreePanel";
+import { ProjectCaddyLogsSection } from "@/components/ProjectCaddyLogsSection";
+
+const AgentWorkspace = dynamic(
+  () =>
+    import("@/components/AgentWorkspace").then((module) => ({
+      default: module.AgentWorkspace,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-0 flex-1 items-center justify-center rounded-xl border border-zinc-800 text-sm text-zinc-500">
+        Loading agents…
+      </div>
+    ),
+  },
+);
 
 type ProjectTab = "deploy" | "config" | "agents";
 
+function resolveProjectTab(tab: string | null): ProjectTab {
+  if (tab === "deploy" || tab === "config" || tab === "agents") {
+    return tab;
+  }
+  return "deploy";
+}
+
 const DEPLOYMENTS_PER_PAGE = 10;
+
+function projectPollIntervalMs(
+  tab: ProjectTab,
+  isDeploying: boolean,
+): number | null {
+  if (typeof document !== "undefined" && document.hidden) {
+    return null;
+  }
+  if (tab === "agents") return 12_000;
+  if (tab === "config" && !isDeploying) return 12_000;
+  if (isDeploying) return 5_000;
+  return 10_000;
+}
 
 interface ContainerInfo {
   name: string;
@@ -58,6 +98,11 @@ interface ProjectDetail {
     updatedAt: string;
     deployEnvVars: DeployEnvVarRow[];
     deployEnvFileSource: ".env" | ".env.example" | null;
+    composeProjectName?: string;
+    hostPort?: number | null;
+    resolvedHostPort?: number | null;
+    caddyRoute?: ProjectCaddySettings | null;
+    linkedRouteKeys?: string[];
     isForge?: boolean;
   };
   deployments: Deployment[];
@@ -84,28 +129,44 @@ interface ProjectDetail {
       errorMessage: string | null;
     }>;
   } | null;
+  blockingAgentSession: {
+    id: string;
+    branch: string;
+    status: string;
+  } | null;
 }
 
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [data, setData] = useState<ProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [expandedDeploymentId, setExpandedDeploymentId] = useState<string | null>(
     null,
   );
-  const [activeTab, setActiveTab] = useState<ProjectTab>("deploy");
   const [deploymentPage, setDeploymentPage] = useState(0);
   const [deployBranch, setDeployBranch] = useState<string | null>(null);
   const [envSaving, setEnvSaving] = useState(false);
+  const [routingSaving, setRoutingSaving] = useState(false);
+  const dataRef = useRef<ProjectDetail | null>(null);
 
-  const fetchData = useCallback(async () => {
+  const initialAgentSessionId = searchParams.get("session");
+  const activeTab = resolveProjectTab(searchParams.get("tab"));
+
+  const fetchData = useCallback(async (poll = false) => {
     try {
-      const res = await fetch(`/api/projects/${id}`);
+      const res = await fetch(
+        poll ? `/api/projects/${id}?poll=1` : `/api/projects/${id}`,
+      );
       if (!res.ok) return;
       const json = (await res.json()) as ProjectDetail;
-      setData(json);
+      setData((previous) => {
+        const next = poll ? mergePolledProjectDetail(previous, json) : json;
+        dataRef.current = next;
+        return next;
+      });
       setDeployBranch((prev) => {
         if (prev && json.branches.includes(prev)) return prev;
         return json.project.branch;
@@ -134,10 +195,42 @@ export default function ProjectDetailPage() {
   }
 
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 5000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const schedule = () => {
+      if (cancelled) return;
+      const interval = projectPollIntervalMs(
+        activeTab,
+        dataRef.current?.isDeploying ?? false,
+      );
+      if (interval === null) return;
+      timer = setTimeout(async () => {
+        await fetchData(true);
+        schedule();
+      }, interval);
+    };
+
+    const onVisibility = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      if (document.hidden) return;
+      void fetchData(true);
+      schedule();
+    };
+
+    void fetchData(false);
+    schedule();
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [fetchData, activeTab]);
 
   async function deployNow() {
     if (!deployBranch) return;
@@ -149,14 +242,49 @@ export default function ProjectDetailPage() {
         body: JSON.stringify({ branch: deployBranch }),
       });
       if (!res.ok) {
-        const json = (await res.json()) as { error?: string };
-        alert(json.error ?? "Deploy failed");
+        const json = (await res.json()) as {
+          error?: string;
+          blockingAgentSession?: { id: string; branch: string; status: string } | null;
+        };
+        if (res.status === 409 && json.blockingAgentSession) {
+          const { id: sessionId, branch, status } = json.blockingAgentSession;
+          if (
+            confirm(
+              `${json.error ?? "Deploy blocked"}\n\nOpen the agent on branch ${branch} (${status})?`,
+            )
+          ) {
+            openAgentSession(sessionId);
+          }
+        } else {
+          alert(json.error ?? "Deploy failed");
+        }
         return;
       }
       await fetchData();
     } finally {
       setActionLoading(false);
     }
+  }
+
+  function openAgentSession(sessionId: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", "agents");
+    params.set("session", sessionId);
+    router.replace(`/projects/${id}?${params.toString()}`, {
+      scroll: false,
+    });
+  }
+
+  function selectTab(tab: ProjectTab) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", tab);
+    if (tab !== "agents") {
+      params.delete("session");
+    }
+    const query = params.toString();
+    router.replace(query ? `/projects/${id}?${query}` : `/projects/${id}`, {
+      scroll: false,
+    });
   }
 
   async function saveDeployEnvVars(vars: DeployEnvVarRow[]): Promise<boolean> {
@@ -176,6 +304,30 @@ export default function ProjectDetailPage() {
       return true;
     } finally {
       setEnvSaving(false);
+    }
+  }
+
+  async function saveProjectRouting(payload: {
+    hostPort: number | null;
+    caddyRoute: ProjectCaddySettings | null;
+    linkedRouteKeys: string[];
+  }): Promise<boolean> {
+    setRoutingSaving(true);
+    try {
+      const res = await fetch(`/api/projects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Failed to save routing settings");
+        return false;
+      }
+      await fetchData();
+      return true;
+    } finally {
+      setRoutingSaving(false);
     }
   }
 
@@ -273,6 +425,7 @@ export default function ProjectDetailPage() {
     supportsRollback,
     hasRollbackImage,
     forgeStatus,
+    blockingAgentSession,
   } = data;
 
   const isForge = project.isForge === true;
@@ -352,19 +505,19 @@ export default function ProjectDetailPage() {
         <div className="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-1">
           <TabButton
             active={activeTab === "deploy"}
-            onClick={() => setActiveTab("deploy")}
+            onClick={() => selectTab("deploy")}
           >
-            Deploy
+            Deploy &amp; Tree
           </TabButton>
           <TabButton
             active={activeTab === "config"}
-            onClick={() => setActiveTab("config")}
+            onClick={() => selectTab("config")}
           >
             Config &amp; history
           </TabButton>
           <TabButton
             active={activeTab === "agents"}
-            onClick={() => setActiveTab("agents")}
+            onClick={() => selectTab("agents")}
           >
             Agents
           </TabButton>
@@ -373,36 +526,74 @@ export default function ProjectDetailPage() {
 
       {activeTab === "deploy" ? (
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          {isForge && <ForgeSelfUpdateEditor className="mb-6" hideHistory />}
+          {blockingAgentSession && (
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3">
+              <p className="text-sm text-amber-200">
+                Deploy is blocked by an agent on{" "}
+                <span className="font-mono text-amber-100">
+                  {blockingAgentSession.branch}
+                </span>{" "}
+                <span className="capitalize text-amber-300/80">
+                  ({blockingAgentSession.status})
+                </span>
+                .
+              </p>
+              <button
+                type="button"
+                onClick={() => openAgentSession(blockingAgentSession.id)}
+                className="min-h-9 shrink-0 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-400/20"
+              >
+                Open agent session
+              </button>
+            </div>
+          )}
+
+          {isForge && (
+            <ForgeSelfUpdateEditor
+              className="mb-6"
+              hideHistory
+              hideDeployActions
+            />
+          )}
 
           <div className="mb-6 flex flex-wrap items-end gap-2">
-            {!isForge && (
-              <label className="flex min-w-[12rem] flex-col gap-1.5">
-                <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-                  Deploy branch
-                </span>
-                <select
-                  value={selectedDeployBranch}
-                  onChange={(e) => setDeployBranch(e.target.value)}
-                  disabled={actionLoading || deployBusy}
-                  className="min-h-11 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-200 disabled:opacity-50"
-                >
-                  {branches.map((branch) => (
-                    <option key={branch} value={branch}>
-                      {branch}
-                      {branch === project.branch ? " (watch)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            {!isForge && (
+            <label className="flex min-w-[12rem] flex-col gap-1.5">
+              <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+                {isForge ? "Redeploy branch" : "Deploy branch"}
+              </span>
+              <select
+                value={selectedDeployBranch}
+                onChange={(e) => setDeployBranch(e.target.value)}
+                disabled={actionLoading || deployBusy}
+                className="min-h-11 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-200 disabled:opacity-50"
+              >
+                {branches.map((branch) => (
+                  <option key={branch} value={branch}>
+                    {branch}
+                    {branch === project.branch ? " (watch)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {!isForge ? (
               <button
                 onClick={deployNow}
-                disabled={actionLoading || deployBusy}
+                disabled={
+                  actionLoading || deployBusy || Boolean(blockingAgentSession)
+                }
                 className="min-h-11 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
               >
                 {deployBusy ? "Deploying…" : "Deploy now"}
+              </button>
+            ) : (
+              <button
+                onClick={deployNow}
+                disabled={
+                  actionLoading || deployBusy || Boolean(blockingAgentSession)
+                }
+                className="min-h-11 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+              >
+                {deployBusy ? "Redeploying…" : "Redeploy"}
               </button>
             )}
             {!isForge && (
@@ -424,6 +615,14 @@ export default function ProjectDetailPage() {
               >
                 Roll back
               </button>
+            )}
+            {isForge && selectedDeployBranch !== project.branch && (
+              <p className="w-full text-xs text-amber-300/90">
+                Redeploying from{" "}
+                <span className="font-mono">{selectedDeployBranch}</span> builds
+                and releases that branch tip (watch branch is{" "}
+                <span className="font-mono">{project.branch}</span>).
+              </p>
             )}
             <button
               onClick={stopProject}
@@ -513,6 +712,14 @@ export default function ProjectDetailPage() {
               </div>
             </section>
           )}
+
+          <ProjectGitTreePanel
+            projectId={id}
+            watchBranch={project.branch}
+            disabled={actionLoading || deployBusy}
+            onRefreshProject={() => void fetchData()}
+            onOpenAgentSession={openAgentSession}
+          />
         </div>
       ) : activeTab === "config" ? (
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
@@ -529,6 +736,29 @@ export default function ProjectDetailPage() {
               />
             </div>
           </section>
+
+          <div className="mb-8">
+            <ProjectRoutingEditor
+              key={`${project.updatedAt}-routing`}
+              projectId={id}
+              values={{
+                hostPort: project.hostPort ?? null,
+                resolvedHostPort: project.resolvedHostPort ?? null,
+                composeProjectName:
+                  project.composeProjectName ?? project.name.toLowerCase(),
+                caddyRoute: project.caddyRoute ?? null,
+                linkedRouteKeys: project.linkedRouteKeys ?? [],
+              }}
+              disabled={actionLoading || deployBusy}
+              saving={routingSaving}
+              onSave={saveProjectRouting}
+            />
+          </div>
+
+          <ProjectCaddyLogsSection
+            caddyRoute={project.caddyRoute ?? null}
+            linkedRouteKeys={project.linkedRouteKeys ?? []}
+          />
 
           <div className="mb-8">
             <DeployEnvVarsEditor
@@ -576,7 +806,11 @@ export default function ProjectDetailPage() {
           )}
         </div>
       ) : (
-        <AgentWorkspace projectId={id} className="min-h-0 flex-1" />
+        <AgentWorkspace
+          projectId={id}
+          className="min-h-0 flex-1"
+          initialSessionId={initialAgentSessionId}
+        />
       )}
     </div>
   );

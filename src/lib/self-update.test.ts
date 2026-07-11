@@ -10,6 +10,15 @@ import { forgeUpdates } from "@/lib/db/schema";
 vi.mock("@/lib/github", () => ({
   parseGithubRepo: (repo: string) => repo,
   getRemoteCommitSha: vi.fn(),
+  validateBranchName: (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return "Branch name is required";
+    return null;
+  },
+  formatGitError: (err: unknown) =>
+    err && typeof err === "object" && "message" in err
+      ? String((err as { message?: string }).message)
+      : String(err),
 }));
 
 vi.mock("child_process", async () => {
@@ -234,16 +243,21 @@ describe("reconcileStaleForgeUpdates", () => {
 
 describe("startForgeUpdate guards", () => {
   let previousRepo: string | undefined;
+  let previousBranch: string | undefined;
 
   beforeEach(() => {
     previousRepo = process.env.FORGE_SELF_REPO;
+    previousBranch = process.env.FORGE_SELF_BRANCH;
     process.env.FORGE_SELF_REPO = "acme/forge";
+    process.env.FORGE_SELF_BRANCH = "main";
     vi.mocked(getRemoteCommitSha).mockResolvedValue("same123456789");
   });
 
   afterEach(() => {
     if (previousRepo === undefined) delete process.env.FORGE_SELF_REPO;
     else process.env.FORGE_SELF_REPO = previousRepo;
+    if (previousBranch === undefined) delete process.env.FORGE_SELF_BRANCH;
+    else process.env.FORGE_SELF_BRANCH = previousBranch;
   });
 
   it("allows a manual redeploy when already on the latest commit", async () => {
@@ -289,6 +303,47 @@ describe("startForgeUpdate guards", () => {
     vi.mocked(getRemoteCommitSha).mockRejectedValue(new Error("offline"));
     const { startForgeUpdate } = await import("@/lib/self-update");
     await expect(startForgeUpdate()).rejects.toThrow(/Could not reach GitHub/);
+  });
+
+  it("allows redeploy from a non-watch branch when its remote tip is reachable", async () => {
+    vi.mocked(getRemoteCommitSha).mockImplementation(async (_repo, branch) => {
+      if (branch === "feature/dev") return "feature123456789";
+      return "same123456789";
+    });
+
+    const beforeIds = new Set(
+      db.select({ id: forgeUpdates.id }).from(forgeUpdates).all().map((r) => r.id),
+    );
+
+    const { startForgeUpdate } = await import("@/lib/self-update");
+    await expect(
+      startForgeUpdate({ branch: "feature/dev" }),
+    ).rejects.not.toThrow(/Could not reach GitHub/);
+
+    const newRows = db
+      .select()
+      .from(forgeUpdates)
+      .all()
+      .filter((r) => !beforeIds.has(r.id));
+    expect(newRows).toHaveLength(1);
+    expect(newRows[0]?.logs).toContain("feature/dev");
+    if (newRows[0]) {
+      db.delete(forgeUpdates).where(eq(forgeUpdates.id, newRows[0].id)).run();
+    }
+  });
+
+  it("rejects non-watch redeploy when the branch is missing on GitHub", async () => {
+    vi.mocked(getRemoteCommitSha).mockImplementation(async (_repo, branch) => {
+      if (branch === "missing") {
+        throw new Error('Branch "missing" not found on acme/forge');
+      }
+      return "same123456789";
+    });
+
+    const { startForgeUpdate } = await import("@/lib/self-update");
+    await expect(startForgeUpdate({ branch: "missing" })).rejects.toThrow(
+      /not found/,
+    );
   });
 });
 

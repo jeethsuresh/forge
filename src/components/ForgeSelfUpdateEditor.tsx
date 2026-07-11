@@ -43,9 +43,11 @@ function shortSha(sha: string | null): string {
 export function ForgeSelfUpdateEditor({
   className = "",
   hideHistory = false,
+  hideDeployActions = false,
 }: {
   className?: string;
   hideHistory?: boolean;
+  hideDeployActions?: boolean;
 }) {
   const [status, setStatus] = useState<ForgeStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -220,7 +222,7 @@ export function ForgeSelfUpdateEditor({
             )}
 
             <div className="flex flex-wrap items-center gap-3">
-              {!status.updateAvailable && !status.activeUpdate && (
+              {!hideDeployActions && !status.updateAvailable && !status.activeUpdate && (
                 <p className="text-sm text-zinc-400">
                   {status.remoteCommitLookupFailed
                     ? "Waiting for GitHub before checking for updates."
@@ -236,18 +238,20 @@ export function ForgeSelfUpdateEditor({
                 </p>
               )}
 
-              <button
-                type="button"
-                onClick={runUpdate}
-                disabled={busy || !status.deployAllowed}
-                className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {status.activeUpdate
-                  ? "Update in progress…"
-                  : status.updateAvailable
-                    ? `Update ${APP_DISPLAY_NAME}`
-                    : `Redeploy ${APP_DISPLAY_NAME}`}
-              </button>
+              {!hideDeployActions && (
+                <button
+                  type="button"
+                  onClick={runUpdate}
+                  disabled={busy || !status.deployAllowed}
+                  className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {status.activeUpdate
+                    ? "Update in progress…"
+                    : status.updateAvailable
+                      ? `Update ${APP_DISPLAY_NAME}`
+                      : `Redeploy ${APP_DISPLAY_NAME}`}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={runRollback}

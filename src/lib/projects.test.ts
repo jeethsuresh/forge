@@ -6,9 +6,11 @@ import { projects } from "@/lib/db/schema";
 import {
   buildProjectScriptEnv,
   composeNameConflict,
+  projectComposeSlug,
   projectScriptArgs,
   validateProjectName,
 } from "@/lib/projects";
+import { ensureForgeProject } from "@/lib/forge-project";
 
 describe("validateProjectName", () => {
   it("rejects empty names", () => {
@@ -123,6 +125,11 @@ describe("buildProjectScriptEnv", () => {
     expect(env.FORGE_CONTAINER_NAME).toBe("forge_app_1");
     expect(env.DOCKER_HOST).toBe("tcp://127.0.0.1:18765");
   });
+
+  it("uses dedicated hostPort column when building script env", () => {
+    const { env } = buildProjectScriptEnv("My App", "[]", 3912);
+    expect(env.HOST_PORT).toBe("3912");
+  });
 });
 
 describe("projectScriptArgs", () => {
@@ -137,5 +144,57 @@ describe("projectScriptArgs", () => {
       "--host-port",
       "3456",
     ]);
+  });
+});
+
+describe("projectComposeSlug", () => {
+  let previousRepo: string | undefined;
+  let previousComposeProject: string | undefined;
+  const ids: string[] = [];
+
+  beforeEach(() => {
+    previousRepo = process.env.FORGE_SELF_REPO;
+    previousComposeProject = process.env.COMPOSE_PROJECT_NAME;
+    process.env.FORGE_SELF_REPO = "acme/forge";
+    process.env.COMPOSE_PROJECT_NAME = "forge";
+  });
+
+  afterEach(() => {
+    for (const id of ids) {
+      db.delete(projects).where(eq(projects.id, id)).run();
+    }
+    ids.length = 0;
+    if (previousRepo === undefined) delete process.env.FORGE_SELF_REPO;
+    else process.env.FORGE_SELF_REPO = previousRepo;
+    if (previousComposeProject === undefined) delete process.env.COMPOSE_PROJECT_NAME;
+    else process.env.COMPOSE_PROJECT_NAME = previousComposeProject;
+  });
+
+  it("uses the runtime compose project name for the Forge project", () => {
+    const forge = ensureForgeProject();
+    expect(forge).not.toBeNull();
+    if (forge) ids.push(forge.id);
+    expect(projectComposeSlug(forge!)).toBe("forge");
+  });
+
+  it("derives compose slug from display name for regular projects", () => {
+    const id = randomUUID();
+    const now = new Date();
+    db.insert(projects)
+      .values({
+        id,
+        name: "My App",
+        githubRepo: "acme/example",
+        branch: "main",
+        clonePath: `/tmp/${id}`,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    ids.push(id);
+
+    const project = db.select().from(projects).where(eq(projects.id, id)).get()!;
+    expect(projectComposeSlug(project)).toBe("my-app");
   });
 });

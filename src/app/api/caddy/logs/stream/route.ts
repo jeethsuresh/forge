@@ -1,3 +1,4 @@
+import { getSession } from "@/lib/auth/session";
 import { getCaddyLogBuffer } from "@/lib/caddy-log-buffer";
 
 const PUSH_WAIT_MS = 15_000;
@@ -5,6 +6,11 @@ const PUSH_WAIT_MS = 15_000;
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const session = await getSession();
+  if (!session.isLoggedIn) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
   const url = new URL(request.url);
   let afterSeq = Number(url.searchParams.get("afterSeq") ?? "0");
   if (!Number.isFinite(afterSeq) || afterSeq < 0) {

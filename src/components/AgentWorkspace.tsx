@@ -88,9 +88,11 @@ function sessionForBranch(
 export function AgentWorkspace({
   projectId,
   className = "",
+  initialSessionId = null,
 }: {
   projectId: string;
   className?: string;
+  initialSessionId?: string | null;
 }) {
   const [data, setData] = useState<AgentSessionsResponse | null>(null);
   const [selectedBranch, setSelectedBranch] = useState<string>("");
@@ -175,6 +177,9 @@ export function AgentWorkspace({
   useEffect(() => {
     if (!data || selectedBranch) return;
     const initial =
+      (initialSessionId
+        ? data.sessions.find((s) => s.id === initialSessionId)?.branch
+        : null) ??
       data.activeSession?.branch ??
       data.branches.find((b) => b.sessionId)?.name ??
       data.branches[0]?.name ??
@@ -192,8 +197,28 @@ export function AgentWorkspace({
           setSessionDetail(session);
         }
       }
+      if (initialSessionId) {
+        setMobileShowChat(true);
+      }
     });
-  }, [data, selectedBranch]);
+  }, [data, selectedBranch, initialSessionId]);
+
+  useEffect(() => {
+    if (!data || !initialSessionId) return;
+    const session = data.sessions.find((s) => s.id === initialSessionId);
+    if (!session) return;
+    if (selectedId === session.id) return;
+
+    const branch = data.branches.find((b) => b.name === session.branch);
+    if (!branch) return;
+
+    queueMicrotask(() => {
+      setSelectedBranch(session.branch);
+      setSelectedId(session.id);
+      setSessionDetail(session);
+      setMobileShowChat(true);
+    });
+  }, [data, initialSessionId, selectedId]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -309,6 +334,10 @@ export function AgentWorkspace({
 
     es.onerror = () => {
       sseConnectedRef.current = false;
+      if (streamGenerationRef.current === generation) {
+        es.close();
+        eventSourceRef.current = null;
+      }
     };
 
     return () => {
@@ -579,6 +608,41 @@ export function AgentWorkspace({
     }
   }
 
+  async function endSession() {
+    if (!selectedId || !selectedBranch) return;
+    if (
+      !confirm(
+        "End this agent session? Deploys for this project will be unblocked.",
+      )
+    ) {
+      return;
+    }
+    const revertChanges = confirm(
+      `Also revert uncommitted changes on branch ${selectedBranch}?\n\nThis runs git reset --hard and git clean -fd in the project workspace.`,
+    );
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/agent-sessions/${selectedId}/end`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revertChanges }),
+        },
+      );
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Failed to end session");
+        return;
+      }
+      setLoadedSessionTerminal(true);
+      await fetchSessions();
+      if (selectedId) await fetchSessionDetail(selectedId);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function stopAgent() {
     if (!selectedId) return;
     if (!confirm("Stop the agent? You can retry or send another message afterward.")) {
@@ -658,6 +722,7 @@ export function AgentWorkspace({
 
   const isActiveSession =
     sessionDetail && !TERMINAL_STATUSES.has(sessionDetail.status);
+  const showEndSession = Boolean(isActiveSession && selectedId);
   const isDeploying = sessionDetail?.status === "deploying";
   const canStartOnBranch = Boolean(
     selectedBranch &&
@@ -921,7 +986,18 @@ export function AgentWorkspace({
                 </p>
               )}
             </div>
-            <div className="flex shrink-0 gap-1">
+            <div className="flex shrink-0 flex-wrap justify-end gap-1">
+              {showEndSession && (
+                <button
+                  type="button"
+                  onClick={endSession}
+                  disabled={loading}
+                  className="min-h-9 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-400/20 disabled:opacity-50"
+                  title="End session and unblock deploys"
+                >
+                  End session
+                </button>
+              )}
               {sessionDetail?.status === "failed" && sessionDetail.canRetry && (
                 <button
                   type="button"

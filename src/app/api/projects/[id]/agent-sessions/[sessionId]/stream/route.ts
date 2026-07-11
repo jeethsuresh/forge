@@ -9,7 +9,8 @@ import {
 } from "@/lib/agent-runner";
 
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
-const STREAM_POLL_MS = 100;
+const STREAM_POLL_MS = 500;
+const STREAM_HEARTBEAT_EVERY = 5;
 
 export const dynamic = "force-dynamic";
 
@@ -46,30 +47,52 @@ export async function GET(
         );
       };
 
+      const onAbort = () => {
+        try {
+          controller.close();
+        } catch {
+          // already closed
+        }
+      };
+      request.signal.addEventListener("abort", onAbort, { once: true });
+
       controller.enqueue(encoder.encode(": connected\n\n"));
 
-      while (true) {
-        const current = getAgentSessionForClient(sessionId);
-        if (!current) break;
+      let idleTicks = 0;
 
-        const events = getAllAgentEventsAfter(sessionId, afterSeq);
-        if (events.length > 0) {
-          afterSeq = events[events.length - 1]!.seq;
-          const messages = eventsToDisplayMessages(events);
-          send("events", { events, messages, session: current });
-        } else {
-          send("heartbeat", { session: current });
+      try {
+        while (!request.signal.aborted) {
+          const current = getAgentSessionForClient(sessionId);
+          if (!current) break;
+
+          const events = getAllAgentEventsAfter(sessionId, afterSeq);
+          if (events.length > 0) {
+            afterSeq = events[events.length - 1]!.seq;
+            const messages = eventsToDisplayMessages(events);
+            send("events", { events, messages, session: current });
+            idleTicks = 0;
+          } else {
+            idleTicks += 1;
+            if (idleTicks % STREAM_HEARTBEAT_EVERY === 0) {
+              send("heartbeat", { session: current });
+            }
+          }
+
+          if (TERMINAL.has(current.status)) {
+            send("done", { session: current });
+            break;
+          }
+
+          await new Promise((r) => setTimeout(r, STREAM_POLL_MS));
         }
-
-        if (TERMINAL.has(current.status)) {
-          send("done", { session: current });
-          break;
+      } finally {
+        request.signal.removeEventListener("abort", onAbort);
+        try {
+          controller.close();
+        } catch {
+          // already closed
         }
-
-        await new Promise((r) => setTimeout(r, STREAM_POLL_MS));
       }
-
-      controller.close();
     },
   });
 

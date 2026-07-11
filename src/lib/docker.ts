@@ -2,7 +2,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { existsSync } from "fs";
 import { join } from "path";
-import { composeProjectName } from "@/lib/compose-project-name";
+import { getDiscoveredComposeContainers } from "@/lib/container-discovery";
 import { dockerExecEnv } from "@/lib/docker-runtime";
 import { resolveClonePath } from "@/lib/paths";
 
@@ -22,7 +22,7 @@ export { composeProjectName } from "@/lib/compose-project-name";
 
 export function composeDockerArgs(
   composeFile: string,
-  projectName: string,
+  composeProjectSlug: string,
   ...subcommand: string[]
 ): string[] {
   return [
@@ -30,7 +30,7 @@ export function composeDockerArgs(
     "-f",
     composeFile,
     "-p",
-    composeProjectName(projectName),
+    composeProjectSlug,
     ...subcommand,
   ];
 }
@@ -150,32 +150,38 @@ function normalizeContainer(record: ComposePsRecord): ContainerInfo | null {
 
 export async function getComposeContainerStatus(
   repoPath: string,
-  projectName: string,
+  composeProjectSlug: string,
 ): Promise<ContainerInfo[]> {
   const resolvedPath = resolveClonePath(repoPath);
-  if (!existsSync(resolvedPath)) return [];
+  const composeFile = existsSync(resolvedPath)
+    ? findComposeFile(resolvedPath)
+    : null;
 
-  const composeFile = findComposeFile(resolvedPath);
-  if (!composeFile) return [];
+  if (composeFile) {
+    try {
+      const { stdout } = await execFileAsync(
+        "docker",
+        composeDockerArgs(composeFile, composeProjectSlug, "ps", "--format", "json"),
+        { cwd: resolvedPath, maxBuffer: 5 * 1024 * 1024, env: dockerExecEnv() },
+      );
 
-  try {
-    const { stdout } = await execFileAsync(
-      "docker",
-      composeDockerArgs(composeFile, projectName, "ps", "--format", "json"),
-      { cwd: resolvedPath, maxBuffer: 5 * 1024 * 1024, env: dockerExecEnv() },
-    );
-
-    return parseComposePsOutput(stdout)
-      .map(normalizeContainer)
-      .filter((c): c is ContainerInfo => c !== null);
-  } catch {
-    return [];
+      const fromCompose = parseComposePsOutput(stdout)
+        .map(normalizeContainer)
+        .filter((c): c is ContainerInfo => c !== null);
+      if (fromCompose.length > 0) {
+        return fromCompose;
+      }
+    } catch {
+      // Fall back to the startup container scan.
+    }
   }
+
+  return getDiscoveredComposeContainers(composeProjectSlug);
 }
 
 export async function stopComposeProject(
   repoPath: string,
-  projectName: string,
+  composeProjectSlug: string,
 ): Promise<string> {
   const resolvedPath = resolveClonePath(repoPath);
   if (!existsSync(resolvedPath)) {
@@ -189,7 +195,7 @@ export async function stopComposeProject(
 
   const { stdout, stderr } = await execFileAsync(
     "docker",
-    composeDockerArgs(composeFile, projectName, "down"),
+    composeDockerArgs(composeFile, composeProjectSlug, "down", "--remove-orphans"),
     { cwd: resolvedPath, maxBuffer: 5 * 1024 * 1024 },
   );
 

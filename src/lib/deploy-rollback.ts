@@ -17,6 +17,7 @@ import { resolveForgeHostMounts } from "@/lib/forge-host-mounts";
 import { forgeSourceDir, isForgeProject } from "@/lib/forge-project";
 import { runScript } from "@/lib/github";
 import { resolveClonePath } from "@/lib/paths";
+import { pickFreePort } from "@/lib/network-ports";
 import { buildProjectScriptEnv, projectScriptArgs } from "@/lib/projects";
 import type { Project } from "@/lib/db/schema";
 import {
@@ -535,11 +536,16 @@ export async function runComposeReleaseDeploy(
   const { project, commitSha, composeSlug, scriptEnv, scriptArgs, log } = ctx;
   const repoPath = resolveClonePath(project.clonePath);
   const stagingSlug = stagingProjectName(composeSlug);
-  const stagingPort = resolveStagingPort(scriptEnv);
+  const stagingPortPreferred = Number(resolveStagingPort(scriptEnv));
   const healthPath = resolveHealthPath(project);
   const hostPort = String(scriptEnv.HOST_PORT ?? "3000");
+  let stagingActive = false;
 
   try {
+    const stagingPort = String(
+      await pickFreePort(stagingPortPreferred, 3999, "127.0.0.1"),
+    );
+
     log(`Tagging compose app image for project ${composeSlug}`);
     await tagComposeAppImage(project, "next", composeSlug);
     log(`Tagged ${projectImageName(project)}:next`);
@@ -558,15 +564,16 @@ export async function runComposeReleaseDeploy(
       env: stagingEnv,
       args: [...stagingArgs, "--detach"],
     });
+    stagingActive = true;
 
     if (!(await waitForHealth(stagingPort, healthPath, log, "Staging"))) {
-      await teardownStaging(project, stagingSlug);
       const reason = `Staging health check failed on port ${stagingPort}${healthPath}`;
       log(`Release deploy aborted: ${reason}`);
       return { status: "failed", reason };
     }
 
     await teardownStaging(project, stagingSlug);
+    stagingActive = false;
     log("Staging validation passed; tearing down staging containers");
 
     const hasRollback = await ensureRollbackImage(project, composeSlug);
@@ -628,6 +635,11 @@ export async function runComposeReleaseDeploy(
       log(err.stack);
     }
     return { status: "failed", reason: message };
+  } finally {
+    if (stagingActive) {
+      log(`Tearing down staging containers for ${stagingSlug}`);
+      await teardownStaging(project, stagingSlug);
+    }
   }
 }
 
@@ -636,7 +648,7 @@ export async function runProjectRollbackDeploy(
   log: (msg: string) => void,
 ): Promise<boolean> {
   const { env: scriptEnv, composeProjectName: composeSlug } =
-    buildProjectScriptEnv(project.name, project.deployEnvJson);
+    buildProjectScriptEnv(project.name, project.deployEnvJson, project.hostPort);
   const scriptArgs = projectScriptArgs(composeSlug, scriptEnv);
 
   const hasRollback = await ensureRollbackImage(project, composeSlug);

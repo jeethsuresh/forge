@@ -6,6 +6,7 @@ import {
   forgeUpdateUnavailableMessage,
   latestActionableFailedUpdate,
   parseTargetCommitFromUpdateLogs,
+  resolveForgeBranchDeployAllowed,
   shouldDisplayUpdateError,
   sidecarHasStarted,
   statusLabel,
@@ -82,6 +83,48 @@ describe("computeForgeUpdateAvailability", () => {
       updateAvailable: false,
       deployAllowed: false,
       reason: "unknown_remote",
+    });
+  });
+});
+
+describe("resolveForgeBranchDeployAllowed", () => {
+  it("allows redeploy when a non-watch branch has a reachable remote tip", () => {
+    expect(
+      resolveForgeBranchDeployAllowed("feature/x", "main", {
+        runningCommitSha: "abc123",
+        remoteCommitSha: "def456",
+        remoteCommitLookupFailed: false,
+      }),
+    ).toMatchObject({
+      deployAllowed: true,
+      updateAvailable: true,
+    });
+  });
+
+  it("delegates to computeForgeUpdateAvailability for the watch branch", () => {
+    expect(
+      resolveForgeBranchDeployAllowed("main", "main", {
+        runningCommitSha: "abc123",
+        remoteCommitSha: "abc123",
+        remoteCommitLookupFailed: false,
+      }),
+    ).toMatchObject({
+      deployAllowed: true,
+      updateAvailable: false,
+      reason: "up_to_date",
+    });
+  });
+
+  it("blocks non-watch redeploy when GitHub is unreachable", () => {
+    expect(
+      resolveForgeBranchDeployAllowed("feature/x", "main", {
+        runningCommitSha: "abc123",
+        remoteCommitSha: null,
+        remoteCommitLookupFailed: true,
+      }),
+    ).toMatchObject({
+      deployAllowed: false,
+      reason: "remote_unavailable",
     });
   });
 });

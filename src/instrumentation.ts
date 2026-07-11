@@ -14,6 +14,16 @@ export async function register() {
     );
     reconcileForgeInterruptedDeploys();
 
+    try {
+      const { refreshProjectRuntimeFromRunningContainers } = await import(
+        "@/lib/container-discovery"
+      );
+      await refreshProjectRuntimeFromRunningContainers();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[forge] Container discovery on startup failed: ${message}`);
+    }
+
     const { startWatcher } = await import("@/lib/watcher");
     await startWatcher();
 

@@ -6,6 +6,9 @@ declare global {
   var __forgeCaddyLogTcpStarted: boolean | undefined;
 }
 
+const MAX_PARTIAL_BYTES = 64 * 1024;
+const MAX_TCP_CONNECTIONS = 8;
+
 function parseTcpChunk(partial: string, chunk: Buffer): {
   partial: string;
   values: unknown[];
@@ -33,15 +36,37 @@ export function startCaddyLogTcpIngest(): void {
   globalThis.__forgeCaddyLogTcpStarted = true;
 
   const port = getCaddyLogTcpPort();
+  let activeConnections = 0;
+
   const server = net.createServer((socket) => {
+    if (activeConnections >= MAX_TCP_CONNECTIONS) {
+      socket.destroy();
+      return;
+    }
+
+    activeConnections += 1;
     let partial = "";
+
+    const cleanup = () => {
+      activeConnections = Math.max(0, activeConnections - 1);
+    };
+
     socket.on("data", (chunk) => {
+      if (partial.length + chunk.length > MAX_PARTIAL_BYTES) {
+        partial = "";
+        socket.destroy();
+        return;
+      }
+
       const parsed = parseTcpChunk(partial, chunk);
       partial = parsed.partial;
       if (parsed.values.length > 0) {
         getCaddyLogBuffer().ingest(parsed.values);
       }
     });
+
+    socket.on("close", cleanup);
+    socket.on("error", cleanup);
   });
 
   server.on("error", (err) => {

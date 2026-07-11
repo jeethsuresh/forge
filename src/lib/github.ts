@@ -317,6 +317,7 @@ export async function listLocalBranches(clonePath: string): Promise<string[]> {
 export async function listAvailableBranches(
   defaultBranch: string,
   clonePath: string,
+  options?: { fetchRemote?: boolean },
 ): Promise<string[]> {
   const resolvedPath = resolveClonePath(clonePath);
   const names = new Set<string>([defaultBranch]);
@@ -325,10 +326,12 @@ export async function listAvailableBranches(
     return [defaultBranch];
   }
 
-  try {
-    await execGit(["fetch", "--prune", "origin"], { cwd: resolvedPath });
-  } catch {
-    // Best-effort: still list local branches if fetch fails.
+  if (options?.fetchRemote !== false) {
+    try {
+      await execGit(["fetch", "--prune", "origin"], { cwd: resolvedPath });
+    } catch {
+      // Best-effort: still list local branches if fetch fails.
+    }
   }
 
   for (const branch of await listLocalBranches(clonePath)) {
@@ -349,6 +352,24 @@ export async function listAvailableBranches(
   }
 
   return [...names].sort((a, b) => a.localeCompare(b));
+}
+
+export async function revertAgentBranchWorkspace(
+  clonePath: string,
+  branch: string,
+  onLog?: (msg: string) => void,
+): Promise<void> {
+  const resolvedPath = resolveClonePath(clonePath);
+  if (!existsSync(resolvedPath)) {
+    throw new Error("Clone path does not exist");
+  }
+
+  const log = onLog ?? (() => {});
+  log(`Reverting uncommitted changes on branch ${branch}…`);
+  await execGit(["checkout", branch], { cwd: resolvedPath });
+  await execGit(["reset", "--hard", "HEAD"], { cwd: resolvedPath });
+  await execGit(["clean", "-fd"], { cwd: resolvedPath });
+  log("Workspace reverted to last commit on this branch.");
 }
 
 export async function hasUncommittedChanges(clonePath: string): Promise<boolean> {

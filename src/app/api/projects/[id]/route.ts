@@ -7,7 +7,8 @@ import { getComposeContainerStatus, projectHasComposeFile } from "@/lib/docker";
 import { isDeploymentActive } from "@/lib/deployer";
 import { deriveRuntimeStatus } from "@/lib/project-status";
 import { composeProjectName } from "@/lib/compose-project-name";
-import { composeNameConflict, validateProjectName } from "@/lib/projects";
+import { getBlockingAgentSession } from "@/lib/agent-state";
+import { composeNameConflict, projectComposeSlug, validateProjectName } from "@/lib/projects";
 import {
   hasRollbackImage,
   projectSupportsRollback,
@@ -19,8 +20,17 @@ import {
 } from "@/lib/deploy-reconcile";
 import { isForgeProject } from "@/lib/forge-project";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
-import { getForgeStatus, isForgeUpdateInProgress } from "@/lib/self-update";
+import { getForgeStatus } from "@/lib/self-update";
 import { listAvailableBranches } from "@/lib/github";
+import {
+  getCachedProjectBranches,
+  setCachedProjectBranches,
+} from "@/lib/project-branches-cache";
+import { deploymentRowForClient } from "@/lib/project-poll";
+import {
+  getCachedComposeContainerStatus,
+  getCachedRollbackAvailability,
+} from "@/lib/project-runtime-cache";
 import {
   buildDeployEnvVarViews,
   fillDeployEnvFromRepo,
@@ -31,16 +41,38 @@ import {
   validateDeployEnvInputs,
   type DeployEnvVarInput,
 } from "@/lib/deploy-env";
+import {
+  normalizeProjectRoutingUpdates,
+  parseProjectCaddyConfig,
+  projectRoutingView,
+  serializeProjectCaddyConfig,
+  syncProjectCaddyRoute,
+  validateProjectRoutingInput,
+  type ProjectCaddySettings,
+} from "@/lib/project-routing";
 
-function projectResponse(project: typeof projects.$inferSelect) {
-  const { deployEnvJson, ...rest } = project;
+function projectResponse(
+  project: typeof projects.$inferSelect,
+  options?: { includeRepoEnv?: boolean },
+) {
+  const { deployEnvJson, caddyRouteJson, ...rest } = project;
+  void caddyRouteJson;
   const saved = parseDeployEnvJson(deployEnvJson);
-  const repoEnv = readRepoEnvFile(project.clonePath);
+  const repoEnv =
+    options?.includeRepoEnv === false
+      ? { source: null as ".env" | ".env.example" | null, vars: [] }
+      : readRepoEnvFile(project.clonePath);
+  const routing = projectRoutingView(project);
   return {
     ...rest,
     composeProjectName: composeProjectName(rest.name),
     deployEnvVars: buildDeployEnvVarViews(saved, repoEnv.vars, repoEnv.source),
     deployEnvFileSource: repoEnv.source,
+    hostPort: routing.hostPort,
+    resolvedHostPort: routing.resolvedHostPort,
+    caddyRoute: routing.caddyRoute,
+    linkedRouteKeys: routing.linkedRouteKeys,
+    caddyConfig: routing.caddyConfig,
   };
 }
 
@@ -51,7 +83,7 @@ async function requireLogin() {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await requireLogin();
@@ -60,14 +92,17 @@ export async function GET(
   }
 
   const { id } = await params;
+  const poll = new URL(request.url).searchParams.get("poll") === "1";
   const project = db.select().from(projects).where(eq(projects.id, id)).get();
 
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  reconcileInterruptedDeployments(id);
-  reconcileAbandonedDeployingSessions(id);
+  if (!poll) {
+    reconcileInterruptedDeployments(id);
+    reconcileAbandonedDeployingSessions(id);
+  }
 
   const history = db
     .select()
@@ -77,40 +112,79 @@ export async function GET(
     .limit(50)
     .all();
 
-  const currentDeployment =
-    history.find((d) => d.status === "success") ?? history[0] ?? null;
-
-  const containers = await getComposeContainerStatus(
-    project.clonePath,
-    project.name,
+  const clientDeployments = history.map((row) =>
+    deploymentRowForClient(row, { includeLogs: !poll }),
   );
+
+  const currentDeployment =
+    clientDeployments.find((d) => d.status === "success") ??
+    clientDeployments[0] ??
+    null;
+
+  const hasComposeFile = projectHasComposeFile(project.clonePath);
+  const forge = isForgeProject(project);
+  const supportsRollback = projectSupportsRollback(project);
+
+  const branchesPromise = (async () => {
+    if (poll) {
+      const cached = getCachedProjectBranches(id);
+      if (cached) return cached;
+      return listAvailableBranches(project.branch, project.clonePath, {
+        fetchRemote: false,
+      });
+    }
+    const branches = await listAvailableBranches(project.branch, project.clonePath);
+    setCachedProjectBranches(id, branches);
+    return branches;
+  })();
+
+  const composeSlug = projectComposeSlug(project);
+
+  const containersPromise = poll
+    ? getCachedComposeContainerStatus(
+        id,
+        project.clonePath,
+        composeSlug,
+        5_000,
+      )
+    : getComposeContainerStatus(project.clonePath, composeSlug);
+
+  const rollbackPromise =
+    supportsRollback && poll
+      ? getCachedRollbackAvailability(id, project, 30_000)
+      : supportsRollback
+        ? hasRollbackImage(project)
+        : Promise.resolve(false);
+
+  const forgeStatusPromise = forge ? getForgeStatus() : Promise.resolve(null);
+
+  const [containers, branches, rollbackAvailable, forgeStatus] = await Promise.all([
+    containersPromise,
+    branchesPromise,
+    rollbackPromise,
+    forgeStatusPromise,
+  ]);
+
   const isDeploying =
     isDeploymentActive(id) ||
-    (isForgeProject(project) && (await isForgeUpdateInProgress()));
+    (forge && Boolean(forgeStatus?.activeUpdate));
   const hasSuccessfulDeploy =
-    history.some((d) => d.status === "success") ||
+    clientDeployments.some((d) => d.status === "success") ||
     Boolean(readProjectReleaseState(id, project)?.stableCommitSha);
   const runtimeStatus = deriveRuntimeStatus(containers, {
     isDeploying,
     hasSuccessfulDeploy,
-    hasComposeFile: projectHasComposeFile(project.clonePath),
+    hasComposeFile,
   });
-  const hasComposeFile = projectHasComposeFile(project.clonePath);
-  const branches = await listAvailableBranches(project.branch, project.clonePath);
-  const supportsRollback = projectSupportsRollback(project);
-  const rollbackAvailable = supportsRollback
-    ? await hasRollbackImage(project)
-    : false;
   const releaseState = readProjectReleaseState(id, project);
-  const forge = isForgeProject(project);
-  const forgeStatus = forge ? await getForgeStatus() : null;
+  const blockingAgentSession = getBlockingAgentSession(id);
 
   return NextResponse.json({
     project: {
-      ...projectResponse(project),
+      ...projectResponse(project, { includeRepoEnv: !poll }),
       isForge: forge,
     },
-    deployments: history,
+    deployments: clientDeployments,
     currentDeployment,
     containers,
     isDeploying,
@@ -121,6 +195,13 @@ export async function GET(
     hasRollbackImage: rollbackAvailable,
     releaseState,
     forgeStatus,
+    blockingAgentSession: blockingAgentSession
+      ? {
+          id: blockingAgentSession.id,
+          branch: blockingAgentSession.branch,
+          status: blockingAgentSession.status,
+        }
+      : null,
   });
 }
 
@@ -143,9 +224,48 @@ export async function PATCH(
     name?: string;
     enabled?: boolean;
     deployEnvVars?: DeployEnvVarInput[];
+    hostPort?: number | null;
+    caddyRoute?: ProjectCaddySettings | null;
+    linkedRouteKeys?: string[];
+    syncCaddy?: boolean;
   };
 
   const updates: Partial<typeof projects.$inferInsert> = {};
+  let routingToSync: {
+    caddyRoute: ProjectCaddySettings | null;
+    hostPort: number | null;
+    syncManaged: boolean;
+  } | null = null;
+
+  const routingTouched =
+    body.hostPort !== undefined ||
+    body.caddyRoute !== undefined ||
+    body.linkedRouteKeys !== undefined;
+  if (routingTouched) {
+    const routingError = validateProjectRoutingInput({
+      hostPort: body.hostPort,
+      caddyRoute: body.caddyRoute,
+      projectId: id,
+    });
+    if (routingError) {
+      return NextResponse.json({ error: routingError }, { status: 400 });
+    }
+
+    const normalized = normalizeProjectRoutingUpdates(project, {
+      hostPort: body.hostPort,
+      caddyRoute: body.caddyRoute,
+      linkedRouteKeys: body.linkedRouteKeys,
+    });
+    updates.hostPort = normalized.hostPort;
+    updates.caddyRouteJson = normalized.caddyRouteJson;
+    routingToSync = {
+      caddyRoute: normalized.caddyRoute,
+      hostPort: normalized.hostPort,
+      syncManaged:
+        body.caddyRoute !== undefined ||
+        (body.hostPort !== undefined && normalized.caddyRoute?.enabled === true),
+    };
+  }
 
   if (body.name !== undefined) {
     if (typeof body.name !== "string") {
@@ -216,7 +336,33 @@ export async function PATCH(
   if (!updated) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
-  return NextResponse.json(projectResponse(updated));
+
+  if (routingToSync?.syncManaged && body.syncCaddy !== false) {
+    try {
+      const synced = await syncProjectCaddyRoute(
+        id,
+        routingToSync.caddyRoute,
+        routingToSync.hostPort ?? projectRoutingView(updated).resolvedHostPort,
+      );
+      const config = parseProjectCaddyConfig(updated.caddyRouteJson);
+      config.managed = synced;
+      db.update(projects)
+        .set({
+          caddyRouteJson: serializeProjectCaddyConfig(config),
+          updatedAt: new Date(),
+        })
+        .where(eq(projects.id, id))
+        .run();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to sync Caddy route";
+      return NextResponse.json({ error: message }, { status: 502 });
+    }
+  }
+
+  const finalProject =
+    db.select().from(projects).where(eq(projects.id, id)).get() ?? updated;
+  return NextResponse.json(projectResponse(finalProject));
 }
 
 export async function DELETE(
