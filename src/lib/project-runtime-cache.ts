@@ -7,10 +7,45 @@ type CacheEntry<T> = { value: T; expiresAt: number };
 
 const containerCache = new Map<string, CacheEntry<ContainerInfo[]>>();
 const rollbackCache = new Map<string, CacheEntry<boolean>>();
+const remoteCommitCache = new Map<
+  string,
+  CacheEntry<{ sha: string | null; failed: boolean }>
+>();
 
 export function invalidateProjectRuntimeCache(projectId: string): void {
   containerCache.delete(projectId);
   rollbackCache.delete(projectId);
+  for (const key of remoteCommitCache.keys()) {
+    if (key.startsWith(`${projectId}:`)) {
+      remoteCommitCache.delete(key);
+    }
+  }
+}
+
+export async function getCachedRemoteCommitSha(
+  projectId: string,
+  repo: string,
+  branch: string,
+  ttlMs: number,
+  fetchRemote: () => Promise<string>,
+): Promise<{ sha: string | null; failed: boolean }> {
+  const key = `${projectId}:${branch}`;
+  const now = Date.now();
+  const cached = remoteCommitCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    return cached.value;
+  }
+
+  try {
+    const sha = await fetchRemote();
+    const value = { sha, failed: false };
+    remoteCommitCache.set(key, { value, expiresAt: now + ttlMs });
+    return value;
+  } catch {
+    const value = { sha: null, failed: true };
+    remoteCommitCache.set(key, { value, expiresAt: now + ttlMs });
+    return value;
+  }
 }
 
 export function seedComposeContainerCache(

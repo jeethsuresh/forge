@@ -139,6 +139,15 @@ interface ProjectDetail {
     status: string;
     sessionSource: "manual" | "recovery";
   } | null;
+  deployUpdate: {
+    branch: string;
+    deployedCommitSha: string | null;
+    remoteCommitSha: string | null;
+    updateAvailable: boolean;
+    deployAllowed: boolean;
+    remoteCommitLookupFailed: boolean;
+    reason: string;
+  } | null;
 }
 
 export default function ProjectDetailPage() {
@@ -162,8 +171,13 @@ export default function ProjectDetailPage() {
 
   const fetchData = useCallback(async (poll = false) => {
     try {
+      const branch = deployBranch ?? dataRef.current?.project.branch;
+      const params = new URLSearchParams();
+      if (poll) params.set("poll", "1");
+      if (branch) params.set("deployBranch", branch);
+      const qs = params.toString();
       const res = await fetch(
-        poll ? `/api/projects/${id}?poll=1` : `/api/projects/${id}`,
+        qs ? `/api/projects/${id}?${qs}` : `/api/projects/${id}`,
       );
       if (!res.ok) return;
       const json = (await res.json()) as ProjectDetail;
@@ -193,7 +207,7 @@ export default function ProjectDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, deployBranch]);
 
   function toggleDeployment(deploymentId: string) {
     setExpandedDeploymentId((prev) => (prev === deploymentId ? null : deploymentId));
@@ -494,6 +508,19 @@ export default function ProjectDetailPage() {
       : projectDeployments;
 
   const selectedDeployBranch = deployBranch ?? project.branch;
+  const deployUpdate = data.deployUpdate;
+  const updateAvailable = deployUpdate?.updateAvailable ?? false;
+  const deployPrimaryLabel = deployBusy
+    ? updateAvailable
+      ? "Updating…"
+      : isForge
+        ? "Redeploying…"
+        : "Deploying…"
+    : updateAvailable
+      ? "Update"
+      : isForge
+        ? "Redeploy"
+        : "Deploy now";
 
   const deployedAt = currentDeployment?.completedAt ?? currentDeployment?.startedAt;
 
@@ -633,22 +660,40 @@ export default function ProjectDetailPage() {
               <button
                 onClick={deployNow}
                 disabled={
-                  actionLoading || deployBusy || Boolean(blockingAgentSession)
+                  actionLoading ||
+                  deployBusy ||
+                  Boolean(blockingAgentSession) ||
+                  deployUpdate?.deployAllowed === false
                 }
                 className="min-h-11 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
               >
-                {deployBusy ? "Deploying…" : "Deploy now"}
+                {deployPrimaryLabel}
               </button>
             ) : (
               <button
                 onClick={deployNow}
                 disabled={
-                  actionLoading || deployBusy || Boolean(blockingAgentSession)
+                  actionLoading ||
+                  deployBusy ||
+                  Boolean(blockingAgentSession) ||
+                  deployUpdate?.deployAllowed === false
                 }
                 className="min-h-11 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
               >
-                {deployBusy ? "Redeploying…" : "Redeploy"}
+                {deployPrimaryLabel}
               </button>
+            )}
+            {updateAvailable && deployUpdate?.remoteCommitSha && (
+              <span className="self-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-300">
+                {shortSha(deployUpdate.deployedCommitSha)} →{" "}
+                {shortSha(deployUpdate.remoteCommitSha)}
+              </span>
+            )}
+            {deployUpdate?.remoteCommitLookupFailed && (
+              <p className="w-full text-xs text-amber-300/90">
+                Could not reach GitHub to compare commits for{" "}
+                <span className="font-mono">{selectedDeployBranch}</span>.
+              </p>
             )}
             {!isForge && (
               <button

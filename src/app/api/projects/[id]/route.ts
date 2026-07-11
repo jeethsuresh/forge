@@ -29,8 +29,14 @@ import {
 import { deploymentRowForClient } from "@/lib/project-poll";
 import {
   getCachedComposeContainerStatus,
+  getCachedRemoteCommitSha,
   getCachedRollbackAvailability,
 } from "@/lib/project-runtime-cache";
+import {
+  computeProjectDeployUpdate,
+  deployedCommitShaForProjectBranch,
+} from "@/lib/project-deploy-update";
+import { getRemoteCommitSha } from "@/lib/github";
 import {
   buildDeployEnvVarViews,
   fillDeployEnvFromRepo,
@@ -92,7 +98,9 @@ export async function GET(
   }
 
   const { id } = await params;
-  const poll = new URL(request.url).searchParams.get("poll") === "1";
+  const url = new URL(request.url);
+  const poll = url.searchParams.get("poll") === "1";
+  const deployBranchParam = url.searchParams.get("deployBranch");
   const project = db.select().from(projects).where(eq(projects.id, id)).get();
 
   if (!project) {
@@ -165,6 +173,49 @@ export async function GET(
     forgeStatusPromise,
   ]);
 
+  const releaseState = readProjectReleaseState(id, project);
+
+  const deployBranch =
+    deployBranchParam && branches.includes(deployBranchParam)
+      ? deployBranchParam
+      : project.branch;
+
+  let deployUpdate: ReturnType<typeof computeProjectDeployUpdate> | null = null;
+  if (deployBranchParam) {
+    const deployedCommitSha = deployedCommitShaForProjectBranch(
+      project,
+      deployBranch,
+      forge,
+      releaseState,
+    );
+
+    const remoteLookup = poll
+      ? await getCachedRemoteCommitSha(
+          id,
+          project.githubRepo,
+          deployBranch,
+          60_000,
+          () => getRemoteCommitSha(project.githubRepo, deployBranch),
+        )
+      : await (async () => {
+          try {
+            const sha = await getRemoteCommitSha(project.githubRepo, deployBranch);
+            return { sha, failed: false };
+          } catch {
+            return { sha: null, failed: true };
+          }
+        })();
+
+    deployUpdate = computeProjectDeployUpdate({
+      branch: deployBranch,
+      watchBranch: project.branch,
+      isForge: forge,
+      deployedCommitSha,
+      remoteCommitSha: remoteLookup.sha,
+      remoteCommitLookupFailed: remoteLookup.failed,
+    });
+  }
+
   const isDeploying =
     isDeploymentActive(id) ||
     (forge && Boolean(forgeStatus?.activeUpdate));
@@ -176,7 +227,6 @@ export async function GET(
     hasSuccessfulDeploy,
     hasComposeFile,
   });
-  const releaseState = readProjectReleaseState(id, project);
   const blockingAgentSession = getBlockingAgentSession(id);
 
   return NextResponse.json({
@@ -195,6 +245,7 @@ export async function GET(
     hasRollbackImage: rollbackAvailable,
     releaseState,
     forgeStatus,
+    deployUpdate,
     blockingAgentSession: blockingAgentSession
       ? {
           id: blockingAgentSession.id,
