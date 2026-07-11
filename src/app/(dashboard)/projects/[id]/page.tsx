@@ -25,6 +25,10 @@ import {
 } from "@/components/DeployEnvVarsEditor";
 import { ProjectGitTreePanel } from "@/components/ProjectGitTreePanel";
 import { ProjectCaddyLogsSection } from "@/components/ProjectCaddyLogsSection";
+import {
+  agentSessionSourceBadgeClass,
+  agentSessionSourceLabel,
+} from "@/lib/agent-session-source";
 
 const AgentWorkspace = dynamic(
   () =>
@@ -133,6 +137,7 @@ interface ProjectDetail {
     id: string;
     branch: string;
     status: string;
+    sessionSource: "manual" | "recovery";
   } | null;
 }
 
@@ -273,6 +278,37 @@ export default function ProjectDetailPage() {
     router.replace(`/projects/${id}?${params.toString()}`, {
       scroll: false,
     });
+  }
+
+  async function endBlockingAgentSession() {
+    const blocking = dataRef.current?.blockingAgentSession;
+    if (!blocking) return;
+    if (
+      !confirm(
+        "Stop this agent session? Deploys for this project will be unblocked.",
+      )
+    ) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${id}/agent-sessions/${blocking.id}/end`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revertChanges: false }),
+        },
+      );
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Failed to stop agent session");
+        return;
+      }
+      await fetchData();
+    } finally {
+      setActionLoading(false);
+    }
   }
 
   function selectTab(tab: ProjectTab) {
@@ -528,23 +564,41 @@ export default function ProjectDetailPage() {
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {blockingAgentSession && (
             <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3">
-              <p className="text-sm text-amber-200">
-                Deploy is blocked by an agent on{" "}
-                <span className="font-mono text-amber-100">
-                  {blockingAgentSession.branch}
-                </span>{" "}
-                <span className="capitalize text-amber-300/80">
-                  ({blockingAgentSession.status})
-                </span>
-                .
-              </p>
-              <button
-                type="button"
-                onClick={() => openAgentSession(blockingAgentSession.id)}
-                className="min-h-9 shrink-0 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-400/20"
-              >
-                Open agent session
-              </button>
+              <div className="min-w-0 space-y-1">
+                <p className="text-sm text-amber-200">
+                  Deploy is blocked by a{" "}
+                  <span
+                    className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${agentSessionSourceBadgeClass(blockingAgentSession.sessionSource)}`}
+                  >
+                    {agentSessionSourceLabel(blockingAgentSession.sessionSource)}
+                  </span>{" "}
+                  agent on{" "}
+                  <span className="font-mono text-amber-100">
+                    {blockingAgentSession.branch}
+                  </span>{" "}
+                  <span className="capitalize text-amber-300/80">
+                    ({blockingAgentSession.status})
+                  </span>
+                  .
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void endBlockingAgentSession()}
+                  disabled={actionLoading || deployBusy}
+                  className="min-h-9 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-400/20 disabled:opacity-50"
+                >
+                  Stop agent
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openAgentSession(blockingAgentSession.id)}
+                  className="min-h-9 shrink-0 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-400/20"
+                >
+                  Open agent session
+                </button>
+              </div>
             </div>
           )}
 

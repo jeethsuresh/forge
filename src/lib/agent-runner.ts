@@ -21,6 +21,11 @@ import {
 } from "@/lib/agent-turn";
 import { activeAgentProjects, getActiveSessionForProject, isAgentSessionActive } from "@/lib/agent-state";
 import {
+  agentSessionSourceLabel,
+  isInactiveAgentSessionStatus,
+  resolveAgentSessionSource,
+} from "@/lib/agent-session-source";
+import {
   listLocalBranches,
   prepareAgentWorkspace,
   commitAllChanges,
@@ -48,6 +53,12 @@ const TERMINAL_STATUSES: AgentSessionStatus[] = [
   "completed",
   "failed",
   "cancelled",
+];
+
+const ACTIVE_TURN_STATUSES: AgentSessionStatus[] = [
+  "pending",
+  "running",
+  "deploying",
 ];
 
 function spawnAgentProcess(
@@ -187,7 +198,7 @@ function deleteEventsFromSeq(sessionId: string, fromSeq: number): void {
 function reactivateSession(sessionId: string): void {
   db.update(agentSessions)
     .set({
-      status: "pending",
+      status: "idle",
       errorMessage: null,
       completedAt: null,
       deploymentId: null,
@@ -218,15 +229,20 @@ export type AgentSessionForClient = NonNullable<ReturnType<typeof getAgentSessio
   hasActiveProcess: boolean;
   canRetry: boolean;
   hasFileEdits: boolean;
+  sessionSource: ReturnType<typeof resolveAgentSessionSource>;
+  sessionSourceLabel: string;
 };
 
 function withClientFields(session: NonNullable<ReturnType<typeof getAgentSession>>): AgentSessionForClient {
   const events = getAllAgentEventsAfter(session.id, 0);
+  const sessionSource = resolveAgentSessionSource(session);
   return {
     ...session,
     hasActiveProcess: isAgentProcessRunning(session.id),
     canRetry: canRetryFailedAgentTurn(session, events),
     hasFileEdits: sessionEventsHaveFileEdits(events),
+    sessionSource,
+    sessionSourceLabel: agentSessionSourceLabel(sessionSource),
   };
 }
 
@@ -708,6 +724,42 @@ export async function createAgentBranch(
   );
 }
 
+async function startAgentWithUserMessage(
+  sessionId: string,
+  prompt: string,
+): Promise<void> {
+  const trimmedPrompt = prompt.trim();
+  if (!trimmedPrompt) throw new Error("Prompt is required");
+
+  const session = db
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.id, sessionId))
+    .get();
+
+  if (!session) throw new Error("Session not found");
+  if (session.source === "recovery") {
+    throw new Error("Deploy recovery agents start automatically after a failed deploy");
+  }
+
+  if (ACTIVE_TURN_STATUSES.includes(session.status)) {
+    await sendAgentMessage(sessionId, trimmedPrompt);
+    return;
+  }
+
+  if (session.status === "idle" || TERMINAL_STATUSES.includes(session.status)) {
+    if (TERMINAL_STATUSES.includes(session.status)) {
+      reactivateSession(sessionId);
+    }
+    activeAgentProjects.add(session.projectId);
+    updateSessionStatus(sessionId, "pending");
+    void executeAgentTurn(sessionId, session.projectId, trimmedPrompt);
+    return;
+  }
+
+  throw new Error("Session cannot be started");
+}
+
 export async function createAgentSession(
   projectId: string,
   branch: string,
@@ -737,34 +789,48 @@ export async function createAgentSession(
   const existing = getSessionForBranch(projectId, trimmedBranch);
 
   if (existing) {
-    if (!TERMINAL_STATUSES.includes(existing.status)) {
+    if (ACTIVE_TURN_STATUSES.includes(existing.status)) {
       await sendAgentMessage(existing.id, prompt.trim());
       return existing.id;
     }
 
-    reactivateSession(existing.id);
-    activeAgentProjects.add(projectId);
-    void executeAgentTurn(existing.id, projectId, prompt.trim());
-    return existing.id;
+    if (existing.status === "idle") {
+      db.update(agentSessions)
+        .set({ initialPrompt: prompt.trim() })
+        .where(eq(agentSessions.id, existing.id))
+        .run();
+      await startAgentWithUserMessage(existing.id, prompt.trim());
+      return existing.id;
+    }
+
+    if (isInactiveAgentSessionStatus(existing.status)) {
+      db.update(agentSessions)
+        .set({ initialPrompt: prompt.trim() })
+        .where(eq(agentSessions.id, existing.id))
+        .run();
+      await startAgentWithUserMessage(existing.id, prompt.trim());
+      return existing.id;
+    }
+
+    throw new Error(`Session on "${trimmedBranch}" is in an unexpected state`);
   }
 
   const sessionId = randomUUID();
-
-  activeAgentProjects.add(projectId);
 
   db.insert(agentSessions)
     .values({
       id: sessionId,
       projectId,
       branch: trimmedBranch,
-      status: "pending",
+      status: "idle",
+      source: "manual",
       initialPrompt: prompt.trim(),
       logs: "",
       startedAt: new Date(),
     })
     .run();
 
-  void executeAgentTurn(sessionId, projectId, prompt.trim());
+  await startAgentWithUserMessage(sessionId, prompt.trim());
 
   return sessionId;
 }
@@ -815,12 +881,24 @@ export async function createRecoveryAgentSession(
   const existing = getSessionForBranch(project.id, trimmedBranch);
 
   if (existing) {
-    if (!TERMINAL_STATUSES.includes(existing.status)) {
+    if (ACTIVE_TURN_STATUSES.includes(existing.status)) {
       await sendAgentMessage(existing.id, prompt.trim());
       return existing.id;
     }
 
-    reactivateSession(existing.id);
+    db.update(agentSessions)
+      .set({
+        status: "pending",
+        source: "recovery",
+        initialPrompt: prompt.trim(),
+        errorMessage: null,
+        completedAt: null,
+        deploymentId: null,
+        commitSha: null,
+        failedTurnStartSeq: null,
+      })
+      .where(eq(agentSessions.id, existing.id))
+      .run();
     activeAgentProjects.add(project.id);
     void executeAgentTurn(existing.id, project.id, prompt.trim(), options);
     return existing.id;
@@ -835,6 +913,7 @@ export async function createRecoveryAgentSession(
       projectId: project.id,
       branch: trimmedBranch,
       status: "pending",
+      source: "recovery",
       initialPrompt: prompt.trim(),
       logs: "",
       startedAt: new Date(),
@@ -976,6 +1055,12 @@ export async function sendAgentMessage(
     .get();
 
   if (!session) throw new Error("Session not found");
+  if (session.status === "idle") {
+    activeAgentProjects.add(session.projectId);
+    updateSessionStatus(sessionId, "pending");
+    void executeAgentTurn(sessionId, session.projectId, prompt.trim());
+    return;
+  }
   if (TERMINAL_STATUSES.includes(session.status)) {
     throw new Error("Session is no longer active");
   }
@@ -1103,7 +1188,9 @@ export async function endAgentSession(
     .get();
 
   if (!session) throw new Error("Session not found");
-  if (TERMINAL_STATUSES.includes(session.status)) return;
+  if (session.status === "idle" || TERMINAL_STATUSES.includes(session.status)) {
+    return;
+  }
 
   cancelDeploymentPoll(sessionId);
 
@@ -1154,7 +1241,9 @@ export async function cancelAgentSession(sessionId: string): Promise<void> {
     .get();
 
   if (!session) throw new Error("Session not found");
-  if (TERMINAL_STATUSES.includes(session.status)) return;
+  if (session.status === "idle" || TERMINAL_STATUSES.includes(session.status)) {
+    return;
+  }
 
   cancelledSessions.add(sessionId);
   cancelDeploymentPoll(sessionId);

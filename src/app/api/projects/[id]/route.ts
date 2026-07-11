@@ -200,6 +200,7 @@ export async function GET(
           id: blockingAgentSession.id,
           branch: blockingAgentSession.branch,
           status: blockingAgentSession.status,
+          sessionSource: blockingAgentSession.sessionSource,
         }
       : null,
   });

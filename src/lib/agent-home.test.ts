@@ -13,12 +13,18 @@ describe("docker-entrypoint agent-home setup", () => {
     );
   });
 
-  it("recursively chowns the data volume for the node runtime user", () => {
-    expect(script).toMatch(/chown -R node:node \/data/);
+  it("chowns only forge-owned paths under /data, not the whole volume", () => {
+    expect(script).toContain("chown_forge_data_paths");
+    expect(script).toMatch(/for path in \/data\/repos \/data\/agent-home/);
+    expect(script).not.toMatch(/chown -R node:node \/data[^/]/);
   });
 
-  it("chowns the data volume before configuring git as node", () => {
-    const chownIdx = script.indexOf("chown -R node:node /data");
+  it("documents avoiding SELinux denials on bind-mounted podman sockets", () => {
+    expect(script).toMatch(/SELinux blocks setattr on user_tmp_t sockets/);
+  });
+
+  it("chowns forge data paths before configuring git as node", () => {
+    const chownIdx = script.indexOf("chown_forge_data_paths");
     const gitConfigIdx = script.indexOf("git config --global user.name");
     expect(chownIdx).toBeGreaterThan(-1);
     expect(gitConfigIdx).toBeGreaterThan(-1);

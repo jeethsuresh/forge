@@ -10,6 +10,9 @@ const DEFAULT_PODMAN_API_PORT = "18765";
 /** In-container path that skips unix-socket probes (avoids SELinux denials on bind mounts). */
 export const SKIP_DOCKER_SOCKET_PROBE = "/data/.skip-docker-socket";
 
+/** Bind-mount target for the host container socket (must stay outside /data). */
+export const IN_CONTAINER_DOCKER_SOCK_MOUNT = "/var/run/docker.sock";
+
 let cachedDockerHost: string | null = null;
 
 function defaultTcpDockerHost(): string {
@@ -61,6 +64,10 @@ export function dockerHostForRuntime(): string {
 
 export function containerDockerSocket(): string {
   return process.env.FORGE_DOCKER_SOCKET ?? SKIP_DOCKER_SOCKET_PROBE;
+}
+
+export function inContainerDockerSocketMount(): string {
+  return IN_CONTAINER_DOCKER_SOCK_MOUNT;
 }
 
 export function hostDockerSocket(): string {

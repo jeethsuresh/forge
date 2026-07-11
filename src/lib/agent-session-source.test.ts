@@ -1,0 +1,48 @@
+import { describe, expect, it } from "vitest";
+import {
+  agentSessionSourceLabel,
+  isIdleAgentSession,
+  isInactiveAgentSessionStatus,
+  resolveAgentSessionSource,
+} from "@/lib/agent-session-source";
+import { RECOVERY_PROMPT_PREFIX } from "@/lib/agent-session-source";
+
+describe("resolveAgentSessionSource", () => {
+  it("prefers the stored source column", () => {
+    expect(
+      resolveAgentSessionSource({
+        source: "recovery",
+        initialPrompt: "hello",
+      }),
+    ).toBe("recovery");
+  });
+
+  it("infers recovery from the prompt prefix for legacy rows", () => {
+    expect(
+      resolveAgentSessionSource({
+        initialPrompt: `${RECOVERY_PROMPT_PREFIX} fix deploy`,
+      }),
+    ).toBe("recovery");
+  });
+
+  it("defaults to manual", () => {
+    expect(
+      resolveAgentSessionSource({
+        initialPrompt: "Add feature X",
+      }),
+    ).toBe("manual");
+  });
+});
+
+describe("agent session activity helpers", () => {
+  it("labels sources for the UI", () => {
+    expect(agentSessionSourceLabel("manual")).toBe("Manual");
+    expect(agentSessionSourceLabel("recovery")).toBe("Deploy recovery");
+  });
+
+  it("treats idle as inactive and non-blocking", () => {
+    expect(isIdleAgentSession("idle")).toBe(true);
+    expect(isInactiveAgentSessionStatus("idle")).toBe(true);
+    expect(isInactiveAgentSessionStatus("running")).toBe(false);
+  });
+});

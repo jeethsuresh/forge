@@ -43,12 +43,15 @@ export type DeploymentTrigger =
   | "rollback";
 
 export type AgentSessionStatus =
+  | "idle"
   | "pending"
   | "running"
   | "deploying"
   | "completed"
   | "failed"
   | "cancelled";
+
+export type AgentSessionSource = "manual" | "recovery";
 
 export type ForgeUpdateStatus =
   | "pending"
@@ -90,6 +93,7 @@ export const agentSessions = sqliteTable("agent_sessions", {
   resumeCursorSessionId: text("resume_cursor_session_id"),
   failedTurnStartSeq: integer("failed_turn_start_seq"),
   initialPrompt: text("initial_prompt").notNull(),
+  source: text("source").$type<AgentSessionSource>().notNull().default("manual"),
   logs: text("logs").notNull().default(""),
   errorMessage: text("error_message"),
   deploymentId: text("deployment_id"),

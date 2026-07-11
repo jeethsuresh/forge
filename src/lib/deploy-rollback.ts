@@ -11,6 +11,7 @@ import {
   ensureDockerDaemon,
   forgeDataVolumeName,
   hostDockerSocket,
+  inContainerDockerSocketMount,
   readForgeContainerName,
 } from "@/lib/docker-runtime";
 import { resolveForgeHostMounts } from "@/lib/forge-host-mounts";
@@ -386,7 +387,7 @@ async function spawnForgeProductionCutoverSidecar(options: {
     "-v",
     `${forgeDataVolumeName()}:/data`,
     "-v",
-    `${hostSocket}:${containerDockerSocket()}`,
+    `${hostSocket}:${inContainerDockerSocketMount()}`,
     "-e",
     `DOCKER_HOST=${dockerHost}`,
     "-e",

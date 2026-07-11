@@ -159,6 +159,13 @@ describe("docker-runtime helpers", () => {
     expect(containerDockerSocket()).toBe(SKIP_DOCKER_SOCKET_PROBE);
   });
 
+  it("mounts host socket at /var/run/docker.sock inside sidecars", async () => {
+    const { inContainerDockerSocketMount, IN_CONTAINER_DOCKER_SOCK_MOUNT } =
+      await import("@/lib/docker-runtime");
+    expect(inContainerDockerSocketMount()).toBe(IN_CONTAINER_DOCKER_SOCK_MOUNT);
+    expect(IN_CONTAINER_DOCKER_SOCK_MOUNT).toBe("/var/run/docker.sock");
+  });
+
   it("builds the forge data volume name from compose project", async () => {
     const { forgeDataVolumeName } = await import("@/lib/docker-runtime");
     expect(forgeDataVolumeName()).toBe("forge_forge-data");

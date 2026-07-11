@@ -30,12 +30,12 @@ import {
 import { runScript } from "@/lib/github";
 import { startForgeRollback } from "@/lib/self-update";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
+import { RECOVERY_PROMPT_PREFIX } from "@/lib/agent-session-source";
 
-export const RECOVERY_PROMPT_PREFIX = "[deploy-recovery]";
+export { findForgeProject, isForgeProject } from "@/lib/forge-project";
+export { isRecoveryPrompt, RECOVERY_PROMPT_PREFIX } from "@/lib/agent-session-source";
 
 const recoveryInProgress = new Set<string>();
-
-const TERMINAL_AGENT_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 export interface DeployFailureContext {
   deploymentId: string;
@@ -53,11 +53,7 @@ export interface ForgeUpdateFailureContext {
   branch: string;
 }
 
-export function isRecoveryPrompt(prompt: string): boolean {
-  return prompt.startsWith(RECOVERY_PROMPT_PREFIX);
-}
-
-export { findForgeProject, isForgeProject } from "@/lib/forge-project";
+const TERMINAL_AGENT_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 export function buildRecoveryPrompt(context: {
   branch: string;

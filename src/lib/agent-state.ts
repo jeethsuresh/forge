@@ -5,6 +5,7 @@ import {
   reconcileAbandonedDeployingSessions,
 } from "@/lib/deploy-reconcile";
 import { isTerminalSessionStatus } from "@/lib/agent-turn";
+import { isIdleAgentSession, resolveAgentSessionSource } from "@/lib/agent-session-source";
 
 export const activeAgentProjects = new Set<string>();
 
@@ -177,6 +178,9 @@ export function getActiveSessionForProject(projectId: string) {
 
 export function getBlockingAgentSession(projectId: string) {
   const session = getActiveSessionForProject(projectId);
-  if (!session || isTerminalSessionStatus(session.status)) return null;
-  return session;
+  if (!session || isTerminalSessionStatus(session.status) || isIdleAgentSession(session.status)) {
+    return null;
+  }
+  const sessionSource = resolveAgentSessionSource(session);
+  return { ...session, sessionSource };
 }

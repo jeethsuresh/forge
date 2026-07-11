@@ -13,6 +13,10 @@ import { mergeIncomingMessages } from "@/lib/agent-stream";
 import {
   resolveAgentSessionBanner,
 } from "@/lib/agent-turn";
+import {
+  agentSessionSourceBadgeClass,
+  isInactiveAgentSessionStatus,
+} from "@/lib/agent-session-source";
 import { AgentMessageList } from "@/components/AgentMessageList";
 
 interface AgentSession {
@@ -30,6 +34,8 @@ interface AgentSession {
   hasActiveProcess?: boolean;
   canRetry?: boolean;
   hasFileEdits?: boolean;
+  sessionSource?: "manual" | "recovery";
+  sessionSourceLabel?: string;
 }
 
 type StatusBanner =
@@ -72,10 +78,10 @@ interface SessionDetailResponse {
   messages: AgentDisplayMessage[];
 }
 
-const TERMINAL_STATUSES = new Set<string>([
-  "completed",
-  "failed",
-  "cancelled",
+const ACTIVE_AGENT_STATUSES = new Set<string>([
+  "pending",
+  "running",
+  "deploying",
 ]);
 
 function sessionForBranch(
@@ -240,7 +246,7 @@ export function AgentWorkspace({
     void (async () => {
       const json = await fetchSessionDetail(selectedId);
       if (cancelled || !json) return;
-      setLoadedSessionTerminal(TERMINAL_STATUSES.has(json.session.status));
+      setLoadedSessionTerminal(isInactiveAgentSessionStatus(json.session.status));
       setHistoryReady(true);
     })();
 
@@ -326,7 +332,7 @@ export function AgentWorkspace({
       if (streamGenerationRef.current !== generation) return;
       const payload = JSON.parse(e.data) as { session: AgentSession };
       setSessionDetail(payload.session);
-      setLoadedSessionTerminal(TERMINAL_STATUSES.has(payload.session.status));
+      setLoadedSessionTerminal(isInactiveAgentSessionStatus(payload.session.status));
       sseConnectedRef.current = false;
       void fetchSessions();
       es.close();
@@ -610,9 +616,12 @@ export function AgentWorkspace({
 
   async function endSession() {
     if (!selectedId || !selectedBranch) return;
+    const recovery = sessionDetail?.sessionSource === "recovery";
     if (
       !confirm(
-        "End this agent session? Deploys for this project will be unblocked.",
+        recovery
+          ? "Stop the deploy recovery agent? Deploys for this project will be unblocked."
+          : "End this agent session? Deploys for this project will be unblocked.",
       )
     ) {
       return;
@@ -720,21 +729,23 @@ export function AgentWorkspace({
     data?.hasActiveSession && activeBranch && activeBranch !== selectedBranch,
   );
 
-  const isActiveSession =
-    sessionDetail && !TERMINAL_STATUSES.has(sessionDetail.status);
+  const isActiveSession = Boolean(
+    sessionDetail && ACTIVE_AGENT_STATUSES.has(sessionDetail.status),
+  );
   const showEndSession = Boolean(isActiveSession && selectedId);
   const isDeploying = sessionDetail?.status === "deploying";
+  const isRecoverySession = sessionDetail?.sessionSource === "recovery";
   const canStartOnBranch = Boolean(
     selectedBranch &&
       !blockedByOtherBranch &&
       !isActiveSession &&
       (!selectedBranchInfo?.hasAgent ||
         (selectedBranchInfo.sessionStatus &&
-          TERMINAL_STATUSES.has(selectedBranchInfo.sessionStatus))),
+          isInactiveAgentSessionStatus(selectedBranchInfo.sessionStatus))),
   );
 
   const isTerminalSession = Boolean(
-    sessionDetail && TERMINAL_STATUSES.has(sessionDetail.status),
+    sessionDetail && isInactiveAgentSessionStatus(sessionDetail.status),
   );
   const showFollowUp = Boolean(isActiveSession && !isDeploying && selectedId);
   const canCommitOrDeploy = Boolean(
@@ -849,6 +860,13 @@ export function AgentWorkspace({
                   {b.isDeployBranch && (
                     <span className="text-[10px] uppercase text-zinc-600">
                       deploy
+                    </span>
+                  )}
+                  {session?.sessionSourceLabel && (
+                    <span
+                      className={`rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${agentSessionSourceBadgeClass(session.sessionSource ?? "manual")}`}
+                    >
+                      {session.sessionSourceLabel}
                     </span>
                   )}
                   {b.sessionStatus && (
@@ -975,6 +993,13 @@ export function AgentWorkspace({
               <h3 className="truncate font-mono text-sm font-medium text-zinc-100">
                 {selectedBranch}
               </h3>
+              {sessionDetail?.sessionSourceLabel && (
+                <span
+                  className={`mt-1 inline-flex rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${agentSessionSourceBadgeClass(sessionDetail.sessionSource ?? "manual")}`}
+                >
+                  {sessionDetail.sessionSourceLabel}
+                </span>
+              )}
               {sessionDetail?.commitSha && (
                 <p className="text-xs text-zinc-500">
                   Commit {shortSha(sessionDetail.commitSha)}
@@ -993,9 +1018,9 @@ export function AgentWorkspace({
                   onClick={endSession}
                   disabled={loading}
                   className="min-h-9 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-400/20 disabled:opacity-50"
-                  title="End session and unblock deploys"
+                  title="Stop the agent and unblock deploys"
                 >
-                  End session
+                  {isRecoverySession ? "Stop recovery" : "End session"}
                 </button>
               )}
               {sessionDetail?.status === "failed" && sessionDetail.canRetry && (
@@ -1251,6 +1276,12 @@ export function AgentWorkspace({
                   shouldAutoScrollRef.current = nearBottom;
                 }}
               >
+                {isRecoverySession && isActiveSession && (
+                  <div className="rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2.5 text-xs text-amber-200">
+                    This agent started automatically after a failed deploy. Stop it
+                    anytime to unblock manual deploys.
+                  </div>
+                )}
                 {messages.length === 0 && !statusBanner && (
                   <p className="py-8 text-center text-sm text-zinc-600">
                     Waiting for agent output…

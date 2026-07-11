@@ -12,6 +12,7 @@ import {
 } from "@/lib/db/schema";
 import {
   containerDockerSocket,
+  inContainerDockerSocketMount,
   dockerExecEnv,
   dockerHostForRuntime,
   ensureDockerDaemon,
@@ -379,7 +380,7 @@ async function spawnUpdater(
     "-v",
     `${forgeDataVolumeName()}:/data`,
     "-v",
-    `${hostSocket}:${containerDockerSocket()}`,
+    `${hostSocket}:${inContainerDockerSocketMount()}`,
     "-e",
     `DOCKER_HOST=${dockerHost}`,
     "-e",

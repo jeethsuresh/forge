@@ -53,11 +53,29 @@ if [[ -f /opt/cursor-config/auth.json ]]; then
   chmod 600 /data/agent-home/.config/cursor/auth.json
 fi
 
-chown -R node:node /data
+chown_forge_data_paths() {
+  local path
+  for path in /data/repos /data/agent-home /data/forge-source; do
+    if [[ -e "$path" ]]; then
+      chown -R node:node "$path" 2>/dev/null || true
+    fi
+  done
+  for path in \
+    /data/forge.db \
+    /data/forge-release.json \
+    /data/forge-host-mounts.json \
+    /data/forge-container-name \
+    /data/podman-api.pid \
+    /data/podman-api.log; do
+    if [[ -e "$path" ]]; then
+      chown node:node "$path" 2>/dev/null || true
+    fi
+  done
+}
 
-if [[ -d /data/forge-source/.git ]]; then
-  chown -R node:node /data/forge-source 2>/dev/null || true
-fi
+# Only chown Forge-owned paths under /data. Never recurse the whole volume: sidecars
+# bind-mount the host podman socket and SELinux blocks setattr on user_tmp_t sockets.
+chown_forge_data_paths
 
 AGENT_HOME="/data/agent-home"
 export HOME="$AGENT_HOME"
@@ -71,7 +89,7 @@ if [[ -f /opt/forge/scripts/lib/common.sh ]]; then
   cd "$forge_entrypoint_cwd"
 fi
 
-chown -R node:node /data/agent-home /data/forge-source 2>/dev/null || true
+chown_forge_data_paths
 rm -f "${AGENT_HOME}/.gitconfig.lock"
 
 GIT_USER_NAME="${FORGE_GIT_USER_NAME:-Orchestrator Agent}"
