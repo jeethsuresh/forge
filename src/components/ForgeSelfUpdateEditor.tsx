@@ -44,10 +44,12 @@ export function ForgeSelfUpdateEditor({
   className = "",
   hideHistory = false,
   hideDeployActions = false,
+  hideActiveLogs = false,
 }: {
   className?: string;
   hideHistory?: boolean;
   hideDeployActions?: boolean;
+  hideActiveLogs?: boolean;
 }) {
   const [status, setStatus] = useState<ForgeStatusResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -262,7 +264,7 @@ export function ForgeSelfUpdateEditor({
               </button>
             </div>
 
-            {status.activeUpdate && (
+            {status.activeUpdate && !hideActiveLogs && (
               <div className="rounded-lg border border-zinc-800 bg-zinc-950/80 p-4">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <span className="text-sm font-medium text-zinc-200">

@@ -93,6 +93,24 @@ CREATE INDEX IF NOT EXISTS idx_agent_sessions_project_id ON agent_sessions(proje
 CREATE INDEX IF NOT EXISTS idx_agent_events_session_id ON agent_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_agent_events_seq ON agent_events(session_id, seq);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_sessions_project_branch ON agent_sessions(project_id, branch);
+
+CREATE TABLE IF NOT EXISTS ops_api_actions (
+  id TEXT PRIMARY KEY,
+  action_description TEXT NOT NULL,
+  method TEXT NOT NULL,
+  path TEXT NOT NULL,
+  request_body_json TEXT NOT NULL DEFAULT '{}',
+  response_status INTEGER NOT NULL,
+  actor TEXT NOT NULL DEFAULT 'agent',
+  agent_session_id TEXT,
+  project_id TEXT,
+  resource_type TEXT,
+  resource_id TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ops_api_actions_created_at ON ops_api_actions(created_at);
+CREATE INDEX IF NOT EXISTS idx_ops_api_actions_project_id ON ops_api_actions(project_id);
 `;
 
 sqlite.exec(INIT_SQL);

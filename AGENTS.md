@@ -17,3 +17,15 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Orchestrator passes `--project-name <compose-slug>` to every `build.sh` / `test.sh` / `deploy.sh` / `teardown.sh` invocation; when a port is configured it also passes `--host-port <port>` and sets `HOST_PORT` in the script environment.
 - Edit per-project routing on the project **Config & history** tab or in **Global settings → Project routing**.
 - Watched repos must implement `scripts/lib/common.sh` (or equivalent) so root scripts accept `--project-name` and `--host-port` / `--port`.
+
+## Forge Ops API (for agents)
+
+Forge exposes a machine-readable **Ops API** at `/api/ops/*` for deploy, rollback, monitoring, agent control, and config changes.
+
+- **Auth:** `Authorization: Bearer $FORGE_OPS_API_TOKEN` (set in `.env` / container env).
+- **Audit:** Every POST/PATCH must include `actionDescription` (10–2000 chars) stating exactly what the agent is doing and why.
+- **Session link:** Pass `X-Forge-Agent-Session-Id: <session-id>` to attach ops calls to the agent session audit log.
+- **Catalog:** `GET /api/ops` returns all endpoints and curl examples.
+- **Agent prompt:** Forge prepends ops instructions to the first turn of each agent session automatically.
+
+When implementing or debugging ops flows, run `./test.sh` and consult `src/lib/agent-ops-prompt.ts` for the canonical instruction text.

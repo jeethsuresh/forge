@@ -15,7 +15,9 @@ import {
 import type { RuntimeStatus } from "@/lib/project-status";
 import { mergePolledProjectDetail } from "@/lib/project-detail-client";
 import { ForgeSelfUpdateEditor } from "@/components/ForgeSelfUpdateEditor";
+import { ActiveDeployLogsPanel } from "@/components/ActiveDeployLogsPanel";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
+import { resolveActiveDeployLogView } from "@/lib/active-deploy-logs";
 import { ProjectRenameEditor } from "@/components/ProjectRenameEditor";
 import { ProjectRoutingEditor } from "@/components/ProjectRoutingEditor";
 import type { ProjectCaddySettings } from "@/lib/project-routing-shared";
@@ -122,7 +124,14 @@ interface ProjectDetail {
     configured: boolean;
     updateAvailable: boolean;
     hasRollbackImage: boolean;
-    activeUpdate: { id: string; status: string } | null;
+    activeUpdate: {
+      id: string;
+      status: string;
+      targetCommitSha: string | null;
+      logs: string;
+      errorMessage: string | null;
+      startedAt: string;
+    } | null;
     recentUpdates: Array<{
       id: string;
       status: string;
@@ -510,6 +519,12 @@ export default function ProjectDetailPage() {
   const selectedDeployBranch = deployBranch ?? project.branch;
   const deployUpdate = data.deployUpdate;
   const updateAvailable = deployUpdate?.updateAvailable ?? false;
+  const activeDeployLogs = resolveActiveDeployLogView({
+    isForge,
+    forgeTitle: `${APP_DISPLAY_NAME} update`,
+    deployments,
+    activeForgeUpdate: forgeStatus?.activeUpdate ?? null,
+  });
   const deployPrimaryLabel = deployBusy
     ? updateAvailable
       ? "Updating…"
@@ -634,6 +649,7 @@ export default function ProjectDetailPage() {
               className="mb-6"
               hideHistory
               hideDeployActions
+              hideActiveLogs={Boolean(activeDeployLogs)}
             />
           )}
 
@@ -758,6 +774,10 @@ export default function ProjectDetailPage() {
               }
             />
           </div>
+
+          {activeDeployLogs && (
+            <ActiveDeployLogsPanel view={activeDeployLogs} />
+          )}
 
           {hasComposeFile && runtimeStatus === "stopped" && (
             <section className="mb-8 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-6 text-center">

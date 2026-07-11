@@ -40,6 +40,8 @@ import {
 import { resolveCursorAgentBin } from "@/lib/cursor-agent";
 import { runDeployment } from "@/lib/deployer";
 import { resolveClonePath } from "@/lib/paths";
+import { prependForgeOpsInstructions } from "@/lib/agent-ops-prompt";
+import { opsApiBaseUrl } from "@/lib/ops-api-auth";
 
 const activeAgentProcesses = new Map<string, ChildProcess>();
 const stoppingSessions = new Set<string>();
@@ -429,15 +431,29 @@ async function runAgentTurn(
   if (!session) throw new Error("Session not found");
 
   updateSessionStatus(sessionId, "running");
-  appendSessionLog(sessionId, `Starting agent turn: ${prompt.slice(0, 80)}…`);
+  const includeOpsInstructions = !session.resumeCursorSessionId;
+  const effectivePrompt = prependForgeOpsInstructions(
+    prompt,
+    project.id,
+    sessionId,
+    includeOpsInstructions,
+  );
+  appendSessionLog(
+    sessionId,
+    `Starting agent turn: ${effectivePrompt.slice(0, 80)}…`,
+  );
 
   const turnStartSeq = getNextEventSeq(sessionId);
-  recordEvent(sessionId, "user", JSON.stringify({ type: "user", text: prompt }));
+  recordEvent(sessionId, "user", JSON.stringify({ type: "user", text: effectivePrompt }));
 
-  const args = buildAgentArgs(prompt, session.resumeCursorSessionId);
+  const args = buildAgentArgs(effectivePrompt, session.resumeCursorSessionId);
   const env = { ...process.env };
   const apiKey = process.env.FORGE_CURSOR_API_KEY ?? process.env.CURSOR_API_KEY;
   if (apiKey) env.CURSOR_API_KEY = apiKey;
+  if (process.env.FORGE_OPS_API_TOKEN?.trim()) {
+    env.FORGE_OPS_API_TOKEN = process.env.FORGE_OPS_API_TOKEN.trim();
+  }
+  env.FORGE_OPS_API_BASE = opsApiBaseUrl();
 
   return new Promise((resolve, reject) => {
     const proc = spawnAgentProcess(args, {

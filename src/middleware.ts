@@ -12,14 +12,17 @@ const publicPaths = [
   "/api/caddy/logs/ingest",
 ];
 
+function isPublicPath(pathname: string): boolean {
+  if (publicPaths.some((p) => pathname === p)) return true;
+  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) return true;
+  if (pathname.startsWith("/api/ops")) return true;
+  return false;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (
-    publicPaths.some((p) => pathname === p) ||
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon")
-  ) {
+  if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
 

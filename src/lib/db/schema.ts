@@ -125,9 +125,25 @@ export const agentEvents = sqliteTable("agent_events", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+export const opsApiActions = sqliteTable("ops_api_actions", {
+  id: text("id").primaryKey(),
+  actionDescription: text("action_description").notNull(),
+  method: text("method").notNull(),
+  path: text("path").notNull(),
+  requestBodyJson: text("request_body_json").notNull().default("{}"),
+  responseStatus: integer("response_status").notNull(),
+  actor: text("actor").notNull().default("agent"),
+  agentSessionId: text("agent_session_id"),
+  projectId: text("project_id"),
+  resourceType: text("resource_type"),
+  resourceId: text("resource_id"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
 export type AgentSession = typeof agentSessions.$inferSelect;
 export type AgentEvent = typeof agentEvents.$inferSelect;
 export type ForgeUpdate = typeof forgeUpdates.$inferSelect;
+export type OpsApiAction = typeof opsApiActions.$inferSelect;
