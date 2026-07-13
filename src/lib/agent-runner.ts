@@ -19,7 +19,12 @@ import {
   isAgentTurnComplete,
   isStuckActiveSession,
 } from "@/lib/agent-turn";
-import { activeAgentProjects, getActiveSessionForProject, isAgentSessionActive } from "@/lib/agent-state";
+import {
+  activeAgentProjects,
+  applyAgentDeploymentOutcome,
+  getActiveSessionForProject,
+  isAgentSessionActive,
+} from "@/lib/agent-state";
 import {
   agentSessionSourceLabel,
   isInactiveAgentSessionStatus,
@@ -610,21 +615,9 @@ async function waitForDeploymentAndFinalize(
     }
 
     cancelDeploymentPoll(sessionId);
-
-    if (dep.status === "success") {
-      appendSessionLog(sessionId, "Rebuild and release completed successfully.");
-      updateSessionStatus(sessionId, "completed", { completedAt: new Date() });
-    } else {
-      appendSessionLog(
-        sessionId,
-        `Deployment failed: ${dep.errorMessage ?? "unknown"}`,
-      );
-      updateSessionStatus(sessionId, "failed", {
-        errorMessage: dep.errorMessage ?? "Deployment failed",
-        completedAt: new Date(),
-      });
-    }
-    activeAgentProjects.delete(projectId);
+    // Only finalize if this session is still waiting on this deployment.
+    // Recovery (or End session) may have already moved it out of deploying.
+    applyAgentDeploymentOutcome(sessionId, dep.id);
   };
 
   deploymentPollTimers.set(sessionId, setTimeout(poll, 2000));

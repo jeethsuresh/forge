@@ -1,10 +1,14 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { agentSessions, deployments } from "@/lib/db/schema";
+import { agentEvents, agentSessions, deployments } from "@/lib/db/schema";
 import {
   reconcileAbandonedDeployingSessions,
 } from "@/lib/deploy-reconcile";
-import { isTerminalSessionStatus } from "@/lib/agent-turn";
+import {
+  isAgentTurnComplete,
+  isStuckActiveSession,
+  isTerminalSessionStatus,
+} from "@/lib/agent-turn";
 import { isIdleAgentSession, resolveAgentSessionSource } from "@/lib/agent-session-source";
 
 export const activeAgentProjects = new Set<string>();
@@ -22,6 +26,19 @@ function appendSessionLog(sessionId: string, message: string): void {
     .set({ logs: `${row?.logs ?? ""}${line}` })
     .where(eq(agentSessions.id, sessionId))
     .run();
+}
+
+function sessionEvents(sessionId: string) {
+  return db
+    .select({
+      seq: agentEvents.seq,
+      eventType: agentEvents.eventType,
+      payload: agentEvents.payload,
+    })
+    .from(agentEvents)
+    .where(eq(agentEvents.sessionId, sessionId))
+    .orderBy(agentEvents.seq)
+    .all();
 }
 
 function finalizeDeployingSessionFromDeployment(
@@ -64,6 +81,28 @@ function finalizeDeployingSessionFromDeployment(
   return true;
 }
 
+/**
+ * Apply a finished deployment to the agent session only while it is still the
+ * current deploying attempt. Skips if recovery (or another action) already
+ * moved the session out of deploying / cleared the deployment id.
+ */
+export function applyAgentDeploymentOutcome(
+  sessionId: string,
+  deploymentId: string,
+): boolean {
+  const session = db
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.id, sessionId))
+    .get();
+
+  if (!session) return false;
+  if (session.status !== "deploying") return false;
+  if (session.deploymentId !== deploymentId) return false;
+
+  return finalizeDeployingSessionFromDeployment(session);
+}
+
 function reconcileStaleActiveSessions(projectId: string): number {
   if (activeAgentProjects.has(projectId)) return 0;
 
@@ -87,6 +126,16 @@ function reconcileStaleActiveSessions(projectId: string): number {
       }
       continue;
     }
+
+    const turnIncomplete = !isAgentTurnComplete(sessionEvents(session.id));
+    const stuck = isStuckActiveSession({
+      status: session.status,
+      failedTurnStartSeq: session.failedTurnStartSeq,
+      hasActiveProcess: false,
+      projectMarkedActive: false,
+      turnIncomplete,
+    });
+    if (!stuck) continue;
 
     const message =
       session.status === "pending"
