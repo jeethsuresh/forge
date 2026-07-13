@@ -11,11 +11,14 @@ services:
       context: .
       dockerfile: Dockerfile
       target: runner
+      args:
+        SOURCE_SHA: ${FORGE_COMMIT_SHA:-unknown}
     env_file:
       - path: .env
         required: false
     environment:
       NODE_ENV: production
+      FORGE_COMMIT_SHA: ${FORGE_COMMIT_SHA:-}
       FORGE_DB_PATH: /data/forge.db
       FORGE_REPOS_DIR: /data/repos
       FORGE_SESSION_SECRET: ${FORGE_SESSION_SECRET:-forge-dev-secret-change-me-32chars}

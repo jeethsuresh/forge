@@ -72,11 +72,14 @@ import { getRemoteCommitSha } from "@/lib/github";
 describe("getForgeHealthPayload", () => {
   let tempDir: string;
   let previousStatePath: string | undefined;
+  let previousCommitSha: string | undefined;
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), "forge-health-"));
     previousStatePath = process.env.FORGE_RELEASE_STATE;
+    previousCommitSha = process.env.FORGE_COMMIT_SHA;
     process.env.FORGE_RELEASE_STATE = join(tempDir, "release.json");
+    delete process.env.FORGE_COMMIT_SHA;
   });
 
   afterEach(() => {
@@ -84,6 +87,11 @@ describe("getForgeHealthPayload", () => {
       delete process.env.FORGE_RELEASE_STATE;
     } else {
       process.env.FORGE_RELEASE_STATE = previousStatePath;
+    }
+    if (previousCommitSha === undefined) {
+      delete process.env.FORGE_COMMIT_SHA;
+    } else {
+      process.env.FORGE_COMMIT_SHA = previousCommitSha;
     }
     rmSync(tempDir, { recursive: true, force: true });
   });
@@ -107,6 +115,24 @@ describe("getForgeHealthPayload", () => {
     expect(getForgeHealthPayload()).toEqual({
       ok: true,
       commitSha: "abc123def456",
+    });
+  });
+
+  it("prefers FORGE_COMMIT_SHA env over release state file", async () => {
+    process.env.FORGE_COMMIT_SHA = "envsha999";
+    writeFileSync(
+      process.env.FORGE_RELEASE_STATE!,
+      JSON.stringify({
+        stableImageTag: "stable",
+        rollbackImageTag: "rollback",
+        stableCommitSha: "abc123def456",
+        updatedAt: "2026-07-07T00:00:00Z",
+      }),
+    );
+    const { getForgeHealthPayload } = await import("@/lib/self-update");
+    expect(getForgeHealthPayload()).toEqual({
+      ok: true,
+      commitSha: "envsha999",
     });
   });
 });

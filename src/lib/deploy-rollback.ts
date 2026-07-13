@@ -414,6 +414,7 @@ async function spawnForgeProductionCutoverSidecar(options: {
 
   if (commitSha) {
     args.push("-e", `FORGE_RELEASE_COMMIT_SHA=${commitSha}`);
+    args.push("-e", `FORGE_COMMIT_SHA=${commitSha}`);
   }
 
   const hostMounts = resolveForgeHostMounts();

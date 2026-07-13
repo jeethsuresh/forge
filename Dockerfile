@@ -26,6 +26,8 @@ COPY . .
 CMD ["npm", "test"]
 
 FROM base AS runner
+ARG SOURCE_SHA=unknown
+ENV FORGE_COMMIT_SHA=${SOURCE_SHA}
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -6,12 +6,60 @@ import {
   forgeUpdateUnavailableMessage,
   latestActionableFailedUpdate,
   parseTargetCommitFromUpdateLogs,
+  readForgeCommitShaEnv,
   resolveForgeBranchDeployAllowed,
+  resolveForgeRunningCommitSha,
   shouldDisplayUpdateError,
   sidecarHasStarted,
   statusLabel,
   statusToneClass,
 } from "@/lib/self-update-helpers";
+
+describe("resolveForgeRunningCommitSha", () => {
+  it("prefers FORGE_COMMIT_SHA env over release state", () => {
+    const previous = process.env.FORGE_COMMIT_SHA;
+    process.env.FORGE_COMMIT_SHA = "envsha123";
+    try {
+      expect(
+        resolveForgeRunningCommitSha({
+          stableCommitSha: "filesha456",
+        }),
+      ).toBe("envsha123");
+    } finally {
+      if (previous === undefined) delete process.env.FORGE_COMMIT_SHA;
+      else process.env.FORGE_COMMIT_SHA = previous;
+    }
+  });
+
+  it("falls back to release state when env is unset", () => {
+    const previous = process.env.FORGE_COMMIT_SHA;
+    delete process.env.FORGE_COMMIT_SHA;
+    try {
+      expect(
+        resolveForgeRunningCommitSha({
+          stableCommitSha: "filesha456",
+        }),
+      ).toBe("filesha456");
+      expect(resolveForgeRunningCommitSha(null)).toBeNull();
+    } finally {
+      if (previous === undefined) delete process.env.FORGE_COMMIT_SHA;
+      else process.env.FORGE_COMMIT_SHA = previous;
+    }
+  });
+});
+
+describe("readForgeCommitShaEnv", () => {
+  it("returns trimmed sha or null", () => {
+    const previous = process.env.FORGE_COMMIT_SHA;
+    process.env.FORGE_COMMIT_SHA = "  abc  ";
+    try {
+      expect(readForgeCommitShaEnv()).toBe("abc");
+    } finally {
+      if (previous === undefined) delete process.env.FORGE_COMMIT_SHA;
+      else process.env.FORGE_COMMIT_SHA = previous;
+    }
+  });
+});
 
 describe("computeForgeUpdateAvailability", () => {
   it("reports unavailable when GitHub lookup failed", () => {

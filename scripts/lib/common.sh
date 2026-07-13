@@ -412,11 +412,11 @@ init_forge_release_state() {
     return 0
   fi
 
-  local commit=""
+  local commit="${FORGE_COMMIT_SHA:-}"
   local source_dir="${FORGE_SOURCE_DIR:-/data/forge-source}"
-  if [[ -d "${source_dir}/.git" ]]; then
+  if [[ -z "$commit" && -d "${source_dir}/.git" ]]; then
     commit="$(git -C "$source_dir" rev-parse HEAD 2>/dev/null || true)"
-  elif [[ -d "${ROOT_DIR}/.git" ]]; then
+  elif [[ -z "$commit" && -d "${ROOT_DIR}/.git" ]]; then
     commit="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)"
   fi
 
