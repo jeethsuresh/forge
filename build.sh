@@ -49,6 +49,7 @@ done
 
 if has_compose_file; then
   source_sha="$(git rev-parse HEAD 2>/dev/null || date -Iseconds)"
+  export FORGE_COMMIT_SHA="${FORGE_COMMIT_SHA:-$source_sha}"
   compose_cmd build --build-arg "SOURCE_SHA=${source_sha}"
   image_id="$(resolve_compose_app_image_id || true)"
   if [[ -n "$image_id" ]]; then

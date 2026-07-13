@@ -29,6 +29,7 @@ import {
   isInProgressForgeUpdateStatus,
   parseTargetCommitFromUpdateLogs,
   resolveForgeBranchDeployAllowed,
+  resolveForgeRunningCommitSha,
   sidecarHasStarted,
 } from "@/lib/self-update-helpers";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
@@ -273,7 +274,7 @@ export async function getForgeStatus(): Promise<ForgeStatusView> {
 
   const config = getSelfRepoConfig();
   const releaseState = readReleaseState();
-  const runningCommitSha = releaseState?.stableCommitSha ?? null;
+  const runningCommitSha = resolveForgeRunningCommitSha(releaseState);
 
   let remoteCommitSha: string | null = null;
   let remoteCommitLookupFailed = false;
@@ -501,7 +502,7 @@ export async function startForgeUpdate(options?: {
   }
 
   const releaseState = readReleaseState();
-  const runningCommitSha = releaseState?.stableCommitSha ?? null;
+  const runningCommitSha = resolveForgeRunningCommitSha(releaseState);
 
   let remoteCommitSha: string | null = null;
   let remoteCommitLookupFailed = false;
@@ -611,7 +612,7 @@ export function getForgeHealthPayload(): { ok: true; commitSha: string | null } 
   const releaseState = readReleaseState();
   return {
     ok: true,
-    commitSha: releaseState?.stableCommitSha ?? null,
+    commitSha: resolveForgeRunningCommitSha(releaseState),
   };
 }
 

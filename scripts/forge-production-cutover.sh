@@ -73,6 +73,9 @@ fi
 export FORGE_IMAGE_TAG="$IMAGE_TAG"
 export HOST_PORT
 export COMPOSE_PROJECT_NAME="$COMPOSE_SLUG"
+if [[ -n "$COMMIT_SHA" ]]; then
+  export FORGE_COMMIT_SHA="$COMMIT_SHA"
+fi
 export_compose_env
 
 log "Production cutover starting (project=${COMPOSE_SLUG}, image=${IMAGE_TAG}, port=${HOST_PORT})"

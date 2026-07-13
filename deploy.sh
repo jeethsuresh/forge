@@ -68,6 +68,8 @@ remove_orphan_compose_container() {
 
 prepare_named_container_deploy
 
+export FORGE_COMMIT_SHA="${FORGE_COMMIT_SHA:-$(git rev-parse HEAD 2>/dev/null || true)}"
+
 if [[ "$DETACH" -eq 1 ]]; then
   compose_cmd up -d --force-recreate
 else

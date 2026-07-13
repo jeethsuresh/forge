@@ -20,6 +20,18 @@ export const FORGE_SIDECAR_STARTED_MARKER = "self-update orchestrator started";
 
 export const FORGE_UPDATE_SUCCESS_MARKER = "Update completed successfully";
 
+/** Commit SHA baked into or passed to the running Forge container at deploy time. */
+export function readForgeCommitShaEnv(): string | null {
+  const sha = process.env.FORGE_COMMIT_SHA?.trim();
+  return sha || null;
+}
+
+export function resolveForgeRunningCommitSha(
+  releaseState: { stableCommitSha: string } | null,
+): string | null {
+  return readForgeCommitShaEnv() ?? releaseState?.stableCommitSha ?? null;
+}
+
 export interface ForgeUpdateAvailabilityInput {
   runningCommitSha: string | null;
   remoteCommitSha: string | null;

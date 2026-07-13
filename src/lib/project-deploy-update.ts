@@ -6,6 +6,7 @@ import type { ProjectReleaseState } from "@/lib/deploy-rollback";
 import {
   computeForgeUpdateAvailability,
   resolveForgeBranchDeployAllowed,
+  resolveForgeRunningCommitSha,
   type ForgeUpdateAvailabilityResult,
 } from "@/lib/self-update-helpers";
 
@@ -47,7 +48,7 @@ export function deployedCommitShaForProjectBranch(
   releaseState: ProjectReleaseState | null,
 ): string | null {
   if (isForge) {
-    return releaseState?.stableCommitSha ?? null;
+    return resolveForgeRunningCommitSha(releaseState);
   }
   return getSuccessfulDeployCommitForBranch(project.id, branch);
 }

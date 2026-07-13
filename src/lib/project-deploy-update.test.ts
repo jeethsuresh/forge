@@ -138,6 +138,18 @@ describe("computeProjectDeployUpdate", () => {
 });
 
 describe("deployedCommitShaForProjectBranch", () => {
+  let previousCommitSha: string | undefined;
+
+  beforeEach(() => {
+    previousCommitSha = process.env.FORGE_COMMIT_SHA;
+    delete process.env.FORGE_COMMIT_SHA;
+  });
+
+  afterEach(() => {
+    if (previousCommitSha === undefined) delete process.env.FORGE_COMMIT_SHA;
+    else process.env.FORGE_COMMIT_SHA = previousCommitSha;
+  });
+
   it("reads stable commit for forge projects", () => {
     const project = {
       id: randomUUID(),
@@ -152,5 +164,22 @@ describe("deployedCommitShaForProjectBranch", () => {
         updatedAt: "2026-01-01T00:00:00.000Z",
       }),
     ).toBe("stable123");
+  });
+
+  it("prefers FORGE_COMMIT_SHA env for forge projects", () => {
+    process.env.FORGE_COMMIT_SHA = "envsha777";
+    const project = {
+      id: randomUUID(),
+      branch: "main",
+    } as typeof projects.$inferSelect;
+
+    expect(
+      deployedCommitShaForProjectBranch(project, "main", true, {
+        stableImageTag: "stable",
+        rollbackImageTag: "rollback",
+        stableCommitSha: "stable123",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      }),
+    ).toBe("envsha777");
   });
 });
