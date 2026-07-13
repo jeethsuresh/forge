@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -20,6 +21,10 @@ import {
 import { AgentMessageList } from "@/components/AgentMessageList";
 import { ActiveDeployLogsPanel } from "@/components/ActiveDeployLogsPanel";
 import type { ActiveDeployLogView } from "@/lib/active-deploy-logs";
+import {
+  agentSessionUncommittedDiffHref,
+  branchVsMainDiffHref,
+} from "@/lib/project-diff-url";
 
 interface AgentSession {
   id: string;
@@ -96,10 +101,12 @@ function sessionForBranch(
 
 export function AgentWorkspace({
   projectId,
+  watchBranch,
   className = "",
   initialSessionId = null,
 }: {
   projectId: string;
+  watchBranch: string;
   className?: string;
   initialSessionId?: string | null;
 }) {
@@ -1158,6 +1165,24 @@ export function AgentWorkspace({
                   >
                     Deploy
                   </button>
+                </>
+              )}
+              {selectedId && (
+                <>
+                  <Link
+                    href={agentSessionUncommittedDiffHref(projectId, selectedId)}
+                    className="min-h-9 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
+                  >
+                    View changes
+                  </Link>
+                  {selectedBranch && (
+                    <Link
+                      href={branchVsMainDiffHref(projectId, selectedBranch)}
+                      className="min-h-9 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
+                    >
+                      vs {watchBranch}
+                    </Link>
+                  )}
                 </>
               )}
               {selectedId && (
