@@ -79,6 +79,8 @@ describe("reconcileInterruptedDeployments", () => {
     } else {
       process.env.FORGE_RELEASE_STATE = previousReleaseState;
     }
+    delete process.env.FORGE_SELF_REPO;
+    delete process.env.FORGE_SOURCE_DIR;
   });
 
   it("marks interrupted forge deploys successful when release state matches", () => {
@@ -108,6 +110,33 @@ describe("reconcileInterruptedDeployments", () => {
       .get();
     expect(session?.status).toBe("completed");
     delete process.env.FORGE_SELF_REPO;
+  });
+
+  it("reconciles forge deploys via clone path when FORGE_SELF_REPO is unset", () => {
+    delete process.env.FORGE_SELF_REPO;
+    const sourceDir = join(tempDir, "forge-source");
+    process.env.FORGE_SOURCE_DIR = sourceDir;
+    db.update(projects)
+      .set({ clonePath: sourceDir })
+      .where(eq(projects.id, projectId))
+      .run();
+
+    const project = db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .get()!;
+    saveProjectReleaseState(projectId, "abc1234567890", project);
+
+    const count = reconcileInterruptedDeployments(projectId);
+    expect(count).toBe(1);
+
+    const deployment = db
+      .select()
+      .from(deployments)
+      .where(eq(deployments.id, deploymentId))
+      .get();
+    expect(deployment?.status).toBe("success");
   });
 
   it("leaves deploys alone when release state does not match", () => {
