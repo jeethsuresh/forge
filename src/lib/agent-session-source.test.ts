@@ -4,6 +4,7 @@ import {
   isIdleAgentSession,
   isInactiveAgentSessionStatus,
   resolveAgentSessionSource,
+  shouldAutoCompleteRecoverySession,
 } from "@/lib/agent-session-source";
 import { RECOVERY_PROMPT_PREFIX } from "@/lib/agent-session-source";
 
@@ -44,5 +45,33 @@ describe("agent session activity helpers", () => {
     expect(isIdleAgentSession("idle")).toBe(true);
     expect(isInactiveAgentSessionStatus("idle")).toBe(true);
     expect(isInactiveAgentSessionStatus("running")).toBe(false);
+  });
+});
+
+describe("shouldAutoCompleteRecoverySession", () => {
+  it("is true for recovery sessions", () => {
+    expect(
+      shouldAutoCompleteRecoverySession({
+        source: "recovery",
+        initialPrompt: "ignored",
+      }),
+    ).toBe(true);
+  });
+
+  it("is true for legacy recovery prompts", () => {
+    expect(
+      shouldAutoCompleteRecoverySession({
+        initialPrompt: `${RECOVERY_PROMPT_PREFIX} fix deploy`,
+      }),
+    ).toBe(true);
+  });
+
+  it("is false for manual sessions", () => {
+    expect(
+      shouldAutoCompleteRecoverySession({
+        source: "manual",
+        initialPrompt: "Add feature",
+      }),
+    ).toBe(false);
   });
 });

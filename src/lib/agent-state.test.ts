@@ -134,6 +134,94 @@ describe("reconcileProjectAgentSessions", () => {
     expect(getBlockingAgentSession(projectId)?.id).toBe(sessionId);
   });
 
+  it("completes finished recovery sessions so a new agent can start on the branch", () => {
+    const now = new Date();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "agent/test",
+        status: "running",
+        source: "recovery",
+        initialPrompt: "[deploy-recovery] fix deploy",
+        logs: "",
+        startedAt: now,
+      })
+      .run();
+    db.insert(agentEvents)
+      .values([
+        {
+          id: randomUUID(),
+          sessionId,
+          seq: 1,
+          eventType: "user",
+          payload: JSON.stringify({ type: "user", text: "[deploy-recovery] fix" }),
+          createdAt: now,
+        },
+        {
+          id: randomUUID(),
+          sessionId,
+          seq: 2,
+          eventType: "result",
+          payload: JSON.stringify({ type: "result" }),
+          createdAt: now,
+        },
+      ])
+      .run();
+
+    const count = reconcileProjectAgentSessions(projectId);
+    expect(count).toBe(1);
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    expect(session?.status).toBe("completed");
+    expect(session?.completedAt).not.toBeNull();
+    expect(session?.errorMessage).toBeNull();
+    expect(isAgentSessionActive(projectId)).toBe(false);
+    expect(getBlockingAgentSession(projectId)).toBeNull();
+  });
+
+  it("still fails incomplete recovery turns when no in-memory agent is active", () => {
+    const now = new Date();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "agent/test",
+        status: "running",
+        source: "recovery",
+        initialPrompt: "[deploy-recovery] fix deploy",
+        logs: "",
+        startedAt: now,
+      })
+      .run();
+    db.insert(agentEvents)
+      .values({
+        id: randomUUID(),
+        sessionId,
+        seq: 1,
+        eventType: "user",
+        payload: JSON.stringify({ type: "user", text: "[deploy-recovery] fix" }),
+        createdAt: now,
+      })
+      .run();
+
+    const count = reconcileProjectAgentSessions(projectId);
+    expect(count).toBe(1);
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    expect(session?.status).toBe("failed");
+    expect(session?.errorMessage).toBe("Agent session interrupted");
+    expect(isAgentSessionActive(projectId)).toBe(false);
+  });
+
   it("does not overwrite a reactivated session when applying an old deployment outcome", () => {
     const deploymentId = randomUUID();
     const now = new Date();

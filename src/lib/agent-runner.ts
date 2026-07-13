@@ -29,6 +29,7 @@ import {
   agentSessionSourceLabel,
   isInactiveAgentSessionStatus,
   resolveAgentSessionSource,
+  shouldAutoCompleteRecoverySession,
 } from "@/lib/agent-session-source";
 import {
   listLocalBranches,
@@ -289,6 +290,47 @@ async function maybeAutoFinishSessionIfNoEdits(
   log("No file edits in this session. Marking as finished.");
   updateSessionStatus(sessionId, "completed", { completedAt: new Date() });
   activeAgentProjects.delete(projectId);
+}
+
+/** Recovery agents are one-shot; complete them when the turn ends so they do not block new agents. */
+function maybeCompleteRecoverySessionAfterTurn(
+  sessionId: string,
+  projectId: string,
+): boolean {
+  const session = getAgentSession(sessionId);
+  if (!session || TERMINAL_STATUSES.includes(session.status)) return false;
+  if (!shouldAutoCompleteRecoverySession(session)) return false;
+
+  appendSessionLog(
+    sessionId,
+    "Deploy recovery agent finished. Session marked completed.",
+  );
+  updateSessionStatus(sessionId, "completed", {
+    completedAt: new Date(),
+    errorMessage: null,
+  });
+  activeAgentProjects.delete(projectId);
+  return true;
+}
+
+async function finalizeSessionAfterSuccessfulTurn(
+  sessionId: string,
+  projectId: string,
+): Promise<void> {
+  const afterTurn = getAgentSession(sessionId);
+  if (!afterTurn || TERMINAL_STATUSES.includes(afterTurn.status)) return;
+
+  if (maybeCompleteRecoverySessionAfterTurn(sessionId, projectId)) return;
+
+  await maybeAutoFinishSessionIfNoEdits(sessionId, projectId);
+  const refreshed = getAgentSession(sessionId);
+  if (
+    refreshed &&
+    refreshed.status !== "completed" &&
+    !TERMINAL_STATUSES.includes(refreshed.status)
+  ) {
+    updateSessionStatus(sessionId, "running");
+  }
 }
 
 export function reconcileStuckAgentSession(sessionId: string) {
@@ -664,18 +706,7 @@ async function executeAgentTurn(
     );
 
     await runAgentTurn(sessionId, project, prompt, options?.workspacePath);
-    const afterTurn = getAgentSession(sessionId);
-    if (afterTurn && !TERMINAL_STATUSES.includes(afterTurn.status)) {
-      await maybeAutoFinishSessionIfNoEdits(sessionId, projectId);
-      const refreshed = getAgentSession(sessionId);
-      if (
-        refreshed &&
-        refreshed.status !== "completed" &&
-        !TERMINAL_STATUSES.includes(refreshed.status)
-      ) {
-        updateSessionStatus(sessionId, "running");
-      }
-    }
+    await finalizeSessionAfterSuccessfulTurn(sessionId, projectId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log(`ERROR: ${message}`);
@@ -1098,18 +1129,7 @@ export async function sendAgentMessage(
       log,
     );
     await runAgentTurn(sessionId, project, prompt.trim());
-    const afterTurn = getAgentSession(sessionId);
-    if (afterTurn && !TERMINAL_STATUSES.includes(afterTurn.status)) {
-      await maybeAutoFinishSessionIfNoEdits(sessionId, session.projectId);
-      const refreshed = getAgentSession(sessionId);
-      if (
-        refreshed &&
-        refreshed.status !== "completed" &&
-        !TERMINAL_STATUSES.includes(refreshed.status)
-      ) {
-        updateSessionStatus(sessionId, "running");
-      }
-    }
+    await finalizeSessionAfterSuccessfulTurn(sessionId, session.projectId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     appendSessionLog(sessionId, `ERROR: ${message}`);

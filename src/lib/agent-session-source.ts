@@ -18,6 +18,14 @@ export function resolveAgentSessionSource(session: {
     : "manual";
 }
 
+/** Recovery turns are one-shot; auto-complete when the turn ends so they do not block new agents. */
+export function shouldAutoCompleteRecoverySession(session: {
+  source?: AgentSessionSource | string | null;
+  initialPrompt: string;
+}): boolean {
+  return resolveAgentSessionSource(session) === "recovery";
+}
+
 export function agentSessionSourceLabel(source: AgentSessionSource): string {
   return source === "recovery" ? "Deploy recovery" : "Manual";
 }

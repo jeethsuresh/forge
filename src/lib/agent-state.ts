@@ -9,7 +9,7 @@ import {
   isStuckActiveSession,
   isTerminalSessionStatus,
 } from "@/lib/agent-turn";
-import { isIdleAgentSession, resolveAgentSessionSource } from "@/lib/agent-session-source";
+import { isIdleAgentSession, resolveAgentSessionSource, shouldAutoCompleteRecoverySession } from "@/lib/agent-session-source";
 
 export const activeAgentProjects = new Set<string>();
 
@@ -128,6 +128,29 @@ function reconcileStaleActiveSessions(projectId: string): number {
     }
 
     const turnIncomplete = !isAgentTurnComplete(sessionEvents(session.id));
+
+    // Finished recovery turns should not linger as running and block new agents.
+    if (
+      session.status === "running" &&
+      !turnIncomplete &&
+      shouldAutoCompleteRecoverySession(session)
+    ) {
+      appendSessionLog(
+        session.id,
+        "Deploy recovery agent finished. Session marked completed.",
+      );
+      db.update(agentSessions)
+        .set({
+          status: "completed",
+          completedAt: new Date(),
+          errorMessage: null,
+        })
+        .where(eq(agentSessions.id, session.id))
+        .run();
+      reconciled += 1;
+      continue;
+    }
+
     const stuck = isStuckActiveSession({
       status: session.status,
       failedTurnStartSeq: session.failedTurnStartSeq,
