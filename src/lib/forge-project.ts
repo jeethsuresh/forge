@@ -30,18 +30,24 @@ export function isForgeSelfUpdateConfigured(): boolean {
 
 export function findForgeProject(): Project | null {
   const config = getForgeRepoConfig();
-  if (!config) return null;
-
   const rows = db.select().from(projects).all();
-  return (
-    rows.find((project) => {
-      try {
-        return parseGithubRepo(project.githubRepo) === config.repo;
-      } catch {
-        return project.githubRepo.trim() === config.repo;
-      }
-    }) ?? null
-  );
+
+  if (config) {
+    const byRepo =
+      rows.find((project) => {
+        try {
+          return parseGithubRepo(project.githubRepo) === config.repo;
+        } catch {
+          return project.githubRepo.trim() === config.repo;
+        }
+      }) ?? null;
+    if (byRepo) return byRepo;
+  }
+
+  // Cutover can wipe FORGE_SELF_REPO from the running container; still identify
+  // Forge by its canonical source checkout path so deploy reconcile can finish.
+  const sourceDir = forgeSourceDir();
+  return rows.find((project) => project.clonePath === sourceDir) ?? null;
 }
 
 export function isForgeProject(project: Project): boolean {

@@ -15,7 +15,7 @@ import {
   readForgeContainerName,
 } from "@/lib/docker-runtime";
 import { resolveForgeHostMounts } from "@/lib/forge-host-mounts";
-import { forgeSourceDir, isForgeProject } from "@/lib/forge-project";
+import { findForgeProject, forgeSourceDir, isForgeProject } from "@/lib/forge-project";
 import { runScript } from "@/lib/github";
 import { resolveClonePath } from "@/lib/paths";
 import { pickFreePort } from "@/lib/network-ports";
@@ -81,7 +81,7 @@ export function readProjectReleaseState(
   projectId: string,
   project?: Project,
 ): ProjectReleaseState | null {
-  if (project && isForgeProject(project)) {
+  if (project && (isForgeProject(project) || project.clonePath === forgeSourceDir())) {
     return readReleaseStateFile(forgeReleaseStatePath());
   }
   return readReleaseStateFile(releaseStatePath(projectId));
@@ -100,7 +100,7 @@ export function saveProjectReleaseState(
   };
   const payload = JSON.stringify(state, null, 2);
 
-  if (project && isForgeProject(project)) {
+  if (project && (isForgeProject(project) || project.clonePath === forgeSourceDir())) {
     const path = forgeReleaseStatePath();
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, payload);
@@ -376,6 +376,20 @@ async function spawnForgeProductionCutoverSidecar(options: {
     readForgeContainerName() ??
     composeAppContainerName(composeSlug);
 
+  // Prefer live env; fall back to the Forge project row when cutover previously
+  // wiped FORGE_SELF_* from the running container.
+  const forgeProject = findForgeProject();
+  const selfRepo =
+    process.env.FORGE_SELF_REPO?.trim() ||
+    scriptEnv.FORGE_SELF_REPO?.trim() ||
+    forgeProject?.githubRepo?.trim() ||
+    "";
+  const selfBranch =
+    process.env.FORGE_SELF_BRANCH?.trim() ||
+    scriptEnv.FORGE_SELF_BRANCH?.trim() ||
+    forgeProject?.branch?.trim() ||
+    "main";
+
   const args = [
     "run",
     "--rm",
@@ -411,6 +425,11 @@ async function spawnForgeProductionCutoverSidecar(options: {
     "-e",
     `FORGE_RELEASE_STATE=${process.env.FORGE_RELEASE_STATE ?? "/data/forge-release.json"}`,
   ];
+
+  if (selfRepo) {
+    args.push("-e", `FORGE_SELF_REPO=${selfRepo}`);
+    args.push("-e", `FORGE_SELF_BRANCH=${selfBranch}`);
+  }
 
   if (commitSha) {
     args.push("-e", `FORGE_RELEASE_COMMIT_SHA=${commitSha}`);

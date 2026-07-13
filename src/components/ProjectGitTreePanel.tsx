@@ -1,11 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GitTreeBranch, GitTreeCommit } from "@/lib/project-git-tree";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
+import type { GitTreeCommit } from "@/lib/project-git-tree";
 import {
   mergeGitGraphPages,
   type ProjectGitGraph,
 } from "@/lib/project-git-graph";
+import {
+  buildGraphLayout,
+  LANE_HEIGHT,
+  type GraphPreviewOp,
+} from "@/lib/project-git-graph-layout";
 import { formatRelativeTime } from "@/lib/utils";
 
 interface GitGraphResponse {
@@ -31,11 +44,6 @@ interface ProjectGitTreePanelProps {
   onOpenAgentSession?: (sessionId: string) => void;
 }
 
-const COL_WIDTH = 52;
-const LANE_HEIGHT = 36;
-const GRAPH_PADDING_X = 20;
-const GRAPH_PADDING_Y = 16;
-
 export function ProjectGitTreePanel({
   projectId,
   watchBranch,
@@ -47,14 +55,13 @@ export function ProjectGitTreePanel({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busyBranch, setBusyBranch] = useState<string | null>(null);
-  const [rebaseTargets, setRebaseTargets] = useState<Record<string, string>>(
-    {},
-  );
-  const [mergeTargets, setMergeTargets] = useState<Record<string, string>>({});
-  const [mergeDeleteLocal, setMergeDeleteLocal] = useState<
-    Record<string, boolean>
-  >({});
+  const [busy, setBusy] = useState(false);
+
+  const [mergeSource, setMergeSource] = useState("");
+  const [mergeTarget, setMergeTarget] = useState("");
+  const [mergeDeleteLocal, setMergeDeleteLocal] = useState(false);
+  const [rebaseSource, setRebaseSource] = useState("");
+  const [rebaseOnto, setRebaseOnto] = useState("");
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -143,26 +150,27 @@ export function ProjectGitTreePanel({
     alert(body.error ?? "Branch operation failed");
   }
 
-  async function runRebase(branch: GitTreeBranch) {
-    const onto = rebaseTargets[branch.name]?.trim();
-    if (!onto) {
-      alert("Choose a branch to rebase onto.");
+  async function runRebase() {
+    const branch = rebaseSource.trim();
+    const onto = rebaseOnto.trim();
+    if (!branch || !onto) {
+      alert("Choose both branches for rebase.");
       return;
     }
     if (
       !confirm(
-        `Rebase "${branch.name}" onto "${onto}"?\n\nThe branch will be pushed to origin before rebasing.`,
+        `Rebase "${branch}" onto "${onto}"?\n\nThe branch will be pushed to origin before rebasing.`,
       )
     ) {
       return;
     }
 
-    setBusyBranch(branch.name);
+    setBusy(true);
     try {
       const res = await fetch(`/api/projects/${projectId}/git-tree/rebase`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ branch: branch.name, onto }),
+        body: JSON.stringify({ branch, onto }),
       });
       const body = (await res.json()) as BranchOpsError;
       if (!res.ok) {
@@ -172,37 +180,37 @@ export function ProjectGitTreePanel({
       await refreshGraph();
       onRefreshProject?.();
     } finally {
-      setBusyBranch(null);
+      setBusy(false);
     }
   }
 
-  async function runMerge(branch: GitTreeBranch) {
-    const into = mergeTargets[branch.name]?.trim();
-    if (!into) {
-      alert("Choose a branch to merge into.");
+  async function runMerge() {
+    const branch = mergeSource.trim();
+    const into = mergeTarget.trim();
+    if (!branch || !into) {
+      alert("Choose both branches for merge.");
       return;
     }
-    const deleteLocal = mergeDeleteLocal[branch.name] === true;
-    const deleteNote = deleteLocal
+    const deleteNote = mergeDeleteLocal
       ? "\n\nThe local copy of the source branch will be deleted afterward (remote unchanged)."
       : "";
     if (
       !confirm(
-        `Merge "${branch.name}" into "${into}"?\n\nThe source branch will be pushed to origin before merging.${deleteNote}`,
+        `Merge "${branch}" into "${into}"?\n\nThe source branch will be pushed to origin before merging.${deleteNote}`,
       )
     ) {
       return;
     }
 
-    setBusyBranch(branch.name);
+    setBusy(true);
     try {
       const res = await fetch(`/api/projects/${projectId}/git-tree/merge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          branch: branch.name,
+          branch,
           into,
-          deleteLocal,
+          deleteLocal: mergeDeleteLocal,
         }),
       });
       const body = (await res.json()) as BranchOpsError;
@@ -213,16 +221,32 @@ export function ProjectGitTreePanel({
       await refreshGraph();
       onRefreshProject?.();
     } finally {
-      setBusyBranch(null);
+      setBusy(false);
     }
   }
 
   const branches = graph?.branches ?? [];
   const branchNames = branches.map((branch) => branch.name);
+
+  const previewOp = useMemo((): GraphPreviewOp => {
+    if (mergeSource && mergeTarget && mergeSource !== mergeTarget) {
+      return { kind: "merge", source: mergeSource, target: mergeTarget };
+    }
+    if (rebaseSource && rebaseOnto && rebaseSource !== rebaseOnto) {
+      return { kind: "rebase", source: rebaseSource, onto: rebaseOnto };
+    }
+    return null;
+  }, [mergeSource, mergeTarget, rebaseSource, rebaseOnto]);
+
   const layout = useMemo(
-    () => (graph ? buildGraphLayout(graph) : null),
-    [graph],
+    () => (graph ? buildGraphLayout(graph, previewOp) : null),
+    [graph, previewOp],
   );
+
+  const mergeDeleteDisabled =
+    !mergeSource ||
+    mergeSource === watchBranch ||
+    branches.find((b) => b.name === mergeSource)?.isWatchBranch === true;
 
   if (loading) {
     return (
@@ -267,7 +291,7 @@ export function ProjectGitTreePanel({
             setLoading(true);
             void refreshGraph().finally(() => setLoading(false));
           }}
-          disabled={disabled || busyBranch !== null || loadingMore}
+          disabled={disabled || busy || loadingMore}
           className="min-h-9 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
         >
           Refresh graph
@@ -279,107 +303,222 @@ export function ProjectGitTreePanel({
           No local branches found in the clone.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
-          <div className="flex min-h-[12rem] flex-col lg:flex-row">
-            <div className="shrink-0 divide-y divide-zinc-800 border-b border-zinc-800 lg:w-60 lg:border-b-0 lg:border-r">
-              {branches.map((branch) => (
-                <BranchControls
-                  key={branch.name}
-                  branch={branch}
-                  branchNames={branchNames}
-                  watchBranch={watchBranch}
-                  disabled={disabled || busyBranch !== null}
-                  busy={busyBranch === branch.name}
-                  rebaseTarget={rebaseTargets[branch.name] ?? ""}
-                  mergeTarget={mergeTargets[branch.name] ?? ""}
-                  deleteLocal={mergeDeleteLocal[branch.name] === true}
-                  onRebaseTargetChange={(value) =>
-                    setRebaseTargets((prev) => ({
-                      ...prev,
-                      [branch.name]: value,
-                    }))
-                  }
-                  onMergeTargetChange={(value) =>
-                    setMergeTargets((prev) => ({
-                      ...prev,
-                      [branch.name]: value,
-                    }))
-                  }
-                  onDeleteLocalChange={(checked) =>
-                    setMergeDeleteLocal((prev) => ({
-                      ...prev,
-                      [branch.name]: checked,
-                    }))
-                  }
-                  onRebase={() => void runRebase(branch)}
-                  onMerge={() => void runMerge(branch)}
-                />
-              ))}
-            </div>
+        <div className="space-y-3">
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3">
+            <h3 className="text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+              Merge & rebase
+            </h3>
+            <p className="mt-1 text-xs text-zinc-500">
+              Changing the dropdowns previews the result on the graph below.
+            </p>
 
-            <div
-              ref={scrollRef}
-              className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain"
-            >
-              {layout && layout.columns.length > 0 ? (
-                <div
-                  className="relative"
-                  style={{
-                    width: layout.width,
-                    height: layout.height,
+            <div className="mt-3 flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-zinc-400">Merge</span>
+                <select
+                  value={mergeSource}
+                  onChange={(e) => {
+                    setMergeSource(e.target.value);
+                    setRebaseSource("");
+                    setRebaseOnto("");
                   }}
+                  disabled={disabled || busy}
+                  className="min-h-9 min-w-[10rem] rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 font-mono text-xs text-zinc-200 disabled:opacity-50"
                 >
-                  <svg
-                    className="pointer-events-none absolute inset-0"
-                    width={layout.width}
-                    height={layout.height}
-                    aria-hidden
-                  >
-                    {layout.tracks.map((track) => (
-                      <path
-                        key={track.branch}
-                        d={track.path}
-                        fill="none"
-                        stroke={track.color}
-                        strokeWidth={2}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        opacity={0.85}
-                      />
-                    ))}
-                  </svg>
-
-                  {layout.nodes.map((node) => (
-                    <div
-                      key={node.sha}
-                      className="absolute -translate-x-1/2 -translate-y-1/2"
-                      style={{ left: node.x, top: node.y }}
-                    >
-                      <CommitNode
-                        commit={graph?.commits[node.sha]}
-                        isHead={node.isHead}
-                      />
-                    </div>
+                  <option value="">Select…</option>
+                  {branchNames.map((name) => (
+                    <option key={`merge-src-${name}`} value={name}>
+                      {name}
+                    </option>
                   ))}
-
-                  <div
-                    ref={sentinelRef}
-                    className="absolute top-0 h-full w-px"
-                    style={{ left: layout.width - 1 }}
-                    aria-hidden
+                </select>
+                <span className="text-xs text-zinc-400">into</span>
+                <select
+                  value={mergeTarget}
+                  onChange={(e) => {
+                    setMergeTarget(e.target.value);
+                    setRebaseSource("");
+                    setRebaseOnto("");
+                  }}
+                  disabled={disabled || busy || !mergeSource}
+                  className="min-h-9 min-w-[10rem] rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 font-mono text-xs text-zinc-200 disabled:opacity-50"
+                >
+                  <option value="">Select…</option>
+                  {branchNames
+                    .filter((name) => name !== mergeSource)
+                    .map((name) => (
+                      <option key={`merge-tgt-${name}`} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => void runMerge()}
+                  disabled={
+                    disabled || busy || !mergeSource || !mergeTarget
+                  }
+                  className="min-h-9 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  {busy ? "…" : "Merge"}
+                </button>
+                <label className="flex items-center gap-2 text-xs text-zinc-400">
+                  <input
+                    type="checkbox"
+                    checked={mergeDeleteLocal}
+                    onChange={(e) => setMergeDeleteLocal(e.target.checked)}
+                    disabled={disabled || busy || mergeDeleteDisabled}
+                    className="rounded border-zinc-600 bg-zinc-950"
                   />
-                </div>
-              ) : (
-                <div className="px-4 py-8 text-center text-sm text-zinc-600">
-                  No commits loaded yet.
-                </div>
-              )}
+                  Delete source locally after merge
+                </label>
+              </div>
 
-              {loadingMore && (
-                <div className="border-t border-zinc-800 px-4 py-2 text-center text-xs text-zinc-500">
-                  Loading older commits…
-                </div>
-              )}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-zinc-400">Rebase</span>
+                <select
+                  value={rebaseSource}
+                  onChange={(e) => {
+                    setRebaseSource(e.target.value);
+                    setMergeSource("");
+                    setMergeTarget("");
+                  }}
+                  disabled={disabled || busy}
+                  className="min-h-9 min-w-[10rem] rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 font-mono text-xs text-zinc-200 disabled:opacity-50"
+                >
+                  <option value="">Select…</option>
+                  {branchNames.map((name) => (
+                    <option key={`rebase-src-${name}`} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-zinc-400">onto</span>
+                <select
+                  value={rebaseOnto}
+                  onChange={(e) => {
+                    setRebaseOnto(e.target.value);
+                    setMergeSource("");
+                    setMergeTarget("");
+                  }}
+                  disabled={disabled || busy || !rebaseSource}
+                  className="min-h-9 min-w-[10rem] rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 font-mono text-xs text-zinc-200 disabled:opacity-50"
+                >
+                  <option value="">Select…</option>
+                  {branchNames
+                    .filter((name) => name !== rebaseSource)
+                    .map((name) => (
+                      <option key={`rebase-onto-${name}`} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => void runRebase()}
+                  disabled={
+                    disabled || busy || !rebaseSource || !rebaseOnto
+                  }
+                  className="min-h-9 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  {busy ? "…" : "Rebase"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900">
+            <div className="flex min-h-[12rem] flex-col lg:flex-row">
+              <div className="shrink-0 border-b border-zinc-800 lg:w-56 lg:border-b-0 lg:border-r">
+                {branches.map((branch) => (
+                  <div
+                    key={branch.name}
+                    className="flex items-center gap-2 px-4"
+                    style={{ height: LANE_HEIGHT }}
+                  >
+                    <span className="truncate font-mono text-xs text-zinc-100">
+                      {branch.name}
+                    </span>
+                    {branch.isWatchBranch && (
+                      <span className="shrink-0 rounded border border-orange-400/20 bg-orange-400/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-orange-300">
+                        watch
+                      </span>
+                    )}
+                    {branch.unpushed && (
+                      <span className="shrink-0 rounded border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
+                        unpushed
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div
+                ref={scrollRef}
+                className="min-w-0 flex-1 overflow-x-auto overscroll-x-contain"
+              >
+                {layout && layout.columns.length > 0 ? (
+                  <div
+                    className="relative"
+                    style={{
+                      width: layout.width,
+                      height: layout.height,
+                    }}
+                  >
+                    <svg
+                      className="pointer-events-none absolute inset-0"
+                      width={layout.width}
+                      height={layout.height}
+                      aria-hidden
+                    >
+                      {layout.tracks.map((track) => (
+                        <path
+                          key={track.branch}
+                          d={track.path}
+                          fill="none"
+                          stroke={track.color}
+                          strokeWidth={2}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeDasharray={track.dashed ? "6 4" : undefined}
+                          opacity={track.dashed ? 0.95 : 0.85}
+                        />
+                      ))}
+                    </svg>
+
+                    {layout.nodes.map((node) => (
+                      <div
+                        key={`${node.sha}-${node.x}-${node.y}`}
+                        className="absolute -translate-x-1/2 -translate-y-1/2"
+                        style={{ left: node.x, top: node.y }}
+                      >
+                        <CommitNode
+                          commit={graph?.commits[node.sha]}
+                          isHead={node.isHead}
+                          preview={!graph?.commits[node.sha]}
+                        />
+                      </div>
+                    ))}
+
+                    <div
+                      ref={sentinelRef}
+                      className="absolute top-0 h-full w-px"
+                      style={{ left: layout.width - 1 }}
+                      aria-hidden
+                    />
+                  </div>
+                ) : (
+                  <div className="px-4 py-8 text-center text-sm text-zinc-600">
+                    No commits loaded yet.
+                  </div>
+                )}
+
+                {loadingMore && (
+                  <div className="border-t border-zinc-800 px-4 py-2 text-center text-xs text-zinc-500">
+                    Loading older commits…
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -388,243 +527,95 @@ export function ProjectGitTreePanel({
   );
 }
 
-function BranchControls({
-  branch,
-  branchNames,
-  watchBranch,
-  disabled,
-  busy,
-  rebaseTarget,
-  mergeTarget,
-  deleteLocal,
-  onRebaseTargetChange,
-  onMergeTargetChange,
-  onDeleteLocalChange,
-  onRebase,
-  onMerge,
-}: {
-  branch: GitTreeBranch;
-  branchNames: string[];
-  watchBranch: string;
-  disabled: boolean;
-  busy: boolean;
-  rebaseTarget: string;
-  mergeTarget: string;
-  deleteLocal: boolean;
-  onRebaseTargetChange: (value: string) => void;
-  onMergeTargetChange: (value: string) => void;
-  onDeleteLocalChange: (checked: boolean) => void;
-  onRebase: () => void;
-  onMerge: () => void;
-}) {
-  const otherBranches = branchNames.filter((name) => name !== branch.name);
-
-  return (
-    <div className="flex flex-col gap-2 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-sm text-zinc-100">{branch.name}</span>
-        {branch.isWatchBranch && (
-          <span className="rounded border border-orange-400/20 bg-orange-400/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-orange-300">
-            watch
-          </span>
-        )}
-        {branch.unpushed && (
-          <span className="rounded border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
-            unpushed
-          </span>
-        )}
-      </div>
-
-      <label className="flex flex-col gap-1">
-        <span className="text-[10px] uppercase tracking-wide text-zinc-500">
-          Rebase onto
-        </span>
-        <div className="flex gap-1">
-          <select
-            value={rebaseTarget}
-            onChange={(e) => onRebaseTargetChange(e.target.value)}
-            disabled={disabled || busy || otherBranches.length === 0}
-            className="min-h-9 min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 font-mono text-xs text-zinc-200 disabled:opacity-50"
-          >
-            <option value="">Select…</option>
-            {otherBranches.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={onRebase}
-            disabled={disabled || busy || !rebaseTarget}
-            className="min-h-9 shrink-0 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-          >
-            {busy ? "…" : "Rebase"}
-          </button>
-        </div>
-      </label>
-
-      <label className="flex flex-col gap-1">
-        <span className="text-[10px] uppercase tracking-wide text-zinc-500">
-          Merge into
-        </span>
-        <div className="flex gap-1">
-          <select
-            value={mergeTarget}
-            onChange={(e) => onMergeTargetChange(e.target.value)}
-            disabled={disabled || busy || otherBranches.length === 0}
-            className="min-h-9 min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 font-mono text-xs text-zinc-200 disabled:opacity-50"
-          >
-            <option value="">Select…</option>
-            {otherBranches.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={onMerge}
-            disabled={disabled || busy || !mergeTarget}
-            className="min-h-9 shrink-0 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-          >
-            {busy ? "…" : "Merge"}
-          </button>
-        </div>
-      </label>
-
-      <label className="flex items-center gap-2 text-xs text-zinc-400">
-        <input
-          type="checkbox"
-          checked={deleteLocal}
-          onChange={(e) => onDeleteLocalChange(e.target.checked)}
-          disabled={
-            disabled ||
-            busy ||
-            branch.isWatchBranch ||
-            branch.name === watchBranch
-          }
-          className="rounded border-zinc-600 bg-zinc-950"
-        />
-        Merge and delete branch (local only)
-      </label>
-    </div>
-  );
-}
-
-const BRANCH_COLORS = [
-  "#fb923c",
-  "#38bdf8",
-  "#a78bfa",
-  "#34d399",
-  "#f472b6",
-  "#facc15",
-];
-
-function buildGraphLayout(graph: ProjectGitGraph) {
-  const branchOrder = graph.branches.map((branch) => branch.name);
-  const laneByBranch = new Map(
-    branchOrder.map((name, index) => [name, index] as const),
-  );
-  const shaToColumn = new Map(
-    graph.columns.map((sha, index) => [sha, index] as const),
-  );
-  const branchHeads = new Set(
-    graph.branches.map((branch) => branch.headSha).filter(Boolean),
-  );
-
-  const nodeLanes = new Map<string, number[]>();
-  for (const [branchName, path] of Object.entries(graph.branchPaths)) {
-    const lane = laneByBranch.get(branchName);
-    if (lane === undefined) continue;
-    for (const sha of path) {
-      const lanes = nodeLanes.get(sha) ?? [];
-      lanes.push(lane);
-      nodeLanes.set(sha, lanes);
-    }
-  }
-
-  const nodes = graph.columns.map((sha) => {
-    const column = shaToColumn.get(sha) ?? 0;
-    const lanes = nodeLanes.get(sha) ?? [0];
-    const lane =
-      lanes.reduce((sum, value) => sum + value, 0) / Math.max(lanes.length, 1);
-    return {
-      sha,
-      x: GRAPH_PADDING_X + column * COL_WIDTH,
-      y: GRAPH_PADDING_Y + lane * LANE_HEIGHT + LANE_HEIGHT / 2,
-      isHead: branchHeads.has(sha),
-    };
-  });
-
-  const nodeBySha = new Map(nodes.map((node) => [node.sha, node] as const));
-  const tracks = branchOrder.map((branchName, index) => {
-    const path = graph.branchPaths[branchName] ?? [];
-    const points = path
-      .map((sha) => nodeBySha.get(sha))
-      .filter((node): node is NonNullable<typeof node> => node !== undefined);
-    const pathData =
-      points.length === 0
-        ? ""
-        : `M ${points.map((point) => `${point.x},${point.y}`).join(" L ")}`;
-    return {
-      branch: branchName,
-      path: pathData,
-      color: BRANCH_COLORS[index % BRANCH_COLORS.length] ?? "#94a3b8",
-    };
-  });
-
-  const width =
-    GRAPH_PADDING_X * 2 +
-    Math.max(graph.columns.length - 1, 0) * COL_WIDTH +
-    COL_WIDTH;
-  const height =
-    GRAPH_PADDING_Y * 2 +
-    Math.max(branchOrder.length, 1) * LANE_HEIGHT;
-
-  return {
-    columns: graph.columns,
-    nodes,
-    tracks,
-    width,
-    height,
-  };
-}
-
 function CommitNode({
   commit,
   isHead,
+  preview = false,
 }: {
   commit: GitTreeCommit | undefined;
   isHead: boolean;
+  preview?: boolean;
 }) {
-  if (!commit) {
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [coords, setCoords] = useState<{
+    left: number;
+    top: number;
+    placeBelow: boolean;
+  } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !anchorRef.current) {
+      setCoords(null);
+      return;
+    }
+    const rect = anchorRef.current.getBoundingClientRect();
+    const placeBelow = rect.top < 120;
+    setCoords({
+      left: rect.left + rect.width / 2,
+      top: placeBelow ? rect.bottom + 8 : rect.top - 8,
+      placeBelow,
+    });
+  }, [open]);
+
+  if (!commit && !preview) {
     return (
       <div className="h-7 w-7 shrink-0 rounded-full border border-zinc-700 bg-zinc-950" />
     );
   }
 
-  const title = `${commit.shortSha} — ${commit.subject}\n${commit.authorDate ? formatRelativeTime(commit.authorDate) : ""}`;
+  if (!commit) {
+    return (
+      <div className="h-6 w-6 shrink-0 rounded-full border border-dashed border-amber-400/50 bg-amber-400/10" />
+    );
+  }
+
+  const title = `${commit.shortSha} — ${commit.subject}`;
 
   return (
-    <div
-      title={title}
-      className={`group relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full border font-mono text-[9px] ${
-        isHead
-          ? "border-orange-400/40 bg-orange-400/15 text-orange-200"
-          : "border-zinc-600 bg-zinc-950 text-zinc-400"
-      }`}
-    >
-      {commit.shortSha.slice(0, 4)}
-      <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 hidden w-56 -translate-x-1/2 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-left text-[10px] normal-case text-zinc-300 shadow-lg group-hover:block">
-        <div className="font-mono text-orange-300">{commit.shortSha}</div>
-        <div className="mt-0.5 line-clamp-2">{commit.subject || "(no subject)"}</div>
-        {commit.authorDate && (
-          <div className="mt-1 text-zinc-500">
-            {formatRelativeTime(commit.authorDate)}
-          </div>
-        )}
+    <>
+      <div
+        ref={anchorRef}
+        title={title}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        tabIndex={0}
+        className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-full border font-mono text-[9px] outline-none ${
+          isHead
+            ? "border-orange-400/40 bg-orange-400/15 text-orange-200"
+            : "border-zinc-600 bg-zinc-950 text-zinc-400"
+        }`}
+      >
+        {commit.shortSha.slice(0, 4)}
       </div>
-    </div>
+      {open &&
+        coords &&
+        createPortal(
+          <div
+            className="pointer-events-none fixed z-[100] w-56 -translate-x-1/2 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-left text-[10px] normal-case text-zinc-300 shadow-lg"
+            style={{
+              left: coords.left,
+              top: coords.top,
+              transform: coords.placeBelow
+                ? "translate(-50%, 0)"
+                : "translate(-50%, -100%)",
+            }}
+            role="tooltip"
+          >
+            <div className="font-mono text-orange-300">{commit.shortSha}</div>
+            <div className="mt-0.5 whitespace-normal break-words">
+              {commit.subject || "(no subject)"}
+            </div>
+            {commit.authorDate && (
+              <div className="mt-1 text-zinc-500">
+                {formatRelativeTime(commit.authorDate)}
+              </div>
+            )}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }

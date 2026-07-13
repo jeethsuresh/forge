@@ -16,10 +16,12 @@ describe("forge-project", () => {
   const ids: string[] = [];
   let previousRepo: string | undefined;
   let previousBranch: string | undefined;
+  let previousSourceDir: string | undefined;
 
   beforeEach(() => {
     previousRepo = process.env.FORGE_SELF_REPO;
     previousBranch = process.env.FORGE_SELF_BRANCH;
+    previousSourceDir = process.env.FORGE_SOURCE_DIR;
   });
 
   afterEach(() => {
@@ -36,6 +38,11 @@ describe("forge-project", () => {
       delete process.env.FORGE_SELF_BRANCH;
     } else {
       process.env.FORGE_SELF_BRANCH = previousBranch;
+    }
+    if (previousSourceDir === undefined) {
+      delete process.env.FORGE_SOURCE_DIR;
+    } else {
+      process.env.FORGE_SOURCE_DIR = previousSourceDir;
     }
   });
 
@@ -83,5 +90,30 @@ describe("forge-project", () => {
 
     const ensured = ensureForgeProject();
     expect(ensured?.id).toBe(id);
+  });
+
+  it("finds Forge by clone path when FORGE_SELF_REPO is missing", () => {
+    delete process.env.FORGE_SELF_REPO;
+    const id = randomUUID();
+    const now = new Date();
+    const sourceDir = "/data/forge-source";
+    process.env.FORGE_SOURCE_DIR = sourceDir;
+    db.insert(projects)
+      .values({
+        id,
+        name: FORGE_DISPLAY_NAME,
+        githubRepo: "acme/forge",
+        branch: "main",
+        clonePath: sourceDir,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    ids.push(id);
+
+    const found = findForgeProject();
+    expect(found?.id).toBe(id);
+    expect(isForgeProject(found!)).toBe(true);
   });
 });
