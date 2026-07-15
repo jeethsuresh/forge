@@ -84,6 +84,11 @@ export function isIdleAgentSession(status: string): boolean {
   return status === "idle";
 }
 
+/** Session is waiting in the project agent queue — does not require a live process. */
+export function isQueuedAgentSessionStatus(status: string): boolean {
+  return status === "queued";
+}
+
 /** UI treats these as inactive for follow-up vs new-message forms. */
 export const INACTIVE_AGENT_SESSION_STATUSES = [
   "idle",

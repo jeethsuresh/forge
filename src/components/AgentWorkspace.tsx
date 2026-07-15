@@ -18,7 +18,7 @@ import {
   agentSessionSourceBadgeClass,
   isInactiveAgentSessionStatus,
 } from "@/lib/agent-session-source";
-import { isQueuedAgentSessionStatus } from "@/lib/agent-queue";
+import { isQueuedAgentSessionStatus } from "@/lib/agent-session-source";
 import { AgentMessageList } from "@/components/AgentMessageList";
 import { ActiveDeployLogsPanel } from "@/components/ActiveDeployLogsPanel";
 import type { ActiveDeployLogView } from "@/lib/active-deploy-logs";

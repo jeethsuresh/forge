@@ -2,10 +2,9 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { agentSessions } from "@/lib/db/schema";
 import { activeAgentProjects, isAgentSessionActive } from "@/lib/agent-state";
+import { isQueuedAgentSessionStatus } from "@/lib/agent-session-source";
 
-export function isQueuedAgentSessionStatus(status: string): boolean {
-  return status === "queued";
-}
+export { isQueuedAgentSessionStatus };
 
 export function listQueuedAgentSessions(projectId: string) {
   return db

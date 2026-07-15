@@ -114,17 +114,21 @@ export function ProjectDiffPanel({
   }, [projectId, queryString]);
 
   useEffect(() => {
-    void fetchDiff();
+    queueMicrotask(() => {
+      void fetchDiff();
+    });
   }, [fetchDiff]);
 
   useEffect(() => {
-    setSelectedFile(searchParams.get("file"));
-    setBase(searchParams.get("base") ?? "");
-    setHead(searchParams.get("head") ?? "");
-    setBranch(searchParams.get("branch") ?? watchBranch);
-    setSource(searchParams.get("source") ?? "");
-    setOnto(searchParams.get("onto") ?? watchBranch);
-    setTarget(searchParams.get("target") ?? watchBranch);
+    queueMicrotask(() => {
+      setSelectedFile(searchParams.get("file"));
+      setBase(searchParams.get("base") ?? "");
+      setHead(searchParams.get("head") ?? "");
+      setBranch(searchParams.get("branch") ?? watchBranch);
+      setSource(searchParams.get("source") ?? "");
+      setOnto(searchParams.get("onto") ?? watchBranch);
+      setTarget(searchParams.get("target") ?? watchBranch);
+    });
   }, [searchParams, watchBranch]);
 
   function replaceDiffUrl(

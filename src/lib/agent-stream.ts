@@ -33,7 +33,6 @@ interface StreamEvent {
     role?: string;
     content?: Array<{ type?: string; text?: string }>;
   };
-  text?: string;
   stdout?: string;
   stderr?: string;
   stream?: string;
