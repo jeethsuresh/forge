@@ -4,11 +4,11 @@ import { db } from "@/lib/db";
 import { projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
 import { branchOpsBlockedResponse } from "@/lib/git-tree-branch-ops";
-import { mergeProjectBranch } from "@/lib/project-git-tree";
+import { pushAllUnpushedBranches } from "@/lib/project-git-tree";
 import { invalidateProjectBranches } from "@/lib/project-branches-cache";
 
 export async function POST(
-  request: Request,
+  _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const session = await getSession();
@@ -25,30 +25,12 @@ export async function POST(
   const blocked = branchOpsBlockedResponse(id);
   if (blocked) return blocked;
 
-  const body = (await request.json()) as {
-    branch?: string;
-    into?: string;
-    deleteLocal?: boolean;
-  };
-  const branch = body.branch?.trim() ?? "";
-  const into = body.into?.trim() ?? "";
-  const deleteLocal = body.deleteLocal === true;
-  if (!branch || !into) {
-    return NextResponse.json(
-      { error: "branch and into are required" },
-      { status: 400 },
-    );
-  }
-
   try {
-    await mergeProjectBranch(project.clonePath, branch, into, {
-      deleteLocal,
-      watchBranch: project.branch,
-    });
+    const result = await pushAllUnpushedBranches(project.clonePath);
     invalidateProjectBranches(id);
-    return NextResponse.json({ success: true, branch, into, deleteLocal });
+    return NextResponse.json(result);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Merge failed";
+    const message = err instanceof Error ? err.message : "Push all failed";
     return NextResponse.json({ error: message }, { status: 409 });
   }
 }

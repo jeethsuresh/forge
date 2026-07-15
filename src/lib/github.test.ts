@@ -267,6 +267,57 @@ describe("hasUnpushedCommits", () => {
   });
 });
 
+describe("hasRemotePushConflict", () => {
+  it("returns true when local and remote have diverged", async () => {
+    const root = await mkdtemp(join(tmpdir(), "forge-git-diverge-"));
+    const bareDir = join(root, "remote.git");
+    const workDir = join(root, "work");
+    try {
+      await runGit(root, ["init", "--bare", bareDir]);
+      await runGit(root, ["clone", bareDir, workDir]);
+      await runGit(workDir, ["checkout", "-b", "main"]);
+      await runGit(workDir, ["config", "user.email", "test@example.com"]);
+      await runGit(workDir, ["config", "user.name", "Test"]);
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "init"]);
+      await runGit(workDir, ["push", "-u", "origin", "main"]);
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "local"]);
+      const cloneDir = join(root, "other");
+      await runGit(root, ["clone", bareDir, cloneDir]);
+      await runGit(cloneDir, ["config", "user.email", "test@example.com"]);
+      await runGit(cloneDir, ["config", "user.name", "Test"]);
+      await runGit(cloneDir, ["commit", "--allow-empty", "-m", "remote"]);
+      await runGit(cloneDir, ["push", "origin", "main"]);
+      await runGit(workDir, ["fetch", "origin"]);
+
+      const { hasRemotePushConflict } = await import("@/lib/github");
+      expect(await hasRemotePushConflict(workDir, "main")).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("returns false when local is simply ahead", async () => {
+    const root = await mkdtemp(join(tmpdir(), "forge-git-ahead-only-"));
+    const bareDir = join(root, "remote.git");
+    const workDir = join(root, "work");
+    try {
+      await runGit(root, ["init", "--bare", bareDir]);
+      await runGit(root, ["clone", bareDir, workDir]);
+      await runGit(workDir, ["checkout", "-b", "main"]);
+      await runGit(workDir, ["config", "user.email", "test@example.com"]);
+      await runGit(workDir, ["config", "user.name", "Test"]);
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "init"]);
+      await runGit(workDir, ["push", "-u", "origin", "main"]);
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "ahead"]);
+
+      const { hasRemotePushConflict } = await import("@/lib/github");
+      expect(await hasRemotePushConflict(workDir, "main")).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("validateBranchName", () => {
   it("accepts common branch names", async () => {
     const { validateBranchName } = await import("@/lib/github");

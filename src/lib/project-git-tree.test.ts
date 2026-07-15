@@ -131,6 +131,39 @@ describe("mergeProjectBranch", () => {
   });
 });
 
+describe("pushAllUnpushedBranches", () => {
+  it("pushes all unpushed branches and skips remote conflicts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "forge-git-tree-push-all-"));
+    try {
+      const { workDir, bareDir } = await initRepoWithMain(root);
+      await runGit(workDir, ["checkout", "-b", "feature/clean"]);
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "clean local"]);
+      await runGit(workDir, ["checkout", "-b", "feature/conflict"]);
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "local diverge"]);
+      await runGit(workDir, ["push", "-u", "origin", "feature/conflict"]);
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "more local"]);
+      const cloneDir = join(root, "remote-clone");
+      await runGit(root, ["clone", bareDir, cloneDir]);
+      await runGit(cloneDir, ["checkout", "feature/conflict"]);
+      await runGit(cloneDir, ["commit", "--allow-empty", "-m", "remote diverge"]);
+      await runGit(cloneDir, ["push", "origin", "feature/conflict"]);
+      await runGit(workDir, ["fetch", "origin"]);
+
+      const { pushAllUnpushedBranches, hasUnpushedCommits } = await import(
+        "@/lib/project-git-tree"
+      );
+      const result = await pushAllUnpushedBranches(workDir);
+
+      expect(result.pushed).toEqual(["feature/clean"]);
+      expect(result.conflicts).toEqual(["feature/conflict"]);
+      expect(await hasUnpushedCommits(workDir, "feature/clean")).toBe(false);
+      expect(await hasUnpushedCommits(workDir, "feature/conflict")).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("validateBranchOperation", () => {
   it("rejects identical source and target branches", async () => {
     const { validateBranchOperation } = await import("@/lib/project-git-tree");

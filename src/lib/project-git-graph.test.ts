@@ -29,6 +29,7 @@ function branchMeta(name: string, headSha: string): GitTreeBranch {
     isLocal: true,
     hasRemote: true,
     unpushed: false,
+    remoteConflict: false,
     isWatchBranch: name === "main",
   };
 }

@@ -56,6 +56,8 @@ export function ProjectGitTreePanel({
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pushingAll, setPushingAll] = useState(false);
+  const [resolvingConflicts, setResolvingConflicts] = useState(false);
 
   const [mergeSource, setMergeSource] = useState("");
   const [mergeTarget, setMergeTarget] = useState("");
@@ -150,6 +152,105 @@ export function ProjectGitTreePanel({
     alert(body.error ?? "Branch operation failed");
   }
 
+  async function runPushAll() {
+    const branchList = graph?.branches ?? [];
+    const unpushedCount = branchList.filter((b) => b.unpushed && !b.remoteConflict).length;
+    const conflictCount = branchList.filter((b) => b.remoteConflict).length;
+    let message = `Push all unpushed branches to origin?`;
+    if (conflictCount > 0) {
+      message += `\n\n${conflictCount} branch${conflictCount === 1 ? "" : "es"} with remote conflicts will be skipped.`;
+    }
+    if (unpushedCount === 0 && conflictCount === 0) {
+      alert("No unpushed branches to push.");
+      return;
+    }
+    if (unpushedCount === 0 && conflictCount > 0) {
+      alert(
+        `All unpushed branches have remote conflicts. Use "Resolve conflicts via agent" instead.`,
+      );
+      return;
+    }
+    if (!confirm(message)) return;
+
+    setPushingAll(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/git-tree/push-all`, {
+        method: "POST",
+      });
+      const body = (await res.json()) as BranchOpsError & {
+        pushed?: string[];
+        conflicts?: string[];
+        errors?: { branch: string; message: string }[];
+      };
+      if (!res.ok) {
+        await handleBranchOpError(res, body);
+        return;
+      }
+      const pushed = body.pushed ?? [];
+      const conflicts = body.conflicts ?? [];
+      const errors = body.errors ?? [];
+      const parts: string[] = [];
+      if (pushed.length > 0) {
+        parts.push(`Pushed: ${pushed.join(", ")}`);
+      }
+      if (conflicts.length > 0) {
+        parts.push(
+          `Skipped (remote conflict): ${conflicts.join(", ")}`,
+        );
+      }
+      if (errors.length > 0) {
+        parts.push(
+          `Failed: ${errors.map((e) => `${e.branch} (${e.message})`).join("; ")}`,
+        );
+      }
+      if (parts.length > 0) alert(parts.join("\n"));
+      await refreshGraph();
+      onRefreshProject?.();
+    } finally {
+      setPushingAll(false);
+    }
+  }
+
+  async function runResolveConflicts() {
+    const conflictBranches = (graph?.branches ?? []).filter((b) => b.remoteConflict);
+    if (conflictBranches.length === 0) return;
+
+    const branchList = conflictBranches.map((b) => b.name).join(", ");
+    if (
+      !confirm(
+        `Start an agent on the first conflicted branch to resolve remote divergence?\n\nConflicted branches: ${branchList}`,
+      )
+    ) {
+      return;
+    }
+
+    setResolvingConflicts(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/git-tree/resolve-conflicts`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      const body = (await res.json()) as BranchOpsError & {
+        sessionId?: string;
+        branch?: string;
+        conflictBranches?: string[];
+      };
+      if (!res.ok) {
+        await handleBranchOpError(res, body);
+        return;
+      }
+      if (body.sessionId && onOpenAgentSession) {
+        onOpenAgentSession(body.sessionId);
+      }
+    } finally {
+      setResolvingConflicts(false);
+    }
+  }
+
   async function runRebase() {
     const branch = rebaseSource.trim();
     const onto = rebaseOnto.trim();
@@ -227,6 +328,9 @@ export function ProjectGitTreePanel({
 
   const branches = graph?.branches ?? [];
   const branchNames = branches.map((branch) => branch.name);
+  const unpushedBranches = branches.filter((b) => b.unpushed);
+  const conflictBranches = branches.filter((b) => b.remoteConflict);
+  const hasPushableUnpushed = unpushedBranches.some((b) => !b.remoteConflict);
 
   const previewOp = useMemo((): GraphPreviewOp => {
     if (mergeSource && mergeTarget && mergeSource !== mergeTarget) {
@@ -285,17 +389,48 @@ export function ProjectGitTreePanel({
             One timeline across all branches. Scroll right to load older commits.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setLoading(true);
-            void refreshGraph().finally(() => setLoading(false));
-          }}
-          disabled={disabled || busy || loadingMore}
-          className="min-h-9 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-        >
-          Refresh graph
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {conflictBranches.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void runResolveConflicts()}
+              disabled={
+                disabled || busy || loadingMore || pushingAll || resolvingConflicts
+              }
+              className="min-h-9 rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-1.5 text-xs text-red-200 hover:bg-red-400/15 disabled:opacity-50"
+            >
+              {resolvingConflicts
+                ? "…"
+                : `Resolve conflicts via agent (${conflictBranches.length})`}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void runPushAll()}
+            disabled={
+              disabled ||
+              busy ||
+              loadingMore ||
+              pushingAll ||
+              resolvingConflicts ||
+              !hasPushableUnpushed
+            }
+            className="min-h-9 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-400/15 disabled:opacity-50"
+          >
+            {pushingAll ? "…" : "Push all unpushed"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setLoading(true);
+              void refreshGraph().finally(() => setLoading(false));
+            }}
+            disabled={disabled || busy || loadingMore || pushingAll || resolvingConflicts}
+            className="min-h-9 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+          >
+            Refresh graph
+          </button>
+        </div>
       </div>
 
       {branches.length === 0 ? (
@@ -444,9 +579,14 @@ export function ProjectGitTreePanel({
                         watch
                       </span>
                     )}
-                    {branch.unpushed && (
+                    {branch.unpushed && !branch.remoteConflict && (
                       <span className="shrink-0 rounded border border-amber-400/20 bg-amber-400/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-300">
                         unpushed
+                      </span>
+                    )}
+                    {branch.remoteConflict && (
+                      <span className="shrink-0 rounded border border-red-400/20 bg-red-400/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-red-300">
+                        conflict with remote
                       </span>
                     )}
                   </div>

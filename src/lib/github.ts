@@ -394,13 +394,48 @@ export async function hasUnpushedCommits(
       cwd: resolvedPath,
     });
     const { stdout } = await execGit(
-      ["rev-list", "--count", `origin/${branch}..HEAD`],
+      ["rev-list", "--count", `origin/${branch}..${branch}`],
       { cwd: resolvedPath },
     );
     return parseInt(stdout.trim(), 10) > 0;
   } catch {
     return (await getLocalCommitSha(resolvedPath)) !== null;
   }
+}
+
+export async function hasRemotePushConflict(
+  clonePath: string,
+  branch: string,
+): Promise<boolean> {
+  const resolvedPath = resolveClonePath(clonePath);
+  if (!existsSync(resolvedPath)) return false;
+
+  try {
+    await execGit(["rev-parse", "--verify", `origin/${branch}`], {
+      cwd: resolvedPath,
+    });
+  } catch {
+    return false;
+  }
+
+  const { stdout } = await execGit(
+    ["rev-list", "--left-right", "--count", `origin/${branch}...${branch}`],
+    { cwd: resolvedPath },
+  );
+  const parts = stdout.trim().split(/\s+/);
+  if (parts.length !== 2) return false;
+  const behind = parseInt(parts[0]!, 10);
+  const ahead = parseInt(parts[1]!, 10);
+  return behind > 0 && ahead > 0;
+}
+
+export function isNonFastForwardPushError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("non-fast-forward") ||
+    lower.includes("fetch first") ||
+    lower.includes("failed to push some refs")
+  );
 }
 
 export function buildAgentCommitMessage(initialPrompt: string): string {

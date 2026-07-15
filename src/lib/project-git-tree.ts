@@ -3,7 +3,9 @@ import { existsSync } from "fs";
 import { promisify } from "util";
 import {
   formatGitError,
+  hasRemotePushConflict,
   hasUnpushedCommits,
+  isNonFastForwardPushError,
   listLocalBranches,
   pushBranch,
   validateBranchName,
@@ -41,7 +43,15 @@ export interface GitTreeBranch {
   isLocal: true;
   hasRemote: boolean;
   unpushed: boolean;
+  remoteConflict: boolean;
   isWatchBranch: boolean;
+}
+
+export interface PushAllBranchesResult {
+  pushed: string[];
+  conflicts: string[];
+  skipped: string[];
+  errors: { branch: string; message: string }[];
 }
 
 export interface ProjectGitTree {
@@ -146,13 +156,17 @@ export async function buildProjectGitTree(
       commits[commit.sha] = commit;
     }
     const headSha = branchCommits[0]?.sha ?? "";
+    const unpushed = await hasUnpushedCommits(resolvedPath, name);
     branches.push({
       name,
       headSha,
       commitShas: branchCommits.map((c) => c.sha),
       isLocal: true,
       hasRemote: await branchHasRemote(resolvedPath, name),
-      unpushed: await hasUnpushedCommits(resolvedPath, name),
+      unpushed,
+      remoteConflict: unpushed
+        ? await hasRemotePushConflict(resolvedPath, name)
+        : false,
       isWatchBranch: name === watchBranch,
     });
   }
@@ -306,4 +320,71 @@ export async function mergeProjectBranch(
   }
 
   log(`Merged ${sourceBranch} into ${targetBranch}.`);
+}
+
+export async function listRemoteConflictBranches(
+  clonePath: string,
+): Promise<string[]> {
+  const resolvedPath = resolveClonePath(clonePath);
+  const conflicts: string[] = [];
+  for (const branch of await listLocalBranches(clonePath)) {
+    if (await hasRemotePushConflict(resolvedPath, branch)) {
+      conflicts.push(branch);
+    }
+  }
+  return conflicts.sort((a, b) => a.localeCompare(b));
+}
+
+export async function pushAllUnpushedBranches(
+  clonePath: string,
+  onLog?: (line: string) => void,
+): Promise<PushAllBranchesResult> {
+  const resolvedPath = resolveClonePath(clonePath);
+  const log = onLog ?? (() => {});
+
+  try {
+    await execGit(["fetch", "--prune", "origin"], { cwd: resolvedPath });
+  } catch {
+    // Best-effort fetch before pushing.
+  }
+
+  const pushed: string[] = [];
+  const conflicts: string[] = [];
+  const skipped: string[] = [];
+  const errors: { branch: string; message: string }[] = [];
+
+  for (const branch of await listLocalBranches(clonePath)) {
+    if (!(await hasUnpushedCommits(resolvedPath, branch))) {
+      skipped.push(branch);
+      continue;
+    }
+    if (await hasRemotePushConflict(resolvedPath, branch)) {
+      log(`Skipping ${branch}: diverged from origin/${branch}`);
+      conflicts.push(branch);
+      continue;
+    }
+    try {
+      await pushBranch(resolvedPath, branch, log);
+      pushed.push(branch);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (isNonFastForwardPushError(message)) {
+        log(`Push rejected for ${branch}: remote has diverged`);
+        conflicts.push(branch);
+      } else {
+        errors.push({ branch, message });
+      }
+    }
+  }
+
+  return { pushed, conflicts, skipped, errors };
+}
+
+export function buildRemoteConflictResolutionPrompt(branch: string): string {
+  return [
+    `The local branch "${branch}" has diverged from origin/${branch}.`,
+    "Remote has commits that are not in your local branch, and you have local commits that are not on the remote.",
+    `Fetch the latest from origin, rebase or merge with origin/${branch}, resolve any conflicts, and push when ready.`,
+    "Do not force-push unless absolutely necessary.",
+  ].join(" ");
 }
