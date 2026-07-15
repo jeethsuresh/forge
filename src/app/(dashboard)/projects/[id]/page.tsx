@@ -26,6 +26,7 @@ import {
   type DeployEnvVarRow,
 } from "@/components/DeployEnvVarsEditor";
 import { ProjectGitTreePanel } from "@/components/ProjectGitTreePanel";
+import { ProjectDiffPanel } from "@/components/ProjectDiffPanel";
 import { ProjectCaddyLogsSection } from "@/components/ProjectCaddyLogsSection";
 import {
   agentSessionSourceBadgeClass,
@@ -47,10 +48,15 @@ const AgentWorkspace = dynamic(
   },
 );
 
-type ProjectTab = "deploy" | "config" | "agents";
+type ProjectTab = "deploy" | "config" | "agents" | "diff";
 
 function resolveProjectTab(tab: string | null): ProjectTab {
-  if (tab === "deploy" || tab === "config" || tab === "agents") {
+  if (
+    tab === "deploy" ||
+    tab === "config" ||
+    tab === "agents" ||
+    tab === "diff"
+  ) {
     return tab;
   }
   return "deploy";
@@ -65,7 +71,7 @@ function projectPollIntervalMs(
   if (typeof document !== "undefined" && document.hidden) {
     return null;
   }
-  if (tab === "agents") return 12_000;
+  if (tab === "agents" || tab === "diff") return 12_000;
   if (tab === "config" && !isDeploying) return 12_000;
   if (isDeploying) return 5_000;
   return 10_000;
@@ -337,8 +343,16 @@ export default function ProjectDetailPage() {
   function selectTab(tab: ProjectTab) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("tab", tab);
-    if (tab !== "agents") {
+    if (tab !== "agents" && tab !== "diff") {
       params.delete("session");
+      params.delete("mode");
+      params.delete("base");
+      params.delete("head");
+      params.delete("branch");
+      params.delete("source");
+      params.delete("onto");
+      params.delete("target");
+      params.delete("file");
     }
     const query = params.toString();
     router.replace(query ? `/projects/${id}?${query}` : `/projects/${id}`, {
@@ -598,6 +612,12 @@ export default function ProjectDetailPage() {
             onClick={() => selectTab("agents")}
           >
             Agents
+          </TabButton>
+          <TabButton
+            active={activeTab === "diff"}
+            onClick={() => selectTab("diff")}
+          >
+            Changes
           </TabButton>
         </div>
       </div>
@@ -924,9 +944,12 @@ export default function ProjectDetailPage() {
             </section>
           )}
         </div>
+      ) : activeTab === "diff" ? (
+        <ProjectDiffPanel projectId={id} watchBranch={project.branch} />
       ) : (
         <AgentWorkspace
           projectId={id}
+          watchBranch={project.branch}
           className="min-h-0 flex-1"
           initialSessionId={initialAgentSessionId}
         />

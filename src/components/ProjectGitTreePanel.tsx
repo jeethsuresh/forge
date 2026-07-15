@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -20,6 +21,11 @@ import {
   type GraphPreviewOp,
 } from "@/lib/project-git-graph-layout";
 import { formatRelativeTime } from "@/lib/utils";
+import {
+  branchVsMainDiffHref,
+  mergePreviewDiffHref,
+  rebasePreviewDiffHref,
+} from "@/lib/project-diff-url";
 
 interface GitGraphResponse {
   graph: ProjectGitGraph;
@@ -514,6 +520,18 @@ export function ProjectGitTreePanel({
                 >
                   {busy ? "…" : "Merge"}
                 </button>
+                {mergeSource && mergeTarget && (
+                  <Link
+                    href={mergePreviewDiffHref(
+                      projectId,
+                      mergeSource,
+                      mergeTarget,
+                    )}
+                    className="min-h-9 rounded-lg border border-orange-400/30 bg-orange-400/10 px-3 py-1.5 text-xs text-orange-300 hover:bg-orange-400/20"
+                  >
+                    Preview changes
+                  </Link>
+                )}
                 <label className="flex items-center gap-2 text-xs text-zinc-400">
                   <input
                     type="checkbox"
@@ -575,6 +593,18 @@ export function ProjectGitTreePanel({
                 >
                   {busy ? "…" : "Rebase"}
                 </button>
+                {rebaseSource && rebaseOnto && (
+                  <Link
+                    href={rebasePreviewDiffHref(
+                      projectId,
+                      rebaseSource,
+                      rebaseOnto,
+                    )}
+                    className="min-h-9 rounded-lg border border-orange-400/30 bg-orange-400/10 px-3 py-1.5 text-xs text-orange-300 hover:bg-orange-400/20"
+                  >
+                    Preview changes
+                  </Link>
+                )}
               </div>
             </div>
           </div>
@@ -605,6 +635,14 @@ export function ProjectGitTreePanel({
                       <span className="shrink-0 rounded border border-red-400/20 bg-red-400/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-red-300">
                         conflict with remote
                       </span>
+                    )}
+                    {!branch.isWatchBranch && (
+                      <Link
+                        href={branchVsMainDiffHref(projectId, branch.name)}
+                        className="shrink-0 text-[10px] text-orange-400/80 hover:text-orange-300"
+                      >
+                        diff
+                      </Link>
                     )}
                   </div>
                 ))}
