@@ -63,7 +63,8 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
   deployment_id TEXT,
   commit_sha TEXT,
   started_at INTEGER NOT NULL,
-  completed_at INTEGER
+  completed_at INTEGER,
+  archived_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS agent_events (
@@ -92,7 +93,6 @@ CREATE INDEX IF NOT EXISTS idx_forge_updates_started_at ON forge_updates(started
 CREATE INDEX IF NOT EXISTS idx_agent_sessions_project_id ON agent_sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_agent_events_session_id ON agent_events(session_id);
 CREATE INDEX IF NOT EXISTS idx_agent_events_seq ON agent_events(session_id, seq);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_sessions_project_branch ON agent_sessions(project_id, branch);
 
 CREATE TABLE IF NOT EXISTS ops_api_actions (
   id TEXT PRIMARY KEY,
@@ -139,6 +139,26 @@ addColumnIfMissing("agent_sessions", "commit_sha", "TEXT");
 addColumnIfMissing("agent_sessions", "resume_cursor_session_id", "TEXT");
 addColumnIfMissing("agent_sessions", "failed_turn_start_seq", "INTEGER");
 addColumnIfMissing("agent_sessions", "source", "TEXT NOT NULL DEFAULT 'manual'");
+addColumnIfMissing("agent_sessions", "archived_at", "INTEGER");
 addColumnIfMissing("projects", "deploy_env_json", "TEXT NOT NULL DEFAULT '[]'");
 addColumnIfMissing("projects", "host_port", "INTEGER");
 addColumnIfMissing("projects", "caddy_route_json", "TEXT");
+
+// Migrate the old unique (project_id, branch) index to a partial live-only unique index.
+try {
+  sqlite.exec("DROP INDEX IF EXISTS idx_agent_sessions_project_branch");
+} catch {
+  // ignore
+}
+try {
+  sqlite.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_sessions_project_branch_live
+      ON agent_sessions(project_id, branch)
+      WHERE archived_at IS NULL
+  `);
+} catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  if (!message.includes("already exists")) {
+    throw err;
+  }
+}

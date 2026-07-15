@@ -7,6 +7,7 @@ import {
   createAgentSession,
   getBranchAgentOverview,
   listAgentSessionsForClient,
+  listArchivedAgentSessionsForClient,
   drainQueuedAgentSessions,
 } from "@/lib/agent-runner";
 import {
@@ -41,11 +42,13 @@ export async function GET(
   drainQueuedAgentSessions(id);
 
   const sessions = listAgentSessionsForClient(id);
+  const archivedSessions = listArchivedAgentSessionsForClient(id);
   const activeSession = getActiveSessionForProject(id);
   const branches = await getBranchAgentOverview(id);
 
   return NextResponse.json({
     sessions,
+    archivedSessions,
     branches,
     activeSession: activeSession ?? null,
     hasActiveSession: isAgentSessionActive(id),

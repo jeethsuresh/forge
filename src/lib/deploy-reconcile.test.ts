@@ -238,7 +238,7 @@ describe("reconcileAbandonedDeployingSessions", () => {
       .from(projects)
       .where(eq(projects.id, projectId))
       .get()!;
-    saveProjectReleaseState(projectId, "newer9999999", project);
+    saveProjectReleaseState(projectId, "bbbbbbbbbbbb", project);
 
     const count = reconcileAbandonedDeployingSessions(projectId);
     expect(count).toBe(1);

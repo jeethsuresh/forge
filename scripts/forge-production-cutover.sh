@@ -3,16 +3,22 @@
 # app is not asked to recreate itself.
 set -euo pipefail
 
-IMAGE_TAG="${FORGE_IMAGE_TAG:-next}"
 IMAGE_NAME="${FORGE_IMAGE_NAME:-forge-app}"
 SOURCE_DIR="${FORGE_SOURCE_DIR:-/data/forge-source}"
 STATE_FILE="${FORGE_RELEASE_STATE:-/data/forge-release.json}"
 HOST_PORT="${HOST_PORT:-3000}"
 COMPOSE_SLUG="${COMPOSE_PROJECT_NAME:-forge}"
-COMMIT_SHA="${FORGE_RELEASE_COMMIT_SHA:-}"
+COMMIT_SHA="${FORGE_RELEASE_COMMIT_SHA:-${FORGE_COMMIT_SHA:-}}"
+# Prefer explicit FORGE_IMAGE_TAG; otherwise pin the release commit SHA (no next/latest).
+IMAGE_TAG="${FORGE_IMAGE_TAG:-$COMMIT_SHA}"
 HEALTH_PATH="${FORGE_HEALTH_PATH:-/api/forge/health}"
 HEALTH_RETRIES="${FORGE_HEALTH_RETRIES:-30}"
 HEALTH_INTERVAL="${FORGE_HEALTH_INTERVAL:-2}"
+
+if [[ -z "$IMAGE_TAG" ]]; then
+  echo "ERROR: FORGE_IMAGE_TAG or FORGE_RELEASE_COMMIT_SHA is required" >&2
+  exit 1
+fi
 
 log() {
   printf '[%s] %s\n' "$(date -Iseconds)" "$*"
@@ -57,7 +63,7 @@ save_release_state() {
   mkdir -p "$(dirname "$STATE_FILE")"
   cat >"$STATE_FILE" <<EOF
 {
-  "stableImageTag": "stable",
+  "stableImageTag": "${commit_sha}",
   "rollbackImageTag": "rollback",
   "stableCommitSha": "${commit_sha}",
   "updatedAt": "$(date -Iseconds)"

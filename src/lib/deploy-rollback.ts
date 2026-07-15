@@ -36,10 +36,28 @@ const HEALTH_INTERVAL_MS = Number(process.env.FORGE_HEALTH_INTERVAL ?? "2") * 10
 const FORGE_CUTOVER_SCRIPT = "/usr/local/bin/forge-production-cutover.sh";
 
 export interface ProjectReleaseState {
+  /** Docker tag currently serving production (git SHA preferred; "stable" is a movable alias). */
   stableImageTag: string;
+  /** Docker tag for the previous release (movable "rollback" alias). */
   rollbackImageTag: string;
   stableCommitSha: string;
   updatedAt: string;
+}
+
+/** Movable alias tags kept alongside immutable SHA tags. */
+export const RELEASE_ALIAS_STABLE = "stable";
+export const RELEASE_ALIAS_ROLLBACK = "rollback";
+
+/**
+ * Normalize a git commit SHA into a Docker image tag.
+ * Rejects mutable aliases like next/latest so deploys always pin an immutable digest name.
+ */
+export function releaseImageTagFromCommitSha(commitSha: string): string {
+  const sha = commitSha.trim().toLowerCase();
+  if (!/^[0-9a-f]{7,40}$/.test(sha)) {
+    throw new Error(`Invalid commit SHA for image tag: ${commitSha}`);
+  }
+  return sha;
 }
 
 export function projectImageName(project: Project): string {
@@ -92,10 +110,11 @@ export function saveProjectReleaseState(
   commitSha: string,
   project?: Project,
 ): void {
+  const shaTag = releaseImageTagFromCommitSha(commitSha);
   const state: ProjectReleaseState = {
-    stableImageTag: "stable",
-    rollbackImageTag: "rollback",
-    stableCommitSha: commitSha,
+    stableImageTag: shaTag,
+    rollbackImageTag: RELEASE_ALIAS_ROLLBACK,
+    stableCommitSha: shaTag,
     updatedAt: new Date().toISOString(),
   };
   const payload = JSON.stringify(state, null, 2);
@@ -363,9 +382,21 @@ async function spawnForgeProductionCutoverSidecar(options: {
   await ensureDockerDaemon();
 
   const imageName = process.env.FORGE_IMAGE_NAME ?? "forge-app";
-  const imageRef = (await dockerImageExists(imageName, "stable"))
-    ? `${imageName}:stable`
-    : `${imageName}:latest`;
+  const runningSha = process.env.FORGE_COMMIT_SHA?.trim().toLowerCase() ?? "";
+  let imageRef = `${imageName}:${RELEASE_ALIAS_STABLE}`;
+  if (!(await dockerImageExists(imageName, RELEASE_ALIAS_STABLE))) {
+    if (
+      runningSha &&
+      /^[0-9a-f]{7,40}$/.test(runningSha) &&
+      (await dockerImageExists(imageName, runningSha))
+    ) {
+      imageRef = `${imageName}:${runningSha}`;
+    } else {
+      throw new Error(
+        `No ${imageName}:${RELEASE_ALIAS_STABLE} image (or FORGE_COMMIT_SHA tag) available for cutover sidecar`,
+      );
+    }
+  }
   const cutoverId = randomUUID().slice(0, 8);
   const containerName = `forge-cutover-${cutoverId}`;
   const dockerHost = dockerHostForRuntime();
@@ -517,20 +548,41 @@ export async function rollbackProduction(
   return false;
 }
 
-export async function promoteNextToStable(
+/** Promote the SHA-tagged release image to the movable stable/rollback aliases. */
+export async function promoteReleaseImageToStable(
   project: Project,
   commitSha: string,
 ): Promise<void> {
   const imageName = projectImageName(project);
-  if (await dockerImageExists(imageName, "stable")) {
-    await execFileAsync("docker", [
-      "tag",
-      `${imageName}:stable`,
-      `${imageName}:rollback`,
-    ], dockerOpts);
+  const shaTag = releaseImageTagFromCommitSha(commitSha);
+  if (!(await dockerImageExists(imageName, shaTag))) {
+    throw new Error(`Release image ${imageName}:${shaTag} not found`);
   }
-  await execFileAsync("docker", ["tag", `${imageName}:next`, `${imageName}:stable`], dockerOpts);
-  saveProjectReleaseState(project.id, commitSha, project);
+  if (await dockerImageExists(imageName, RELEASE_ALIAS_STABLE)) {
+    await execFileAsync(
+      "docker",
+      [
+        "tag",
+        `${imageName}:${RELEASE_ALIAS_STABLE}`,
+        `${imageName}:${RELEASE_ALIAS_ROLLBACK}`,
+      ],
+      dockerOpts,
+    );
+  }
+  await execFileAsync(
+    "docker",
+    ["tag", `${imageName}:${shaTag}`, `${imageName}:${RELEASE_ALIAS_STABLE}`],
+    dockerOpts,
+  );
+  saveProjectReleaseState(project.id, shaTag, project);
+}
+
+/** @deprecated Use promoteReleaseImageToStable */
+export async function promoteNextToStable(
+  project: Project,
+  commitSha: string,
+): Promise<void> {
+  return promoteReleaseImageToStable(project, commitSha);
 }
 
 export function projectSupportsRollback(project: Project): boolean {
@@ -567,12 +619,13 @@ export async function runComposeReleaseDeploy(
       await pickFreePort(stagingPortPreferred, 3999, "127.0.0.1"),
     );
 
-    log(`Tagging compose app image for project ${composeSlug}`);
-    await tagComposeAppImage(project, "next", composeSlug);
-    log(`Tagged ${projectImageName(project)}:next`);
+    const releaseTag = releaseImageTagFromCommitSha(commitSha);
+    log(`Tagging compose app image for project ${composeSlug} as ${releaseTag}`);
+    await tagComposeAppImage(project, releaseTag, composeSlug);
+    log(`Tagged ${projectImageName(project)}:${releaseTag}`);
 
     const stagingEnv = {
-      ...withImageTagEnv(scriptEnv, "next"),
+      ...withImageTagEnv(scriptEnv, releaseTag),
       HOST_PORT: stagingPort,
       COMPOSE_PROJECT_NAME: stagingSlug,
       PROJECT_NAME: stagingSlug,
@@ -609,8 +662,8 @@ export async function runComposeReleaseDeploy(
       await spawnForgeProductionCutoverSidecar({
         composeSlug,
         scriptEnv,
-        imageTag: "next",
-        commitSha,
+        imageTag: releaseTag,
+        commitSha: releaseTag,
         log,
       });
       return { status: "cutover_pending" };
@@ -621,7 +674,7 @@ export async function runComposeReleaseDeploy(
       composeSlug,
       scriptEnv,
       scriptArgs,
-      "next",
+      releaseTag,
       log,
     );
 
@@ -646,7 +699,7 @@ export async function runComposeReleaseDeploy(
       return { status: "failed", reason };
     }
 
-    await promoteNextToStable(project, commitSha);
+    await promoteReleaseImageToStable(project, releaseTag);
     log("Release deploy completed successfully");
     return { status: "success" };
   } catch (err) {

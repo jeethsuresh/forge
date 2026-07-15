@@ -356,9 +356,21 @@ async function spawnUpdater(
   await ensureDockerDaemon();
 
   const dockerHost = dockerHostForRuntime();
-  const imageRef = (await imageExists("stable"))
-    ? `${IMAGE_NAME}:stable`
-    : `${IMAGE_NAME}:latest`;
+  const runningSha = process.env.FORGE_COMMIT_SHA?.trim().toLowerCase() ?? "";
+  let imageRef = `${IMAGE_NAME}:stable`;
+  if (!(await imageExists("stable"))) {
+    if (
+      runningSha &&
+      /^[0-9a-f]{7,40}$/.test(runningSha) &&
+      (await imageExists(runningSha))
+    ) {
+      imageRef = `${IMAGE_NAME}:${runningSha}`;
+    } else {
+      throw new Error(
+        `No ${IMAGE_NAME}:stable image (or FORGE_COMMIT_SHA tag) available for updater sidecar`,
+      );
+    }
+  }
 
   const hostMounts = resolveForgeHostMounts();
   const cursorAgentDir = hostMounts.cursorAgentDir;

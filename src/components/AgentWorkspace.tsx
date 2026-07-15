@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { shortSha, statusColor } from "@/lib/utils";
+import { formatRelativeTime, shortSha, statusColor } from "@/lib/utils";
 import type { AgentDisplayMessage } from "@/lib/agent-stream";
 import { mergeIncomingMessages } from "@/lib/agent-stream";
 import {
@@ -39,6 +39,7 @@ interface AgentSession {
   commitSha: string | null;
   startedAt: string;
   completedAt: string | null;
+  archivedAt?: string | null;
   hasActiveProcess?: boolean;
   canRetry?: boolean;
   hasFileEdits?: boolean;
@@ -75,6 +76,7 @@ interface BranchAgentInfo {
 
 interface AgentSessionsResponse {
   sessions: AgentSession[];
+  archivedSessions?: AgentSession[];
   branches: BranchAgentInfo[];
   activeSession: AgentSession | null;
   hasActiveSession: boolean;
@@ -143,7 +145,22 @@ export function AgentWorkspace({
 
   const branches = useMemo(() => data?.branches ?? [], [data?.branches]);
   const sessions = useMemo(() => data?.sessions ?? [], [data?.sessions]);
+  const archivedSessions = useMemo(
+    () => data?.archivedSessions ?? [],
+    [data?.archivedSessions],
+  );
   const activeBranch = data?.activeSession?.branch ?? null;
+  const archiveCollapseKey = `forge:agents-archive-collapse:${projectId}`;
+  const [archiveExpanded, setArchiveExpanded] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(archiveCollapseKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [showRecreateForm, setShowRecreateForm] = useState(false);
+  const [recreatePrompt, setRecreatePrompt] = useState("");
 
   const fetchSessions = useCallback(async () => {
     const res = await fetch(`/api/projects/${projectId}/agent-sessions`);
@@ -152,7 +169,9 @@ export function AgentWorkspace({
     setData(json);
 
     if (!selectedId) return;
-    const refreshed = json.sessions.find((s) => s.id === selectedId);
+    const refreshed =
+      json.sessions.find((s) => s.id === selectedId) ??
+      (json.archivedSessions ?? []).find((s) => s.id === selectedId);
     if (!refreshed) return;
 
     setSessionDetail((prev) =>
@@ -273,7 +292,10 @@ export function AgentWorkspace({
     void (async () => {
       const json = await fetchSessionDetail(selectedId);
       if (cancelled || !json) return;
-      setLoadedSessionTerminal(isInactiveAgentSessionStatus(json.session.status));
+      setLoadedSessionTerminal(
+        Boolean(json.session.archivedAt) ||
+          isInactiveAgentSessionStatus(json.session.status),
+      );
       setHistoryReady(true);
     })();
 
@@ -743,6 +765,52 @@ export function AgentWorkspace({
     }
   }
 
+  async function recreateAgent(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedBranch || !recreatePrompt.trim()) return;
+    if (
+      !confirm(
+        `Recreate the agent on "${selectedBranch}"?\n\nThe current session will be archived and a fresh agent will start with your new prompt.`,
+      )
+    ) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/agent-sessions/recreate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            branch: selectedBranch,
+            prompt: recreatePrompt.trim(),
+          }),
+        },
+      );
+      const json = (await res.json()) as {
+        error?: string;
+        sessionId?: string;
+      };
+      if (!res.ok) {
+        alert(json.error ?? "Failed to recreate agent");
+        return;
+      }
+      setShowRecreateForm(false);
+      setRecreatePrompt("");
+      setShowNewBranchForm(false);
+      await fetchSessions();
+      if (json.sessionId) {
+        setSelectedId(json.sessionId);
+        setLoadedSessionTerminal(false);
+        setStreamEpoch((n) => n + 1);
+        setMobileShowChat(true);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function clearLogs() {
     if (!selectedId) return;
     if (!confirm("Clear this agent's raw logs? Chat history is not affected.")) {
@@ -792,22 +860,29 @@ export function AgentWorkspace({
   const selectedSessionMeta = sessionForBranch(sessions, selectedBranch);
   const deployBranchName =
     branches.find((b) => b.isDeployBranch)?.name ?? null;
+  const isArchivedSession = Boolean(sessionDetail?.archivedAt);
 
   const isActiveSession = Boolean(
-    sessionDetail && ACTIVE_AGENT_STATUSES.has(sessionDetail.status),
+    sessionDetail &&
+      !isArchivedSession &&
+      ACTIVE_AGENT_STATUSES.has(sessionDetail.status),
   );
   const isQueuedSession = Boolean(
-    sessionDetail && isQueuedAgentSessionStatus(sessionDetail.status),
+    sessionDetail &&
+      !isArchivedSession &&
+      isQueuedAgentSessionStatus(sessionDetail.status),
   );
   const showEndSession = Boolean(
-    (isActiveSession || isQueuedSession) && selectedId,
+    (isActiveSession || isQueuedSession) && selectedId && !isArchivedSession,
   );
-  const isDeploying = sessionDetail?.status === "deploying";
+  const isDeploying =
+    !isArchivedSession && sessionDetail?.status === "deploying";
   const isRecoverySession = sessionDetail?.sessionSource === "recovery";
   const isRebaseRecoverySession =
     sessionDetail?.sessionSource === "rebase-recovery";
   const canStartOnBranch = Boolean(
     selectedBranch &&
+      !isArchivedSession &&
       !isActiveSession &&
       !isQueuedSession &&
       (!selectedBranchInfo?.hasAgent ||
@@ -816,11 +891,16 @@ export function AgentWorkspace({
   );
 
   const isTerminalSession = Boolean(
-    sessionDetail && isInactiveAgentSessionStatus(sessionDetail.status),
+    sessionDetail &&
+      !isArchivedSession &&
+      isInactiveAgentSessionStatus(sessionDetail.status),
   );
-  const showFollowUp = Boolean(isActiveSession && !isDeploying && selectedId);
+  const showFollowUp = Boolean(
+    isActiveSession && !isDeploying && selectedId && !isArchivedSession,
+  );
   const canCommitOrDeploy = Boolean(
     sessionDetail &&
+      !isArchivedSession &&
       ["running", "completed", "failed"].includes(sessionDetail.status) &&
       !hasActiveProcess &&
       !isDeploying,
@@ -842,6 +922,12 @@ export function AgentWorkspace({
   );
   const showContinueForm = Boolean(canStartOnBranch && isTerminalSession);
   const showNewAgentForm = Boolean(canStartOnBranch && !selectedId);
+  const showRecreateButton = Boolean(
+    selectedBranch &&
+      selectedSessionMeta &&
+      !isArchivedSession &&
+      !showRecreateForm,
+  );
 
   const statusBanner = useMemo((): StatusBanner => {
     if (!sessionDetail) return null;
@@ -895,7 +981,8 @@ export function AgentWorkspace({
       <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {branches.map((b) => {
           const session = sessionForBranch(sessions, b.name);
-          const isSelected = selectedBranch === b.name;
+          const isSelected =
+            selectedBranch === b.name && !sessionDetail?.archivedAt;
           const isRunning =
             session?.hasActiveProcess ?? b.sessionStatus === "deploying";
 
@@ -903,7 +990,10 @@ export function AgentWorkspace({
             <li key={b.name}>
               <button
                 type="button"
-                onClick={() => selectBranch(b)}
+                onClick={() => {
+                  setShowRecreateForm(false);
+                  selectBranch(b);
+                }}
                 className={`flex w-full flex-col gap-1 border-b border-zinc-800/60 px-4 py-3 text-left transition-colors hover:bg-zinc-900 ${
                   isSelected ? "bg-zinc-900" : ""
                 }`}
@@ -960,6 +1050,93 @@ export function AgentWorkspace({
           </li>
         )}
       </ul>
+
+      <div className="shrink-0 border-t border-zinc-800">
+        <button
+          type="button"
+          onClick={() => {
+            setArchiveExpanded((open) => {
+              const next = !open;
+              try {
+                window.localStorage.setItem(
+                  archiveCollapseKey,
+                  next ? "1" : "0",
+                );
+              } catch {
+                // ignore
+              }
+              return next;
+            });
+          }}
+          aria-expanded={archiveExpanded}
+          className="flex min-h-10 w-full items-center gap-2 px-4 py-2 text-left hover:bg-zinc-900"
+        >
+          <span
+            className={`text-zinc-500 transition-transform ${archiveExpanded ? "rotate-90" : ""}`}
+            aria-hidden
+          >
+            ›
+          </span>
+          <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+            Archived sessions
+          </span>
+          <span className="ml-auto text-[10px] text-zinc-600">
+            {archivedSessions.length}
+          </span>
+        </button>
+        {archiveExpanded && (
+          <ul className="max-h-48 overflow-y-auto overscroll-contain border-t border-zinc-800/60">
+            {archivedSessions.length === 0 ? (
+              <li className="px-4 py-3 text-xs text-zinc-600">
+                No archived sessions yet.
+              </li>
+            ) : (
+              archivedSessions.map((session) => {
+                const isSelected = selectedId === session.id;
+                return (
+                  <li key={session.id}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowNewBranchForm(false);
+                        setShowRecreateForm(false);
+                        setSelectedBranch(session.branch);
+                        setSelectedId(session.id);
+                        setSessionDetail(session);
+                        setDeployLogView(null);
+                        setMessages([]);
+                        setMobileShowChat(true);
+                      }}
+                      className={`flex w-full flex-col gap-1 border-b border-zinc-800/60 px-4 py-2.5 text-left hover:bg-zinc-900 ${
+                        isSelected ? "bg-zinc-900" : ""
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-300">
+                          {session.branch}
+                        </span>
+                        <span
+                          className={`rounded border px-1.5 py-0.5 text-[10px] capitalize ${statusColor(session.status)}`}
+                        >
+                          {session.status}
+                        </span>
+                      </div>
+                      <p className="line-clamp-2 text-[11px] text-zinc-500">
+                        {session.initialPrompt}
+                      </p>
+                      <p className="text-[10px] text-zinc-600">
+                        {session.archivedAt
+                          ? formatRelativeTime(session.archivedAt)
+                          : formatRelativeTime(session.startedAt)}
+                      </p>
+                    </button>
+                  </li>
+                );
+              })
+            )}
+          </ul>
+        )}
+      </div>
     </aside>
   );
 
@@ -1078,6 +1255,20 @@ export function AgentWorkspace({
               )}
             </div>
             <div className="flex shrink-0 flex-wrap justify-end gap-1">
+              {showRecreateButton && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowRecreateForm(true);
+                    setRecreatePrompt("");
+                  }}
+                  disabled={loading}
+                  className="min-h-9 rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                  title="Archive this session and start a fresh agent on the same branch"
+                >
+                  Recreate
+                </button>
+              )}
               {showEndSession && (
                 <button
                   type="button"
@@ -1243,6 +1434,62 @@ export function AgentWorkspace({
               )}
             </div>
           </div>
+
+          {isArchivedSession && (
+            <div className="border-b border-zinc-800 bg-zinc-950/80 px-4 py-2 text-xs text-zinc-400">
+              Archived session — read-only. Recreate a live agent from the branch
+              list when you want a fresh run.
+            </div>
+          )}
+
+          {showRecreateForm && selectedBranch && (
+            <form
+              onSubmit={recreateAgent}
+              className="space-y-3 border-b border-zinc-800 bg-zinc-950/60 px-4 py-3"
+            >
+              <div>
+                <p className="text-sm font-medium text-zinc-100">
+                  Recreate agent on{" "}
+                  <span className="font-mono text-orange-300">
+                    {selectedBranch}
+                  </span>
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Archives the current session and starts a brand-new agent with
+                  a new initial prompt.
+                </p>
+              </div>
+              <textarea
+                value={recreatePrompt}
+                onChange={(e) => setRecreatePrompt(e.target.value)}
+                rows={4}
+                required
+                placeholder="New initial prompt…"
+                disabled={loading}
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-orange-500/50 disabled:opacity-50"
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="submit"
+                  disabled={loading || !recreatePrompt.trim()}
+                  className="rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+                >
+                  {loading ? "Starting…" : "Archive & start fresh"}
+                </button>
+                <button
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    setShowRecreateForm(false);
+                    setRecreatePrompt("");
+                  }}
+                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
 
           {deployLogView && (
             <ActiveDeployLogsPanel

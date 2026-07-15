@@ -48,11 +48,18 @@ while [[ ${#REMAINING_ARGS[@]} -gt 0 ]]; do
 done
 
 if has_compose_file; then
-  source_sha="$(git rev-parse HEAD 2>/dev/null || date -Iseconds)"
+  source_sha="$(git rev-parse HEAD 2>/dev/null || true)"
+  if [[ -z "$source_sha" ]]; then
+    source_sha="$(date -Iseconds)"
+  fi
   export FORGE_COMMIT_SHA="${FORGE_COMMIT_SHA:-$source_sha}"
-  compose_cmd build --build-arg "SOURCE_SHA=${source_sha}"
+  # Always rebuild without cache so deploy picks up current sources (avoids stale layers).
+  compose_cmd build --no-cache --build-arg "SOURCE_SHA=${source_sha}"
   image_id="$(resolve_compose_app_image_id || true)"
   if [[ -n "$image_id" ]]; then
+    if [[ "$source_sha" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+      docker tag "$image_id" "forge-app:${source_sha}"
+    fi
     docker tag "$image_id" forge-app:stable
     if ! docker image inspect forge-app:rollback >/dev/null 2>&1; then
       docker tag "$image_id" forge-app:rollback

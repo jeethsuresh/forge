@@ -62,6 +62,18 @@ function handlerSummary(route: ParsedRoute): string {
   }
 }
 
+function readCollapsedPref(key: string, defaultExpanded: boolean): boolean {
+  if (typeof window === "undefined") return defaultExpanded;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === "1") return true;
+    if (raw === "0") return false;
+  } catch {
+    // ignore
+  }
+  return defaultExpanded;
+}
+
 export function ProjectRoutingEditor({
   projectId,
   values,
@@ -70,6 +82,10 @@ export function ProjectRoutingEditor({
   compact = false,
   onSave,
 }: ProjectRoutingEditorProps) {
+  const collapseKey = `forge:config-collapse:${projectId}:routing`;
+  const [expanded, setExpanded] = useState(() =>
+    readCollapsedPref(collapseKey, false),
+  );
   const [hostPortInput, setHostPortInput] = useState(
     values.hostPort !== null ? String(values.hostPort) : "",
   );
@@ -176,13 +192,56 @@ export function ProjectRoutingEditor({
     if (ok) setDirty(false);
   }
 
+  const collapseSummary = [
+    Number.isInteger(resolvedPort) ? `port ${resolvedPort}` : "no port",
+    caddyEnabled ? "managed route on" : "managed route off",
+    `${associatedRoutes.length} linked`,
+  ].join(" · ");
+
   return (
-    <section className="rounded-xl border border-zinc-800 bg-zinc-900">
-      <div className="border-b border-zinc-800 px-4 py-4 sm:px-5">
-        <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500">
-          Host / port &amp; Caddy
-        </h2>
-        <p className="mt-1 text-sm text-zinc-500">
+    <section className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
+      <button
+        type="button"
+        onClick={() => {
+          setExpanded((open) => {
+            const next = !open;
+            try {
+              window.localStorage.setItem(collapseKey, next ? "1" : "0");
+            } catch {
+              // ignore
+            }
+            return next;
+          });
+        }}
+        aria-expanded={expanded}
+        className="flex min-h-11 w-full items-center gap-3 border-b border-zinc-800 px-4 py-3 text-left transition-colors hover:bg-zinc-800/50 sm:px-5"
+      >
+        <span
+          className={`shrink-0 text-zinc-500 transition-transform ${expanded ? "rotate-90" : ""}`}
+          aria-hidden
+        >
+          ›
+        </span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-medium uppercase tracking-wider text-zinc-500">
+            Host / port &amp; Caddy
+          </h2>
+          <p className="mt-0.5 text-xs text-zinc-600">
+            {expanded
+              ? `Compose project ${values.composeProjectName}`
+              : collapseSummary}
+          </p>
+        </div>
+        {!expanded && dirty && (
+          <span className="shrink-0 rounded border border-amber-400/20 bg-amber-400/10 px-2 py-0.5 text-[10px] text-amber-300">
+            unsaved
+          </span>
+        )}
+      </button>
+
+      {expanded && (
+      <div className="space-y-6 px-4 py-4 sm:px-5 sm:py-5">
+        <p className="text-sm text-zinc-500">
           Compose project{" "}
           <span className="font-mono text-zinc-300">
             {values.composeProjectName}
@@ -202,9 +261,6 @@ export function ProjectRoutingEditor({
           )}
           .
         </p>
-      </div>
-
-      <div className="space-y-6 px-4 py-4 sm:px-5 sm:py-5">
         {error && (
           <div className="rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2 text-sm text-red-400">
             {error}
@@ -347,6 +403,7 @@ export function ProjectRoutingEditor({
           </button>
         </div>
       </div>
+      )}
     </section>
   );
 }

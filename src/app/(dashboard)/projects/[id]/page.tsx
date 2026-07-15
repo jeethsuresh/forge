@@ -28,6 +28,7 @@ import {
 import { ProjectGitTreePanel } from "@/components/ProjectGitTreePanel";
 import { ProjectDiffPanel } from "@/components/ProjectDiffPanel";
 import { ProjectCaddyLogsSection } from "@/components/ProjectCaddyLogsSection";
+import { ProjectLocalBranchesEditor } from "@/components/ProjectLocalBranchesEditor";
 import {
   agentSessionSourceBadgeClass,
   agentSessionSourceLabel,
@@ -876,6 +877,12 @@ export default function ProjectDetailPage() {
             </div>
           </section>
 
+          <ProjectLocalBranchesEditor
+            projectId={id}
+            disabled={actionLoading || deployBusy}
+            onChanged={fetchData}
+          />
+
           <div className="mb-8">
             <ProjectRoutingEditor
               key={`${project.updatedAt}-routing`}
@@ -895,6 +902,7 @@ export default function ProjectDetailPage() {
           </div>
 
           <ProjectCaddyLogsSection
+            projectId={id}
             caddyRoute={project.caddyRoute ?? null}
             linkedRouteKeys={project.linkedRouteKeys ?? []}
           />

@@ -175,7 +175,13 @@ resolve_built_image_id() {
     echo "$image_id"
     return 0
   fi
-  for ref in "${IMAGE_NAME}:next" "localhost/${IMAGE_NAME}:next" "${IMAGE_NAME}:stable" "localhost/${IMAGE_NAME}:stable"; do
+  local sha="${FORGE_COMMIT_SHA:-}"
+  local candidates=()
+  if [[ -n "$sha" ]]; then
+    candidates+=("${IMAGE_NAME}:${sha}" "localhost/${IMAGE_NAME}:${sha}")
+  fi
+  candidates+=("${IMAGE_NAME}:stable" "localhost/${IMAGE_NAME}:stable")
+  for ref in "${candidates[@]}"; do
     if docker image inspect "$ref" >/dev/null 2>&1; then
       docker image inspect --format '{{.Id}}' "$ref"
       return 0
@@ -287,7 +293,7 @@ save_release_state() {
   mkdir -p "$(dirname "$STATE_FILE")"
   cat >"$STATE_FILE" <<EOF
 {
-  "stableImageTag": "stable",
+  "stableImageTag": "${commit_sha}",
   "rollbackImageTag": "rollback",
   "stableCommitSha": "${commit_sha}",
   "updatedAt": "$(date -Iseconds)"
@@ -388,25 +394,30 @@ PY
 
 build_test_stage_and_cutover() {
   local target_commit="$1"
+  local release_tag
+  release_tag="$(printf '%s' "$target_commit" | tr '[:upper:]' '[:lower:]')"
 
   set_status "building"
-  log "Building new image"
+  log "Building new image (no-cache; tag=${release_tag})"
   if ! (
     cd "$SOURCE_DIR"
-    HOST_PORT="$STAGING_PORT" COMPOSE_PROJECT_NAME="$STAGING_PROJECT" ./build.sh --host-port "$STAGING_PORT"
+    FORGE_COMMIT_SHA="$release_tag" HOST_PORT="$STAGING_PORT" COMPOSE_PROJECT_NAME="$STAGING_PROJECT" \
+      ./build.sh --host-port "$STAGING_PORT"
   ); then
     LAST_UPGRADE_ERROR="Build failed"
     return 1
   fi
 
   local built_id
-  built_id="$(resolve_built_image_id "$STAGING_PROJECT" || true)"
+  built_id="$(
+    FORGE_COMMIT_SHA="$release_tag" resolve_built_image_id "$STAGING_PROJECT" || true
+  )"
   if [[ -z "$built_id" ]]; then
     LAST_UPGRADE_ERROR="Build did not produce an app image"
     return 1
   fi
-  docker tag "$built_id" "${IMAGE_NAME}:next"
-  log "Tagged build as ${IMAGE_NAME}:next"
+  docker tag "$built_id" "${IMAGE_NAME}:${release_tag}"
+  log "Tagged build as ${IMAGE_NAME}:${release_tag}"
 
   set_status "testing"
   log "Running tests"
@@ -422,7 +433,8 @@ build_test_stage_and_cutover() {
   log "Starting staging container on port ${STAGING_PORT}"
   if ! (
     cd "$SOURCE_DIR"
-    FORGE_IMAGE_TAG=next HOST_PORT="$STAGING_PORT" COMPOSE_PROJECT_NAME="$STAGING_PROJECT" \
+    FORGE_IMAGE_TAG="$release_tag" FORGE_COMMIT_SHA="$release_tag" \
+      HOST_PORT="$STAGING_PORT" COMPOSE_PROJECT_NAME="$STAGING_PROJECT" \
       ./deploy.sh --host-port "$STAGING_PORT" --project-name "$STAGING_PROJECT" --detach
   ); then
     teardown_staging
@@ -442,7 +454,8 @@ build_test_stage_and_cutover() {
   log "Deploying new release to production port ${HOST_PORT}"
   if ! (
     cd "$SOURCE_DIR"
-    FORGE_IMAGE_TAG=next HOST_PORT="$HOST_PORT" COMPOSE_PROJECT_NAME="$PROD_PROJECT" \
+    FORGE_IMAGE_TAG="$release_tag" FORGE_COMMIT_SHA="$release_tag" \
+      HOST_PORT="$HOST_PORT" COMPOSE_PROJECT_NAME="$PROD_PROJECT" \
       ./deploy.sh --host-port "$HOST_PORT" --project-name "$PROD_PROJECT" --detach
   ); then
     LAST_UPGRADE_ERROR="Production deploy failed"
@@ -458,8 +471,8 @@ build_test_stage_and_cutover() {
   if docker image inspect "${IMAGE_NAME}:stable" >/dev/null 2>&1; then
     docker tag "${IMAGE_NAME}:stable" "${IMAGE_NAME}:rollback"
   fi
-  docker tag "${IMAGE_NAME}:next" "${IMAGE_NAME}:stable"
-  save_release_state "$target_commit"
+  docker tag "${IMAGE_NAME}:${release_tag}" "${IMAGE_NAME}:stable"
+  save_release_state "$release_tag"
   mark_success "$target_commit"
   log "Update completed successfully"
   return 0

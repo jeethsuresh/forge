@@ -101,6 +101,8 @@ export const agentSessions = sqliteTable("agent_sessions", {
   commitSha: text("commit_sha"),
   startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
   completedAt: integer("completed_at", { mode: "timestamp" }),
+  /** Soft-archive timestamp; null means the session is the live session for its branch. */
+  archivedAt: integer("archived_at", { mode: "timestamp" }),
 });
 
 export const forgeUpdates = sqliteTable("forge_updates", {

@@ -51,6 +51,8 @@ start_podman_api_service
 
 export_docker_socket
 require_cursor_agent
+# Resolve FORGE_CONTAINER_NAME (and related env) before removing the old container.
+export_compose_env
 
 prepare_named_container_deploy() {
   if [[ -n "${FORGE_CONTAINER_NAME:-}" ]]; then

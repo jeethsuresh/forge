@@ -118,6 +118,7 @@ function reconcileStaleActiveSessions(projectId: string): number {
         eq(agentSessions.projectId, projectId),
         inArray(agentSessions.status, [...ACTIVE_STATUSES]),
         isNull(agentSessions.completedAt),
+        isNull(agentSessions.archivedAt),
       ),
     )
     .all();
@@ -203,6 +204,7 @@ export function reconcileProjectAgentSessions(projectId: string): number {
         eq(agentSessions.projectId, projectId),
         eq(agentSessions.status, "deploying"),
         isNull(agentSessions.completedAt),
+        isNull(agentSessions.archivedAt),
       ),
     )
     .all();
@@ -230,6 +232,7 @@ export function isAgentSessionActive(projectId: string): boolean {
         eq(agentSessions.projectId, projectId),
         inArray(agentSessions.status, [...ACTIVE_STATUSES]),
         isNull(agentSessions.completedAt),
+        isNull(agentSessions.archivedAt),
       ),
     )
     .get();
@@ -248,6 +251,7 @@ export function getActiveSessionForProject(projectId: string) {
         eq(agentSessions.projectId, projectId),
         inArray(agentSessions.status, [...ACTIVE_STATUSES]),
         isNull(agentSessions.completedAt),
+        isNull(agentSessions.archivedAt),
       ),
     )
     .orderBy(desc(agentSessions.startedAt))

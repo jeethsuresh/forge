@@ -7,6 +7,7 @@ import {
   projectImageName,
   projectSupportsRollback,
   readProjectReleaseState,
+  releaseImageTagFromCommitSha,
   releaseStatePath,
   resolveHealthPath,
   resolveStagingPort,
@@ -71,14 +72,24 @@ describe("deploy-rollback helpers", () => {
     expect(projectSupportsRollback(project)).toBe(false);
   });
 
-  it("persists release state per project", () => {
+  it("normalizes commit SHAs into release image tags", () => {
+    expect(releaseImageTagFromCommitSha("Abc1234")).toBe("abc1234");
+    expect(releaseImageTagFromCommitSha("  deadbeefcafe  ")).toBe("deadbeefcafe");
+    expect(() => releaseImageTagFromCommitSha("next")).toThrow(/Invalid commit SHA/);
+    expect(() => releaseImageTagFromCommitSha("latest")).toThrow(/Invalid commit SHA/);
+    expect(() => releaseImageTagFromCommitSha("abc123")).toThrow(/Invalid commit SHA/);
+  });
+
+  it("persists release state per project using the SHA image tag", () => {
     const project = insertProject("State Test", "/tmp/state");
     const path = releaseStatePath(project.id);
     expect(path).toContain(project.id);
 
-    saveProjectReleaseState(project.id, "abc123");
+    saveProjectReleaseState(project.id, "Abc1234def");
     const state = readProjectReleaseState(project.id);
-    expect(state?.stableCommitSha).toBe("abc123");
+    expect(state?.stableCommitSha).toBe("abc1234def");
+    expect(state?.stableImageTag).toBe("abc1234def");
+    expect(state?.rollbackImageTag).toBe("rollback");
   });
 
   it("picks a staging port from HOST_PORT when STAGING_PORT is unset", () => {

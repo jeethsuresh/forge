@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "child_process";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
-import { and, desc, eq, gt, gte } from "drizzle-orm";
+import { and, desc, eq, gt, gte, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   agentEvents,
@@ -449,7 +449,11 @@ export function getSessionForBranch(projectId: string, branch: string) {
     .select()
     .from(agentSessions)
     .where(
-      and(eq(agentSessions.projectId, projectId), eq(agentSessions.branch, branch)),
+      and(
+        eq(agentSessions.projectId, projectId),
+        eq(agentSessions.branch, branch),
+        isNull(agentSessions.archivedAt),
+      ),
     )
     .get();
 }
@@ -892,6 +896,9 @@ async function startAgentWithUserMessage(
     .get();
 
   if (!session) throw new Error("Session not found");
+  if (session.archivedAt) {
+    throw new Error("Archived sessions are read-only");
+  }
   if (session.source === "recovery") {
     throw new Error("Deploy recovery agents start automatically after a failed deploy");
   }
@@ -1311,6 +1318,9 @@ export async function sendAgentMessage(
     .get();
 
   if (!session) throw new Error("Session not found");
+  if (session.archivedAt) {
+    throw new Error("Archived sessions are read-only");
+  }
   if (session.status === "idle") {
     activeAgentProjects.add(session.projectId);
     updateSessionStatus(sessionId, "pending");
@@ -1515,8 +1525,27 @@ export function listAgentSessions(projectId: string) {
   return db
     .select()
     .from(agentSessions)
-    .where(eq(agentSessions.projectId, projectId))
+    .where(
+      and(
+        eq(agentSessions.projectId, projectId),
+        isNull(agentSessions.archivedAt),
+      ),
+    )
     .orderBy(desc(agentSessions.startedAt))
+    .all();
+}
+
+export function listArchivedAgentSessions(projectId: string) {
+  return db
+    .select()
+    .from(agentSessions)
+    .where(
+      and(
+        eq(agentSessions.projectId, projectId),
+        isNotNull(agentSessions.archivedAt),
+      ),
+    )
+    .orderBy(desc(agentSessions.archivedAt))
     .all();
 }
 
@@ -1525,6 +1554,67 @@ export function listAgentSessionsForClient(projectId: string) {
     const reconciled = reconcileStuckAgentSession(session.id) ?? session;
     return withClientFields(reconciled);
   });
+}
+
+export function listArchivedAgentSessionsForClient(projectId: string) {
+  return listArchivedAgentSessions(projectId).map((session) =>
+    withClientFields(session),
+  );
+}
+
+/** End (if needed) and soft-archive a session so its branch can host a new live session. */
+export async function archiveAgentSession(
+  sessionId: string,
+  options?: { revertChanges?: boolean },
+): Promise<void> {
+  const session = getAgentSession(sessionId);
+  if (!session) throw new Error("Session not found");
+  if (session.archivedAt) return;
+
+  await endAgentSession(sessionId, options);
+
+  const now = new Date();
+  db.update(agentSessions)
+    .set({
+      archivedAt: now,
+      completedAt: session.completedAt ?? now,
+    })
+    .where(eq(agentSessions.id, sessionId))
+    .run();
+  appendSessionLog(sessionId, "Session archived.");
+}
+
+/** Archive the live session for a branch, if any. */
+export async function archiveLiveSessionForBranch(
+  projectId: string,
+  branch: string,
+): Promise<string | null> {
+  const existing = getSessionForBranch(projectId, branch);
+  if (!existing) return null;
+  await archiveAgentSession(existing.id);
+  return existing.id;
+}
+
+/**
+ * Archive the live session on a branch (if any) and start a fresh agent with a new prompt.
+ * Clears Cursor resume ids by creating a brand-new session row.
+ */
+export async function recreateAgentSession(
+  projectId: string,
+  branch: string,
+  prompt: string,
+): Promise<{ sessionId: string; queued: boolean; archivedSessionId: string | null }> {
+  const trimmedBranch = branch.trim();
+  const trimmedPrompt = prompt.trim();
+  if (!trimmedBranch) throw new Error("Branch is required");
+  if (!trimmedPrompt) throw new Error("Prompt is required");
+
+  const archivedSessionId = await archiveLiveSessionForBranch(
+    projectId,
+    trimmedBranch,
+  );
+  const created = await createAgentSession(projectId, trimmedBranch, trimmedPrompt);
+  return { ...created, archivedSessionId };
 }
 
 export function getAgentSession(sessionId: string) {
