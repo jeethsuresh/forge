@@ -1,11 +1,28 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DiffFileStat, ProjectGitDiffResult } from "@/lib/project-git-diff";
 import type { ProjectDiffMode } from "@/lib/project-diff-url";
 import { shortSha } from "@/lib/utils";
+import type { ProjectDiffEditorFile } from "@/components/ProjectDiffEditor";
+
+const ProjectDiffEditor = dynamic(
+  () =>
+    import("@/components/ProjectDiffEditor").then((module) => ({
+      default: module.ProjectDiffEditor,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
+        Loading editor…
+      </div>
+    ),
+  },
+);
 
 interface DiffApiResponse {
   diff: ProjectGitDiffResult;
@@ -60,6 +77,13 @@ export function ProjectDiffPanel({
   const [selectedFile, setSelectedFile] = useState<string | null>(
     searchParams.get("file"),
   );
+  const [fileData, setFileData] = useState<ProjectDiffEditorFile | null>(null);
+  const [fileLoading, setFileLoading] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const [commitMessage, setCommitMessage] = useState("");
+  const [editorDirty, setEditorDirty] = useState(false);
 
   const mode = readMode(searchParams);
   const sessionId = searchParams.get("session");
@@ -119,6 +143,114 @@ export function ProjectDiffPanel({
     });
   }, [fetchDiff]);
 
+  const fetchFile = useCallback(async () => {
+    if (!selectedFile) {
+      setFileData(null);
+      setFileError(null);
+      return;
+    }
+
+    setFileLoading(true);
+    setFileError(null);
+    try {
+      const params = new URLSearchParams(queryString);
+      params.set("path", selectedFile);
+      const res = await fetch(
+        `/api/projects/${projectId}/diff/file?${params.toString()}`,
+      );
+      const json = (await res.json()) as {
+        file?: ProjectDiffEditorFile;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(json.error ?? "Failed to load file");
+      }
+      setFileData(json.file ?? null);
+    } catch (err) {
+      setFileData(null);
+      setFileError(err instanceof Error ? err.message : "Failed to load file");
+    } finally {
+      setFileLoading(false);
+    }
+  }, [projectId, queryString, selectedFile]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      void fetchFile();
+    });
+  }, [fetchFile]);
+
+  const saveFile = useCallback(
+    async (content: string) => {
+      if (!selectedFile) return;
+      setSaving(true);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/diff/file`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ path: selectedFile, content }),
+        });
+        const json = (await res.json()) as { error?: string };
+        if (!res.ok) {
+          throw new Error(json.error ?? "Failed to save file");
+        }
+        await fetchFile();
+        await fetchDiff();
+      } finally {
+        setSaving(false);
+      }
+    },
+    [fetchDiff, fetchFile, projectId, selectedFile],
+  );
+
+  const commitChanges = useCallback(async () => {
+    if (editorDirty) {
+      const proceed = confirm(
+        "You have unsaved edits. Save the file before committing, or cancel to save first.",
+      );
+      if (!proceed) return;
+    }
+
+    setCommitting(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/diff/commit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: commitMessage.trim() || undefined,
+          sessionId: sessionId ?? undefined,
+        }),
+      });
+      const json = (await res.json()) as {
+        committed?: boolean;
+        commitSha?: string | null;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(json.error ?? "Failed to commit");
+      }
+      if (json.committed) {
+        setCommitMessage("");
+        await fetchDiff();
+        if (selectedFile) await fetchFile();
+      } else {
+        alert("No uncommitted changes to commit.");
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Failed to commit");
+    } finally {
+      setCommitting(false);
+    }
+  }, [
+    commitMessage,
+    editorDirty,
+    fetchDiff,
+    fetchFile,
+    projectId,
+    selectedFile,
+    sessionId,
+  ]);
+
   useEffect(() => {
     queueMicrotask(() => {
       setSelectedFile(searchParams.get("file"));
@@ -173,12 +305,30 @@ export function ProjectDiffPanel({
   }
 
   function selectFile(path: string | null) {
+    if (editorDirty) {
+      const proceed = confirm(
+        "Discard unsaved edits and switch files?",
+      );
+      if (!proceed) return;
+    }
+    setEditorDirty(false);
     setSelectedFile(path);
     replaceDiffUrl({ file: path ?? "" });
   }
 
   const diff = data?.diff;
   const branches = data?.branches ?? [];
+
+  useEffect(() => {
+    if (!diff || diff.files.length === 0 || selectedFile) return;
+    const firstSource = diff.files.find((f) => !f.binary);
+    if (firstSource) {
+      queueMicrotask(() => {
+        setSelectedFile(firstSource.path);
+        replaceDiffUrl({ file: firstSource.path });
+      });
+    }
+  }, [diff, selectedFile]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -189,9 +339,8 @@ export function ProjectDiffPanel({
               Changes
             </h2>
             <p className="mt-1 text-xs text-zinc-500">
-              Compare commits, preview merge/rebase impact, or inspect uncommitted
-              agent work. This view is linkable from agent sessions and branch
-              operations.
+              Browse changed files in a Monaco editor with inline diff highlights.
+              Edit and save uncommitted work, then commit manually when ready.
             </p>
           </div>
           <button
@@ -400,6 +549,30 @@ export function ProjectDiffPanel({
           )}
         </div>
 
+        {mode === "uncommitted" && diff && !diff.empty && (
+          <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-zinc-800 pt-4">
+            <label className="flex min-w-[16rem] flex-1 flex-col gap-1">
+              <span className="text-[10px] uppercase tracking-wider text-zinc-500">
+                Commit message
+              </span>
+              <input
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                placeholder="Manual commit from Changes tab"
+                className="min-h-9 rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-200"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => void commitChanges()}
+              disabled={committing || loading}
+              className="min-h-9 rounded-lg border border-emerald-400/40 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200 hover:bg-emerald-400/20 disabled:opacity-50"
+            >
+              {committing ? "Committing…" : "Commit all changes"}
+            </button>
+          </div>
+        )}
+
         {diff && (
           <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
             <span className="rounded border border-zinc-700 px-2 py-1 text-zinc-300">
@@ -481,16 +654,36 @@ export function ProjectDiffPanel({
             </div>
           </aside>
 
-          <section className="flex min-h-0 flex-col rounded-xl border border-zinc-800 bg-zinc-950">
-            <div className="border-b border-zinc-800 px-4 py-2 text-xs text-zinc-500">
-              {diff.empty
-                ? "No differences"
-                : selectedFile
-                  ? selectedFile
-                  : "Unified diff"}
-              {diff.truncated ? " · truncated" : ""}
-            </div>
-            <DiffPatchView patch={diff.patch} empty={diff.empty} />
+          <section className="flex min-h-[28rem] flex-col rounded-xl border border-zinc-800 bg-zinc-950 lg:min-h-0">
+            {selectedFile ? (
+              fileError ? (
+                <div className="flex flex-1 items-center justify-center px-4 py-8 text-sm text-red-300">
+                  {fileError}
+                </div>
+              ) : fileLoading && !fileData ? (
+                <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
+                  Loading file…
+                </div>
+              ) : fileData ? (
+                <ProjectDiffEditor
+                  file={fileData}
+                  loading={fileLoading}
+                  saving={saving}
+                  onSave={mode === "uncommitted" ? saveFile : undefined}
+                  onDirtyChange={setEditorDirty}
+                />
+              ) : null
+            ) : (
+              <>
+                <div className="border-b border-zinc-800 px-4 py-2 text-xs text-zinc-500">
+                  {diff.empty
+                    ? "No differences"
+                    : "Unified diff"}
+                  {diff.truncated ? " · truncated" : ""}
+                </div>
+                <DiffPatchView patch={diff.patch} empty={diff.empty} />
+              </>
+            )}
           </section>
         </div>
       ) : null}
