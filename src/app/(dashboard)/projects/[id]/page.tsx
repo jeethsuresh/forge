@@ -146,7 +146,7 @@ interface ProjectDetail {
     id: string;
     branch: string;
     status: string;
-    sessionSource: "manual" | "recovery";
+    sessionSource: "manual" | "recovery" | "rebase-recovery";
   } | null;
   deployUpdate: {
     branch: string;

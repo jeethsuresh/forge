@@ -154,6 +154,19 @@ curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
 \`\`\`
 
 Full endpoint catalog: \`GET ${baseUrl}/api/ops\`
+
+## Rebase recovery
+
+When rebasing, if the rebase command fails, create a special agent session in a new branch (off of the base branch) and attempt to rebase the divergent branch onto it. Once that's done, the agent should be able to remove the old branch, and rename the new branch to the old branch name for continuity.
+
+**Finalize rebase recovery** (after conflicts are resolved and tests pass)
+\`\`\`bash
+curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  -d '{"recoveryBranch":"forge-rebase/feature-x","sourceBranch":"feature/x"}' \\
+  "${baseUrl}/api/projects/${projectId}/git-tree/rebase/finalize"
+\`\`\`
 `;
 }
 

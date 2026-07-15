@@ -103,5 +103,6 @@ describe("agent-ops-prompt", () => {
     expect(text).toContain("FORGE_OPS_API_TOKEN");
     expect(text).toContain("/api/ops/projects/proj-1");
     expect(text).toContain("sess-1");
+    expect(text).toContain("rebase/finalize");
   });
 });

@@ -36,7 +36,7 @@ interface AgentSession {
   hasActiveProcess?: boolean;
   canRetry?: boolean;
   hasFileEdits?: boolean;
-  sessionSource?: "manual" | "recovery";
+  sessionSource?: "manual" | "recovery" | "rebase-recovery";
   sessionSourceLabel?: string;
 }
 
@@ -637,11 +637,14 @@ export function AgentWorkspace({
   async function endSession() {
     if (!selectedId || !selectedBranch) return;
     const recovery = sessionDetail?.sessionSource === "recovery";
+    const rebaseRecovery = sessionDetail?.sessionSource === "rebase-recovery";
     if (
       !confirm(
-        recovery
-          ? "Stop the deploy recovery agent? Deploys for this project will be unblocked."
-          : "End this agent session? Deploys for this project will be unblocked.",
+        rebaseRecovery
+          ? "Stop the rebase recovery agent? Branch operations for this project will be unblocked."
+          : recovery
+            ? "Stop the deploy recovery agent? Deploys for this project will be unblocked."
+            : "End this agent session? Deploys for this project will be unblocked.",
       )
     ) {
       return;
@@ -755,6 +758,8 @@ export function AgentWorkspace({
   const showEndSession = Boolean(isActiveSession && selectedId);
   const isDeploying = sessionDetail?.status === "deploying";
   const isRecoverySession = sessionDetail?.sessionSource === "recovery";
+  const isRebaseRecoverySession =
+    sessionDetail?.sessionSource === "rebase-recovery";
   const canStartOnBranch = Boolean(
     selectedBranch &&
       !blockedByOtherBranch &&
@@ -1041,7 +1046,11 @@ export function AgentWorkspace({
                   className="min-h-9 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-400/20 disabled:opacity-50"
                   title="Stop the agent and unblock deploys"
                 >
-                  {isRecoverySession ? "Stop recovery" : "End session"}
+                  {isRebaseRecoverySession
+                    ? "Stop rebase recovery"
+                    : isRecoverySession
+                      ? "Stop recovery"
+                      : "End session"}
                 </button>
               )}
               {sessionDetail?.status === "failed" && sessionDetail.canRetry && (
@@ -1304,6 +1313,12 @@ export function AgentWorkspace({
                   shouldAutoScrollRef.current = nearBottom;
                 }}
               >
+                {isRebaseRecoverySession && isActiveSession && (
+                  <div className="rounded-lg border border-sky-400/20 bg-sky-400/5 px-3 py-2.5 text-xs text-sky-200">
+                    This agent started automatically after a failed rebase. Stop it
+                    anytime to unblock branch operations.
+                  </div>
+                )}
                 {isRecoverySession && isActiveSession && (
                   <div className="rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2.5 text-xs text-amber-200">
                     This agent started automatically after a failed deploy. Stop it
