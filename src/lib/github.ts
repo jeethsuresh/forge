@@ -510,6 +510,47 @@ export async function pushBranch(
   log(`Pushed ${branch} to origin.`);
 }
 
+export async function revertAgentSessionCommit(
+  clonePath: string,
+  branch: string,
+  commitSha: string,
+  onLog?: (line: string) => void,
+): Promise<void> {
+  const resolvedPath = resolveClonePath(clonePath);
+  if (!existsSync(resolvedPath)) {
+    throw new Error("Clone path does not exist");
+  }
+
+  const log = onLog ?? (() => {});
+  await execGit(["checkout", branch], { cwd: resolvedPath });
+
+  const headSha = await getLocalCommitSha(resolvedPath);
+  if (!headSha) {
+    throw new Error("Could not resolve HEAD for revert");
+  }
+  if (headSha !== commitSha) {
+    throw new Error(
+      `Branch HEAD (${headSha.slice(0, 7)}) does not match session commit (${commitSha.slice(0, 7)})`,
+    );
+  }
+
+  log(`Reverting agent commit ${commitSha.slice(0, 7)} on ${branch}…`);
+  await execGit(["reset", "--hard", "HEAD~1"], { cwd: resolvedPath });
+
+  await ensureGitCredentialStore();
+  log(`Force-pushing reverted ${branch} to origin…`);
+  try {
+    await execGit(["push", "--force-with-lease", "origin", branch], {
+      cwd: resolvedPath,
+    });
+  } catch (err) {
+    throw new Error(
+      `Failed to push reverted ${branch} to origin: ${formatGitError(err)}`,
+    );
+  }
+  log(`Reverted and pushed ${branch}.`);
+}
+
 export async function prepareAgentWorkspace(
   repo: string,
   defaultBranch: string,

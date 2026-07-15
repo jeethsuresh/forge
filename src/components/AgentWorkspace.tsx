@@ -17,6 +17,7 @@ import {
   agentSessionSourceBadgeClass,
   isInactiveAgentSessionStatus,
 } from "@/lib/agent-session-source";
+import { isQueuedAgentSessionStatus } from "@/lib/agent-queue";
 import { AgentMessageList } from "@/components/AgentMessageList";
 import { ActiveDeployLogsPanel } from "@/components/ActiveDeployLogsPanel";
 import type { ActiveDeployLogView } from "@/lib/active-deploy-logs";
@@ -438,12 +439,14 @@ export function AgentWorkspace({
         alert(json.error ?? "Failed to start agent");
         return;
       }
-      const json = (await res.json()) as { sessionId: string };
+      const json = (await res.json()) as { sessionId: string; queued?: boolean };
       const previousSessionId = selectedId;
       setPrompt("");
       setSelectedId(json.sessionId);
       await fetchSessions();
-      if (json.sessionId === previousSessionId) {
+      if (json.queued) {
+        await fetchSessionDetail(json.sessionId);
+      } else if (json.sessionId === previousSessionId) {
         setStreamEpoch((epoch) => epoch + 1);
       }
     } finally {
@@ -471,14 +474,22 @@ export function AgentWorkspace({
         alert(json.error ?? "Failed to create branch");
         return;
       }
-      const json = (await res.json()) as { branch: string; sessionId: string };
+      const json = (await res.json()) as {
+        branch: string;
+        sessionId: string;
+        queued?: boolean;
+      };
       setPrompt("");
       setNewBranchName("");
       setShowNewBranchForm(false);
       setSelectedBranch(json.branch);
       setSelectedId(json.sessionId);
       await fetchSessions();
-      setStreamEpoch((epoch) => epoch + 1);
+      if (json.queued) {
+        await fetchSessionDetail(json.sessionId);
+      } else {
+        setStreamEpoch((epoch) => epoch + 1);
+      }
     } finally {
       setLoading(false);
     }
@@ -543,6 +554,33 @@ export function AgentWorkspace({
       } else {
         alert("No uncommitted changes to commit.");
       }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function revertSessionCommit() {
+    if (!selectedId) return;
+    if (
+      !confirm(
+        "Revert the agent commit on this branch and force-push the previous revision?",
+      )
+    ) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/agent-sessions/${selectedId}/revert`,
+        { method: "POST" },
+      );
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Failed to revert commit");
+        return;
+      }
+      await fetchSessions();
+      await fetchSessionDetail(selectedId);
     } finally {
       setLoading(false);
     }
@@ -745,20 +783,21 @@ export function AgentWorkspace({
   const deployBranchName =
     branches.find((b) => b.isDeployBranch)?.name ?? null;
 
-  const blockedByOtherBranch = Boolean(
-    data?.hasActiveSession && activeBranch && activeBranch !== selectedBranch,
-  );
-
   const isActiveSession = Boolean(
     sessionDetail && ACTIVE_AGENT_STATUSES.has(sessionDetail.status),
   );
-  const showEndSession = Boolean(isActiveSession && selectedId);
+  const isQueuedSession = Boolean(
+    sessionDetail && isQueuedAgentSessionStatus(sessionDetail.status),
+  );
+  const showEndSession = Boolean(
+    (isActiveSession || isQueuedSession) && selectedId,
+  );
   const isDeploying = sessionDetail?.status === "deploying";
   const isRecoverySession = sessionDetail?.sessionSource === "recovery";
   const canStartOnBranch = Boolean(
     selectedBranch &&
-      !blockedByOtherBranch &&
       !isActiveSession &&
+      !isQueuedSession &&
       (!selectedBranchInfo?.hasAgent ||
         (selectedBranchInfo.sessionStatus &&
           isInactiveAgentSessionStatus(selectedBranchInfo.sessionStatus))),
@@ -778,6 +817,9 @@ export function AgentWorkspace({
     canCommitOrDeploy && sessionDetail?.status === "running";
   const showFinishedAgentActions =
     canCommitOrDeploy && sessionDetail?.status === "completed";
+  const showRevertCommit = Boolean(
+    showFinishedAgentActions && sessionDetail?.commitSha && !sessionDetail.deploymentId,
+  );
   const showFailedAgentActions =
     canCommitOrDeploy && sessionDetail?.status === "failed";
   const showFinishAndDeploy = Boolean(
@@ -814,7 +856,9 @@ export function AgentWorkspace({
             <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
               Agents
             </p>
-            <p className="mt-0.5 text-xs text-zinc-600">One agent per branch</p>
+            <p className="mt-0.5 text-xs text-zinc-600">
+              Queue agents on different branches
+            </p>
           </div>
           <button
             type="button"
@@ -827,13 +871,9 @@ export function AgentWorkspace({
               setDeployLogView(null);
               setMessages([]);
             }}
-            disabled={loading || blockedByOtherBranch}
+            disabled={loading}
             className="min-h-8 shrink-0 rounded-lg border border-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
-            title={
-              blockedByOtherBranch
-                ? "Finish or cancel the active agent first"
-                : "Create a new branch and agent"
-            }
+            title="Create a new branch and agent"
           >
             + New
           </button>
@@ -953,13 +993,7 @@ export function AgentWorkspace({
               Cancel
             </button>
           </div>
-          {blockedByOtherBranch && (
-            <p className="mb-4 rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-xs text-amber-400">
-              Agent is active on{" "}
-              <span className="font-mono">{activeBranch}</span>. Finish or cancel
-              it before creating a new branch.
-            </p>
-          )}
+
           <form onSubmit={createNewBranchAndAgent} className="flex flex-1 flex-col">
             <label className="mb-3 block">
               <span className="mb-1.5 block text-xs font-medium text-zinc-500">
@@ -990,7 +1024,6 @@ export function AgentWorkspace({
               type="submit"
               disabled={
                 loading ||
-                blockedByOtherBranch ||
                 !newBranchName.trim() ||
                 !prompt.trim()
               }
@@ -1102,24 +1135,6 @@ export function AgentWorkspace({
               )}
               {showFinishedAgentActions && (
                 <>
-                  {showFinishAndDeploy && (
-                    <button
-                      type="button"
-                      onClick={finishSession}
-                      disabled={loading}
-                      className="min-h-9 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
-                    >
-                      Finish &amp; deploy
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={commitSession}
-                    disabled={loading}
-                    className="min-h-9 rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
-                  >
-                    Commit
-                  </button>
                   <button
                     type="button"
                     onClick={deploySession}
@@ -1128,6 +1143,16 @@ export function AgentWorkspace({
                   >
                     Deploy
                   </button>
+                  {showRevertCommit && (
+                    <button
+                      type="button"
+                      onClick={revertSessionCommit}
+                      disabled={loading}
+                      className="min-h-9 rounded-lg border border-red-400/20 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-400/10 disabled:opacity-50"
+                    >
+                      Revert commit
+                    </button>
+                  )}
                 </>
               )}
               {showFailedAgentActions && (
@@ -1196,36 +1221,59 @@ export function AgentWorkspace({
             />
           )}
 
-          {blockedByOtherBranch && (
+          {isQueuedSession && (
             <p className="border-b border-zinc-800 bg-amber-400/5 px-4 py-2 text-xs text-amber-400">
-              Agent is active on{" "}
-              <span className="font-mono">{activeBranch}</span>. Finish or
-              cancel it before working here.
+              Queued behind the active agent
+              {activeBranch ? (
+                <>
+                  {" "}
+                  on <span className="font-mono">{activeBranch}</span>
+                </>
+              ) : null}
+              . This session will start automatically when its turn comes.
             </p>
           )}
 
           {sessionDetail &&
             isTerminalSession &&
             sessionDetail.status === "completed" &&
-            showFinishAndDeploy && (
+            !sessionDetail.deploymentId && (
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-orange-400/5 px-4 py-3">
                 <p className="text-sm text-zinc-300">
-                  Agent session is done. Commit and deploy changes in one step.
+                  Session finished
+                  {sessionDetail.commitSha
+                    ? ` and changes were pushed (${shortSha(sessionDetail.commitSha)})`
+                    : " with no file changes"}
+                  . Deploy when ready, or revert the commit.
                 </p>
-                <button
-                  type="button"
-                  onClick={finishSession}
-                  disabled={loading}
-                  className="min-h-9 shrink-0 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
-                >
-                  Finish &amp; deploy
-                </button>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={deploySession}
+                    disabled={loading}
+                    className="min-h-9 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
+                  >
+                    Deploy
+                  </button>
+                  {showRevertCommit && (
+                    <button
+                      type="button"
+                      onClick={revertSessionCommit}
+                      disabled={loading}
+                      className="min-h-9 rounded-lg border border-red-400/20 px-3 py-1.5 text-xs text-red-400 hover:bg-red-400/10 disabled:opacity-50"
+                    >
+                      Revert commit
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
           {sessionDetail &&
             isTerminalSession &&
-            sessionDetail.hasFileEdits === false && (
+            sessionDetail.hasFileEdits === false &&
+            sessionDetail.status === "completed" &&
+            !sessionDetail.commitSha && (
               <p className="border-b border-zinc-800 bg-zinc-800/40 px-4 py-2 text-xs text-zinc-400">
                 Session finished with no file changes.
               </p>
@@ -1276,7 +1324,7 @@ export function AgentWorkspace({
                 />
                 <button
                   type="submit"
-                  disabled={loading || !prompt.trim() || blockedByOtherBranch}
+                  disabled={loading || !prompt.trim()}
                   className="min-h-11 rounded-lg bg-orange-500 py-2.5 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
                 >
                   {selectedSessionMeta ? "Continue agent" : "Start agent"}
@@ -1399,9 +1447,7 @@ export function AgentWorkspace({
             </>
           ) : (
             <div className="flex flex-1 items-center justify-center p-8 text-sm text-zinc-600">
-              {blockedByOtherBranch
-                ? "Another branch has an active agent."
-                : "Select a branch from the list."}
+              Select a branch from the list.
             </div>
           )}
         </>

@@ -44,6 +44,7 @@ export function isIdleAgentSession(status: string): boolean {
 /** UI treats these as inactive for follow-up vs new-message forms. */
 export const INACTIVE_AGENT_SESSION_STATUSES = [
   "idle",
+  "queued",
   "completed",
   "failed",
   "cancelled",

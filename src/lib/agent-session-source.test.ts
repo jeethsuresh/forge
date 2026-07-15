@@ -41,9 +41,10 @@ describe("agent session activity helpers", () => {
     expect(agentSessionSourceLabel("recovery")).toBe("Deploy recovery");
   });
 
-  it("treats idle as inactive and non-blocking", () => {
+  it("treats idle and queued as inactive and non-blocking", () => {
     expect(isIdleAgentSession("idle")).toBe(true);
     expect(isInactiveAgentSessionStatus("idle")).toBe(true);
+    expect(isInactiveAgentSessionStatus("queued")).toBe(true);
     expect(isInactiveAgentSessionStatus("running")).toBe(false);
   });
 });

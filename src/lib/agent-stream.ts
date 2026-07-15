@@ -28,6 +28,7 @@ interface StreamEvent {
   subtype?: string;
   call_id?: string;
   session_id?: string;
+  text?: string;
   message?: {
     role?: string;
     content?: Array<{ type?: string; text?: string }>;
@@ -444,7 +445,9 @@ export function streamEventToDisplay(
   const timestamp = event.timestamp_ms ?? Date.now();
 
   if (event.type === "user") {
-    const text = event.message?.content?.[0]?.text;
+    const text =
+      event.message?.content?.[0]?.text ??
+      (typeof event.text === "string" ? event.text : null);
     if (!text) return null;
     return {
       id: `user-${seq}`,
@@ -493,6 +496,17 @@ export function streamEventToDisplay(
       id: `system-${seq}`,
       role: "system",
       content: `Agent turn completed (${durationSec})`,
+      timestamp,
+    };
+  }
+
+  if (event.type === "system" && event.subtype === "forge-ops") {
+    const text = typeof event.text === "string" ? event.text : null;
+    if (!text) return null;
+    return {
+      id: `system-${seq}`,
+      role: "system",
+      content: text,
       timestamp,
     };
   }
