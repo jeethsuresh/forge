@@ -7,6 +7,7 @@ import {
   createAgentSession,
   getBranchAgentOverview,
   listAgentSessionsForClient,
+  drainQueuedAgentSessions,
 } from "@/lib/agent-runner";
 import {
   reconcileAbandonedDeployingSessions,
@@ -37,6 +38,7 @@ export async function GET(
 
   reconcileInterruptedDeployments(id);
   reconcileAbandonedDeployingSessions(id);
+  drainQueuedAgentSessions(id);
 
   const sessions = listAgentSessionsForClient(id);
   const activeSession = getActiveSessionForProject(id);
@@ -74,12 +76,12 @@ export async function POST(
   }
 
   try {
-    const sessionId = await createAgentSession(
+    const { sessionId, queued } = await createAgentSession(
       id,
       body.branch.trim(),
       body.prompt.trim(),
     );
-    return NextResponse.json({ sessionId }, { status: 201 });
+    return NextResponse.json({ sessionId, queued }, { status: queued ? 202 : 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create session";
     const status = message.includes("already active") ? 409 : 500;

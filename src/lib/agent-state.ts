@@ -129,16 +129,19 @@ function reconcileStaleActiveSessions(projectId: string): number {
 
     const turnIncomplete = !isAgentTurnComplete(sessionEvents(session.id));
 
-    // Finished recovery turns should not linger as running and block new agents.
-    if (
-      session.status === "running" &&
-      !turnIncomplete &&
-      shouldAutoCompleteRecoverySession(session)
-    ) {
-      appendSessionLog(
-        session.id,
-        "Deploy recovery agent finished. Session marked completed.",
-      );
+    // Finished manual or recovery turns should not linger as running and block new agents.
+    if (session.status === "running" && !turnIncomplete) {
+      if (shouldAutoCompleteRecoverySession(session)) {
+        appendSessionLog(
+          session.id,
+          "Deploy recovery agent finished. Session marked completed.",
+        );
+      } else {
+        appendSessionLog(
+          session.id,
+          "Agent turn finished. Session marked completed.",
+        );
+      }
       db.update(agentSessions)
         .set({
           status: "completed",

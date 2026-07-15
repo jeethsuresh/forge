@@ -44,6 +44,7 @@ export type DeploymentTrigger =
 
 export type AgentSessionStatus =
   | "idle"
+  | "queued"
   | "pending"
   | "running"
   | "deploying"

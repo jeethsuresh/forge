@@ -38,8 +38,8 @@ export async function POST(
 
   try {
     await createAgentBranch(id, branchName);
-    const sessionId = await createAgentSession(id, branchName, prompt);
-    return NextResponse.json({ branch: branchName, sessionId }, { status: 201 });
+    const { sessionId, queued } = await createAgentSession(id, branchName, prompt);
+    return NextResponse.json({ branch: branchName, sessionId, queued }, { status: queued ? 202 : 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create branch";
     const status = message.includes("already active") ? 409 : 500;

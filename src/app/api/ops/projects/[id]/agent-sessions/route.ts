@@ -3,6 +3,7 @@ import {
   createAgentSession,
   getBranchAgentOverview,
   listAgentSessionsForClient,
+  drainQueuedAgentSessions,
 } from "@/lib/agent-runner";
 import { getActiveSessionForProject, isAgentSessionActive } from "@/lib/agent-state";
 import {
@@ -33,6 +34,7 @@ export async function GET(
 
   reconcileInterruptedDeployments(id);
   reconcileAbandonedDeployingSessions(id);
+  drainQueuedAgentSessions(id);
 
   const sessions = listAgentSessionsForClient(id);
   const activeSession = getActiveSessionForProject(id);
@@ -91,10 +93,10 @@ export async function POST(
   }
 
   try {
-    const sessionId = await createAgentSession(id, branch, prompt);
+    const { sessionId, queued } = await createAgentSession(id, branch, prompt);
     return jsonWithAudit(
-      { sessionId, branch },
-      { status: 201 },
+      { sessionId, branch, queued },
+      { status: queued ? 202 : 201 },
       {
         request,
         method: "POST",

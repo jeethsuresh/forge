@@ -354,6 +354,40 @@ describe("summarizeToolCluster", () => {
 });
 
 describe("eventsToDisplayMessages", () => {
+  it("parses stored user prompt text events", () => {
+    const messages = eventsToDisplayMessages([
+      {
+        seq: 1,
+        eventType: "user",
+        payload: JSON.stringify({ type: "user", text: "Fix the bug" }),
+      },
+    ]);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.role).toBe("user");
+    expect(messages[0]?.content).toBe("Fix the bug");
+  });
+
+  it("parses stored forge ops system instructions", () => {
+    const messages = eventsToDisplayMessages([
+      {
+        seq: 1,
+        eventType: "system",
+        payload: JSON.stringify({
+          type: "system",
+          subtype: "forge-ops",
+          text: "# Forge Operations API",
+        }),
+      },
+      {
+        seq: 2,
+        eventType: "user",
+        payload: JSON.stringify({ type: "user", text: "Do it" }),
+      },
+    ]);
+    expect(messages.some((m) => m.role === "system" && m.content.includes("Forge Operations API"))).toBe(true);
+    expect(messages.some((m) => m.role === "user" && m.content === "Do it")).toBe(true);
+  });
+
   it("parses stored event payloads into messages", () => {
     const messages = eventsToDisplayMessages([
       {

@@ -86,7 +86,7 @@ describe("reconcileProjectAgentSessions", () => {
     expect(getBlockingAgentSession(projectId)).toBeNull();
   });
 
-  it("keeps finished running sessions so Finish & Deploy still works", () => {
+  it("completes finished running sessions so deploys are not blocked", () => {
     const now = new Date();
     db.insert(agentSessions)
       .values({
@@ -121,17 +121,17 @@ describe("reconcileProjectAgentSessions", () => {
       .run();
 
     const count = reconcileProjectAgentSessions(projectId);
-    expect(count).toBe(0);
+    expect(count).toBe(1);
 
     const session = db
       .select()
       .from(agentSessions)
       .where(eq(agentSessions.id, sessionId))
       .get();
-    expect(session?.status).toBe("running");
-    expect(session?.errorMessage).toBeNull();
-    expect(isAgentSessionActive(projectId)).toBe(true);
-    expect(getBlockingAgentSession(projectId)?.id).toBe(sessionId);
+    expect(session?.status).toBe("completed");
+    expect(session?.completedAt).not.toBeNull();
+    expect(isAgentSessionActive(projectId)).toBe(false);
+    expect(getBlockingAgentSession(projectId)).toBeNull();
   });
 
   it("completes finished recovery sessions so a new agent can start on the branch", () => {
