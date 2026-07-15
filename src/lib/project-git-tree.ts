@@ -200,7 +200,7 @@ export async function ensureBranchPushed(
   }
 }
 
-async function checkoutLocalBranch(
+export async function checkoutLocalBranch(
   clonePath: string,
   branch: string,
 ): Promise<void> {
@@ -211,7 +211,7 @@ async function checkoutLocalBranch(
   }
 }
 
-async function ensureLocalBranch(
+export async function ensureLocalBranch(
   clonePath: string,
   branch: string,
 ): Promise<void> {

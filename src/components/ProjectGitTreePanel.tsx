@@ -29,6 +29,11 @@ interface GitGraphResponse {
 
 interface BranchOpsError {
   error?: string;
+  recoveryError?: string;
+  recovered?: boolean;
+  recoverySessionId?: string;
+  recoveryBranch?: string;
+  cherryPickState?: string;
   blockingAgentSession?: {
     id: string;
     branch: string;
@@ -277,6 +282,18 @@ export function ProjectGitTreePanel({
       if (!res.ok) {
         await handleBranchOpError(res, body);
         return;
+      }
+      if (body.recovered && body.recoverySessionId && onOpenAgentSession) {
+        const open = confirm(
+          `Rebase failed but a recovery agent was started on "${body.recoveryBranch}".\n\nOpen the recovery session to resolve conflicts?`,
+        );
+        if (open) {
+          onOpenAgentSession(body.recoverySessionId);
+        }
+      } else if (body.recovered) {
+        alert(
+          `Rebase conflicts were resolved automatically on "${body.recoveryBranch}" and renamed to "${branch}".`,
+        );
       }
       await refreshGraph();
       onRefreshProject?.();

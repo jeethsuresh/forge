@@ -876,6 +876,9 @@ async function startAgentWithUserMessage(
   if (session.source === "recovery") {
     throw new Error("Deploy recovery agents start automatically after a failed deploy");
   }
+  if (session.source === "rebase-recovery") {
+    throw new Error("Rebase recovery agents start automatically after a failed rebase");
+  }
 
   if (ACTIVE_TURN_STATUSES.includes(session.status)) {
     await sendAgentMessage(sessionId, trimmedPrompt);
@@ -1051,6 +1054,71 @@ export async function createRecoveryAgentSession(
     .run();
 
   void executeAgentTurn(sessionId, project.id, prompt.trim(), options);
+
+  return sessionId;
+}
+
+export async function createRebaseRecoveryAgentSession(
+  project: Project,
+  branch: string,
+  prompt: string,
+): Promise<string> {
+  const trimmedBranch = branch.trim();
+  if (!trimmedBranch) throw new Error("Branch is required");
+  if (!prompt.trim()) throw new Error("Prompt is required");
+
+  const localBranches = await listLocalBranches(project.clonePath);
+  if (!localBranches.includes(trimmedBranch)) {
+    throw new Error(
+      `Branch "${trimmedBranch}" not found locally. Fetch or create the branch in git first.`,
+    );
+  }
+
+  assertNoConflictingActiveSession(project.id, trimmedBranch);
+
+  const existing = getSessionForBranch(project.id, trimmedBranch);
+
+  if (existing) {
+    if (ACTIVE_TURN_STATUSES.includes(existing.status)) {
+      await sendAgentMessage(existing.id, prompt.trim());
+      return existing.id;
+    }
+
+    db.update(agentSessions)
+      .set({
+        status: "pending",
+        source: "rebase-recovery",
+        initialPrompt: prompt.trim(),
+        errorMessage: null,
+        completedAt: null,
+        deploymentId: null,
+        commitSha: null,
+        failedTurnStartSeq: null,
+      })
+      .where(eq(agentSessions.id, existing.id))
+      .run();
+    activeAgentProjects.add(project.id);
+    void executeAgentTurn(existing.id, project.id, prompt.trim());
+    return existing.id;
+  }
+
+  const sessionId = randomUUID();
+  activeAgentProjects.add(project.id);
+
+  db.insert(agentSessions)
+    .values({
+      id: sessionId,
+      projectId: project.id,
+      branch: trimmedBranch,
+      status: "pending",
+      source: "rebase-recovery",
+      initialPrompt: prompt.trim(),
+      logs: "",
+      startedAt: new Date(),
+    })
+    .run();
+
+  void executeAgentTurn(sessionId, project.id, prompt.trim());
 
   return sessionId;
 }

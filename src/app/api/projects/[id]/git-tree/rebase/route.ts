@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth/session";
 import { branchOpsBlockedResponse } from "@/lib/git-tree-branch-ops";
 import { rebaseProjectBranch } from "@/lib/project-git-tree";
 import { invalidateProjectBranches } from "@/lib/project-branches-cache";
+import { startRebaseRecovery } from "@/lib/rebase-recovery";
 
 export async function POST(
   request: Request,
@@ -41,6 +42,39 @@ export async function POST(
     return NextResponse.json({ success: true, branch, onto });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Rebase failed";
-    return NextResponse.json({ error: message }, { status: 409 });
+    try {
+      const recovery = await startRebaseRecovery(project, branch, onto, message);
+      invalidateProjectBranches(id);
+
+      if (recovery.autoFinalized) {
+        return NextResponse.json({
+          success: true,
+          branch,
+          onto,
+          recovered: true,
+          recoveryBranch: recovery.recoveryBranch,
+        });
+      }
+
+      return NextResponse.json(
+        {
+          recovered: true,
+          recoverySessionId: recovery.sessionId,
+          recoveryBranch: recovery.recoveryBranch,
+          cherryPickState: recovery.cherryPickState,
+          branch,
+          onto,
+          error: message,
+        },
+        { status: 202 },
+      );
+    } catch (recoveryErr) {
+      const recoveryMessage =
+        recoveryErr instanceof Error ? recoveryErr.message : "Recovery failed";
+      return NextResponse.json(
+        { error: message, recoveryError: recoveryMessage },
+        { status: 409 },
+      );
+    }
   }
 }

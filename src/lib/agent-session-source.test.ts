@@ -39,6 +39,7 @@ describe("agent session activity helpers", () => {
   it("labels sources for the UI", () => {
     expect(agentSessionSourceLabel("manual")).toBe("Manual");
     expect(agentSessionSourceLabel("recovery")).toBe("Deploy recovery");
+    expect(agentSessionSourceLabel("rebase-recovery")).toBe("Rebase recovery");
   });
 
   it("treats idle and queued as inactive and non-blocking", () => {
@@ -74,5 +75,14 @@ describe("shouldAutoCompleteRecoverySession", () => {
         initialPrompt: "Add feature",
       }),
     ).toBe(false);
+  });
+
+  it("is true for rebase-recovery sessions", () => {
+    expect(
+      shouldAutoCompleteRecoverySession({
+        source: "rebase-recovery",
+        initialPrompt: "ignored",
+      }),
+    ).toBe(true);
   });
 });

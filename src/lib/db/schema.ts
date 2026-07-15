@@ -52,7 +52,7 @@ export type AgentSessionStatus =
   | "failed"
   | "cancelled";
 
-export type AgentSessionSource = "manual" | "recovery";
+export type AgentSessionSource = "manual" | "recovery" | "rebase-recovery";
 
 export type ForgeUpdateStatus =
   | "pending"
