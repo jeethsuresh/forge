@@ -651,7 +651,7 @@ export default function ProjectDetailPage() {
                   disabled={actionLoading || deployBusy}
                   className="min-h-9 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-400/20 disabled:opacity-50"
                 >
-                  Stop agent
+                  End session
                 </button>
                 <button
                   type="button"

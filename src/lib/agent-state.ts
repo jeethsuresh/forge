@@ -9,7 +9,11 @@ import {
   isStuckActiveSession,
   isTerminalSessionStatus,
 } from "@/lib/agent-turn";
-import { isIdleAgentSession, resolveAgentSessionSource, shouldAutoCompleteRecoverySession } from "@/lib/agent-session-source";
+import {
+  isIdleAgentSession,
+  resolveAgentSessionSource,
+  shouldAutoCompleteRecoverySession,
+} from "@/lib/agent-session-source";
 
 export const activeAgentProjects = new Set<string>();
 

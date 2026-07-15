@@ -8,7 +8,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 - **Run `./test.sh` before finishing any task** that touches code or config. Do not end the turn with failing or unrun tests.
 - If tests fail, **fix them** (or revert the breaking change) and re-run `./test.sh` until all pass.
-- Use `./build.sh` → `./test.sh` → `./deploy.sh` for deploy-related work; a failing test blocks deploy.
+- Use `./build.sh` → `./test.sh` → `./deploy.sh` for deploy-related work on **managed (non-Forge) projects**; a failing test blocks deploy.
+- **NEVER run Forge's own `./deploy.sh`.** For the Forge/Orchestrator project, always redeploy via the Ops API (`POST /api/ops/projects/{id}/deploy`) or the UI “Redeploy” / “Update Forge” action. Running `deploy.sh` against Forge leaves the container in a state the self-updater cannot recreate properly.
 - Self-update runs `./test.sh` inside the updater sidecar; tests use `FORGE_DB_PATH=:memory:` so they never lock `/data/forge.db`.
 
 ## Per-project routing

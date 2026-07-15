@@ -3,10 +3,11 @@ import {
   agentSessionSourceLabel,
   isIdleAgentSession,
   isInactiveAgentSessionStatus,
+  isRecoveryAbortedByUser,
   resolveAgentSessionSource,
   shouldAutoCompleteRecoverySession,
+  RECOVERY_PROMPT_PREFIX,
 } from "@/lib/agent-session-source";
-import { RECOVERY_PROMPT_PREFIX } from "@/lib/agent-session-source";
 
 describe("resolveAgentSessionSource", () => {
   it("prefers the stored source column", () => {
@@ -51,19 +52,25 @@ describe("agent session activity helpers", () => {
 });
 
 describe("shouldAutoCompleteRecoverySession", () => {
-  it("is true for recovery sessions", () => {
+  it("is true for deploy recovery sessions", () => {
     expect(
       shouldAutoCompleteRecoverySession({
         source: "recovery",
         initialPrompt: "ignored",
       }),
     ).toBe(true);
-  });
-
-  it("is true for legacy recovery prompts", () => {
     expect(
       shouldAutoCompleteRecoverySession({
         initialPrompt: `${RECOVERY_PROMPT_PREFIX} fix deploy`,
+      }),
+    ).toBe(true);
+  });
+
+  it("is true for rebase-recovery sessions", () => {
+    expect(
+      shouldAutoCompleteRecoverySession({
+        source: "rebase-recovery",
+        initialPrompt: "ignored",
       }),
     ).toBe(true);
   });
@@ -76,13 +83,41 @@ describe("shouldAutoCompleteRecoverySession", () => {
       }),
     ).toBe(false);
   });
+});
 
-  it("is true for rebase-recovery sessions", () => {
+describe("isRecoveryAbortedByUser", () => {
+  it("detects cancelled sessions", () => {
     expect(
-      shouldAutoCompleteRecoverySession({
-        source: "rebase-recovery",
-        initialPrompt: "ignored",
+      isRecoveryAbortedByUser({ status: "cancelled", logs: "" }),
+    ).toBe(true);
+  });
+
+  it("detects stop-turn failures", () => {
+    expect(
+      isRecoveryAbortedByUser({
+        status: "failed",
+        errorMessage: "Stopped by user.",
+        logs: "",
       }),
     ).toBe(true);
+  });
+
+  it("detects end-session log markers", () => {
+    expect(
+      isRecoveryAbortedByUser({
+        status: "completed",
+        logs: "Session ended by user.\n",
+      }),
+    ).toBe(true);
+  });
+
+  it("is false for genuine recovery failures", () => {
+    expect(
+      isRecoveryAbortedByUser({
+        status: "failed",
+        errorMessage: "Command failed: git fetch origin",
+        logs: "Fetching…\n",
+      }),
+    ).toBe(false);
   });
 });

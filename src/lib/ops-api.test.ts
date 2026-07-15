@@ -10,7 +10,10 @@ import {
   recordOpsAction,
   validateActionDescription,
 } from "@/lib/ops-api-actions";
-import { buildForgeOpsAgentInstructions } from "@/lib/agent-ops-prompt";
+import {
+  buildForgeOpsAgentInstructions,
+  forgeOpsApiCatalog,
+} from "@/lib/agent-ops-prompt";
 
 describe("ops-api-auth", () => {
   let previousToken: string | undefined;
@@ -104,5 +107,18 @@ describe("agent-ops-prompt", () => {
     expect(text).toContain("/api/ops/projects/proj-1");
     expect(text).toContain("sess-1");
     expect(text).toContain("rebase/finalize");
+    expect(text).toContain("NEVER run Forge's own");
+    expect(text).toContain("deploy.sh");
+  });
+
+  it("catalog includes agent session end for recovery and manual sessions", () => {
+    const catalog = forgeOpsApiCatalog("http://example.test");
+    const paths = catalog.endpoints.map((e) => e.path);
+    expect(paths).toContain(
+      "/api/ops/projects/{projectId}/agent-sessions/{sessionId}/end",
+    );
+    expect(paths).toContain(
+      "/api/ops/projects/{projectId}/agent-sessions/{sessionId}/stop",
+    );
   });
 });

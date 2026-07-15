@@ -58,6 +58,8 @@ import {
 const activeAgentProcesses = new Map<string, ChildProcess>();
 const stoppingSessions = new Set<string>();
 const cancelledSessions = new Set<string>();
+/** Session ended via endAgentSession — process close must not overwrite status. */
+const endedSessions = new Set<string>();
 const deploymentPollTimers = new Map<string, NodeJS.Timeout>();
 const deploymentPollActive = new Set<string>();
 
@@ -646,6 +648,13 @@ async function runAgentTurn(
 
       if (cancelledSessions.has(sessionId)) {
         cancelledSessions.delete(sessionId);
+        resolve();
+        return;
+      }
+
+      if (endedSessions.has(sessionId)) {
+        endedSessions.delete(sessionId);
+        stoppingSessions.delete(sessionId);
         resolve();
         return;
       }
@@ -1435,7 +1444,8 @@ export async function endAgentSession(
 
   const proc = activeAgentProcesses.get(sessionId);
   if (proc) {
-    stoppingSessions.add(sessionId);
+    endedSessions.add(sessionId);
+    stoppingSessions.delete(sessionId);
     terminateAgentProcess(proc);
     activeAgentProcesses.delete(sessionId);
   }

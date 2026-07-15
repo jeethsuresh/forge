@@ -27,10 +27,14 @@ import {
   forgeSourceDir,
   isForgeProject,
 } from "@/lib/forge-project";
+import { ensureForgeSourceWritableForAgents } from "@/lib/forge-source-permissions";
 import { runScript } from "@/lib/github";
 import { startForgeRollback } from "@/lib/self-update";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
-import { RECOVERY_PROMPT_PREFIX } from "@/lib/agent-session-source";
+import {
+  isRecoveryAbortedByUser,
+  RECOVERY_PROMPT_PREFIX,
+} from "@/lib/agent-session-source";
 
 export { findForgeProject, isForgeProject } from "@/lib/forge-project";
 export { isRecoveryPrompt, RECOVERY_PROMPT_PREFIX } from "@/lib/agent-session-source";
@@ -208,6 +212,11 @@ export async function attemptProjectDeployRecovery(
       return false;
     }
 
+    if (isRecoveryAbortedByUser(terminal)) {
+      log("Recovery agent stopped by user; leaving deployment as failed without rollback.");
+      return false;
+    }
+
     if (!agentFixedIssue(sessionId)) {
       log("Recovery agent finished without fixing the deployment issue.");
       if (isForgeProject(project) || projectSupportsRollback(project)) {
@@ -290,6 +299,7 @@ export async function attemptForgeSelfUpdateRecovery(
   try {
     log(`${APP_DISPLAY_NAME} update failed; starting recovery agent.`);
     const workspacePath = forgeSourceDir();
+    await ensureForgeSourceWritableForAgents();
     const sessionId = await createRecoveryAgentSession(
       project,
       context.branch,
@@ -308,6 +318,13 @@ export async function attemptForgeSelfUpdateRecovery(
       if (project) {
         await rollbackProjectIfPossible(project, log);
       }
+      return false;
+    }
+
+    if (isRecoveryAbortedByUser(terminal)) {
+      log(
+        `Recovery agent stopped by user; not retrying ${APP_DISPLAY_NAME} update and not rolling back.`,
+      );
       return false;
     }
 

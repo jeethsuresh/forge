@@ -14,6 +14,7 @@ export function forgeOpsApiCatalog(baseUrl: string) {
       "Every POST, PATCH, and DELETE request MUST include a non-empty actionDescription field (10–2000 chars) stating exactly what you are doing and why.",
       "Before mutating production state, read current status with the matching GET endpoint.",
       "Include opsActionId from responses when reporting results to the user.",
+      "NEVER run Forge's own ./deploy.sh. Redeploy Forge only via POST /api/ops/projects/{projectId}/deploy (or the UI Redeploy/Update action). Running deploy.sh against Forge leaves the container in a state the self-updater cannot recreate properly.",
     ],
     endpoints: [
       { method: "GET", path: "/api/ops", description: "This catalog and usage rules" },
@@ -87,8 +88,18 @@ export function forgeOpsApiCatalog(baseUrl: string) {
       {
         method: "POST",
         path: "/api/ops/projects/{projectId}/agent-sessions/{sessionId}/stop",
-        description: "Stop the current agent turn",
+        description: "Stop the current agent turn (keeps the session; Retry or End afterward)",
         body: { actionDescription: "string (required)" },
+      },
+      {
+        method: "POST",
+        path: "/api/ops/projects/{projectId}/agent-sessions/{sessionId}/end",
+        description:
+          "End an agent session (manual or recovery) and unblock deploys; optional revertChanges",
+        body: {
+          actionDescription: "string (required)",
+          revertChanges: "boolean?",
+        },
       },
     ],
   };
@@ -111,6 +122,7 @@ ${configured ? "The token is available in your environment as FORGE_OPS_API_TOKE
 1. **State your intent before every mutating call.** Each POST/PATCH must include \`actionDescription\` (10–2000 characters) explaining exactly what you are doing, which project/branch/deployment it affects, and why.
 2. **Check before you change.** Use GET endpoints to read deploy status, logs, and container state before deploy, rollback, or stop.
 3. **Report opsActionId.** Mutating responses include \`opsActionId\`; mention it when summarizing actions.
+4. **NEVER run Forge's own \`./deploy.sh\`.** If this is the Forge/Orchestrator project (or you need to redeploy Forge itself), use \`POST /api/ops/projects/{projectId}/deploy\` — never invoke \`deploy.sh\` in the Forge source tree. Running \`deploy.sh\` against Forge leaves the container in a state the self-updater cannot recreate properly.
 
 ## Authentication
 

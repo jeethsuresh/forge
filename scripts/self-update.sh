@@ -355,6 +355,8 @@ LAST_UPGRADE_ERROR=""
 
 attempt_forge_recovery() {
   local error_msg="$1"
+  # Ensure forge-source is writable by the keep-id app before spawning recovery.
+  normalize_source_permissions
   log "Requesting Cursor agent recovery for: ${error_msg}"
   local payload
   payload="$(
@@ -530,6 +532,16 @@ git_in_source() {
 }
 
 normalize_source_permissions() {
+  # The updater sidecar runs without userns keep-id (FORGE_RUN_AS_ROOT=1). In that
+  # namespace, container root (uid 0) maps to the host user. The main Forge app uses
+  # keep-id, where the node user is that same host uid. Chowning to node:node here
+  # remaps through /etc/subuid and leaves forge-source owned by a different numeric
+  # uid (often seen as 999 in the app), so recovery agents cannot write FETCH_HEAD
+  # ("Permission denied"). Keep ownership as root in the sidecar instead.
+  if [[ "${FORGE_RUN_AS_ROOT:-}" == "1" ]]; then
+    chown -R root:root "$SOURCE_DIR" 2>/dev/null || true
+    return 0
+  fi
   chown -R node:node "$SOURCE_DIR" 2>/dev/null || true
 }
 

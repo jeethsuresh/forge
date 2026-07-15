@@ -38,13 +38,29 @@ export function resolveAgentSessionSource(session: {
     : "manual";
 }
 
-/** Recovery turns are one-shot; auto-complete when the turn ends so they do not block new agents. */
+/** Deploy/rebase recovery turns auto-complete when the turn ends. */
 export function shouldAutoCompleteRecoverySession(session: {
   source?: AgentSessionSource | string | null;
   initialPrompt: string;
 }): boolean {
   const source = resolveAgentSessionSource(session);
   return source === "recovery" || source === "rebase-recovery";
+}
+
+/** True when the operator stopped/ended/cancelled the recovery agent. */
+export function isRecoveryAbortedByUser(session: {
+  status: string;
+  errorMessage?: string | null;
+  logs?: string | null;
+}): boolean {
+  if (session.status === "cancelled") return true;
+  if (session.errorMessage === "Stopped by user.") return true;
+  const logs = session.logs ?? "";
+  return (
+    logs.includes("Session ended by user.") ||
+    logs.includes("Session cancelled by user.") ||
+    logs.includes("Agent stopped by user.")
+  );
 }
 
 export function agentSessionSourceLabel(source: AgentSessionSource): string {
