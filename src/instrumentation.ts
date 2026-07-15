@@ -24,6 +24,18 @@ export async function register() {
       console.error(`[forge] Container discovery on startup failed: ${message}`);
     }
 
+    try {
+      const { reconcileRunningCommitShasFromContainers } = await import(
+        "@/lib/project-running-sha"
+      );
+      await reconcileRunningCommitShasFromContainers();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[forge] Running commit SHA reconcile on startup failed: ${message}`,
+      );
+    }
+
     const { startWatcher } = await import("@/lib/watcher");
     await startWatcher();
 

@@ -765,6 +765,43 @@ export function AgentWorkspace({
     }
   }
 
+  async function archiveSession() {
+    if (!selectedId || !selectedBranch) return;
+    if (
+      !confirm(
+        `Archive the agent session on "${selectedBranch}"?\n\nIt will move to Archived sessions (read-only). You can recreate a fresh agent later.`,
+      )
+    ) {
+      return;
+    }
+    const revertChanges = confirm(
+      `Also revert uncommitted changes on branch ${selectedBranch}?\n\nThis runs git reset --hard and git clean -fd in the project workspace.`,
+    );
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/agent-sessions/${selectedId}/archive`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revertChanges }),
+        },
+      );
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Failed to archive session");
+        return;
+      }
+      setShowRecreateForm(false);
+      setLoadedSessionTerminal(true);
+      await fetchSessions();
+      // Stay on the archived session (now in archived list)
+      if (selectedId) await fetchSessionDetail(selectedId);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function recreateAgent(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedBranch || !recreatePrompt.trim()) return;
@@ -924,6 +961,12 @@ export function AgentWorkspace({
   const showNewAgentForm = Boolean(canStartOnBranch && !selectedId);
   const showRecreateButton = Boolean(
     selectedBranch &&
+      selectedSessionMeta &&
+      !isArchivedSession &&
+      !showRecreateForm,
+  );
+  const showArchiveButton = Boolean(
+    selectedId &&
       selectedSessionMeta &&
       !isArchivedSession &&
       !showRecreateForm,
@@ -1267,6 +1310,17 @@ export function AgentWorkspace({
                   title="Archive this session and start a fresh agent on the same branch"
                 >
                   Recreate
+                </button>
+              )}
+              {showArchiveButton && (
+                <button
+                  type="button"
+                  onClick={() => void archiveSession()}
+                  disabled={loading}
+                  className="min-h-9 rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                  title="Archive this session without starting a new one"
+                >
+                  Archive
                 </button>
               )}
               {showEndSession && (
