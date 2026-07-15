@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { agentSessions } from "@/lib/db/schema";
 import { activeAgentProjects, isAgentSessionActive } from "@/lib/agent-state";
@@ -12,10 +12,12 @@ export function listQueuedAgentSessions(projectId: string) {
     .select()
     .from(agentSessions)
     .where(
-      eq(agentSessions.projectId, projectId),
+      and(
+        eq(agentSessions.projectId, projectId),
+        eq(agentSessions.status, "queued"),
+      ),
     )
     .all()
-    .filter((session) => session.status === "queued")
     .sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime());
 }
 
@@ -32,9 +34,13 @@ export function countQueuedAgentSessions(projectId: string): number {
   return db
     .select({ id: agentSessions.id })
     .from(agentSessions)
-    .where(eq(agentSessions.projectId, projectId))
-    .all()
-    .filter((session) => session.status === "queued").length;
+    .where(
+      and(
+        eq(agentSessions.projectId, projectId),
+        eq(agentSessions.status, "queued"),
+      ),
+    )
+    .all().length;
 }
 
 export function markAgentSessionQueued(sessionId: string, prompt: string): void {

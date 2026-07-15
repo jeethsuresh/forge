@@ -27,6 +27,7 @@ async function initRepoWithMain(root: string): Promise<{
   await runGit(workDir, ["config", "user.name", "Test"]);
   await runGit(workDir, ["commit", "--allow-empty", "-m", "init"]);
   await runGit(workDir, ["push", "-u", "origin", "main"]);
+  await runGit(bareDir, ["symbolic-ref", "HEAD", "refs/heads/main"]);
   return { bareDir, workDir };
 }
 
@@ -144,6 +145,8 @@ describe("pushAllUnpushedBranches", () => {
       await runGit(workDir, ["commit", "--allow-empty", "-m", "more local"]);
       const cloneDir = join(root, "remote-clone");
       await runGit(root, ["clone", bareDir, cloneDir]);
+      await runGit(cloneDir, ["config", "user.email", "test@example.com"]);
+      await runGit(cloneDir, ["config", "user.name", "Test"]);
       await runGit(cloneDir, ["checkout", "feature/conflict"]);
       await runGit(cloneDir, ["commit", "--allow-empty", "-m", "remote diverge"]);
       await runGit(cloneDir, ["push", "origin", "feature/conflict"]);

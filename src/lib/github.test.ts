@@ -280,9 +280,11 @@ describe("hasRemotePushConflict", () => {
       await runGit(workDir, ["config", "user.name", "Test"]);
       await runGit(workDir, ["commit", "--allow-empty", "-m", "init"]);
       await runGit(workDir, ["push", "-u", "origin", "main"]);
+      await runGit(bareDir, ["symbolic-ref", "HEAD", "refs/heads/main"]);
       await runGit(workDir, ["commit", "--allow-empty", "-m", "local"]);
       const cloneDir = join(root, "other");
       await runGit(root, ["clone", bareDir, cloneDir]);
+      await runGit(cloneDir, ["checkout", "main"]);
       await runGit(cloneDir, ["config", "user.email", "test@example.com"]);
       await runGit(cloneDir, ["config", "user.name", "Test"]);
       await runGit(cloneDir, ["commit", "--allow-empty", "-m", "remote"]);
