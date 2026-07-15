@@ -138,7 +138,7 @@ function reconcileStaleActiveSessions(projectId: string): number {
       if (shouldAutoCompleteRecoverySession(session)) {
         appendSessionLog(
           session.id,
-          "Deploy recovery agent finished. Session marked completed.",
+          "Recovery agent finished. Session marked completed; review workspace for uncommitted changes.",
         );
       } else {
         appendSessionLog(

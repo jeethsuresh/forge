@@ -179,6 +179,20 @@ curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
   -d '{"recoveryBranch":"forge-rebase/feature-x","sourceBranch":"feature/x"}' \\
   "${baseUrl}/api/projects/${projectId}/git-tree/rebase/finalize"
 \`\`\`
+
+## Recovery agent sessions
+
+Recovery agents should not block other agents from being started on the same branch. When a turn finishes successfully, Forge commits workspace changes and ends the session. When it fails, uncommitted changes stay in the workspace but the session still ends so another agent can run.
+
+Review uncommitted changes after a failed recovery run. Commit them manually if you want to keep the work, or end the session with \`revertChanges: true\` to discard them before starting another agent.
+
+\`\`\`bash
+curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  -d '{"actionDescription":"Ending the failed recovery session and reverting uncommitted workspace changes so a new agent can run on this branch.","revertChanges":true}' \\
+  "${baseUrl}/api/ops/projects/${projectId}/agent-sessions/{sessionId}/end"
+\`\`\`
 `;
 }
 

@@ -310,25 +310,40 @@ async function maybeAutoFinishSessionIfNoEdits(
   activeAgentProjects.delete(projectId);
 }
 
-/** Recovery agents are one-shot; complete them when the turn ends so they do not block new agents. */
-function maybeCompleteRecoverySessionAfterTurn(
+function finalizeSessionAfterFailedTurn(
   sessionId: string,
   projectId: string,
-): boolean {
+  message: string,
+): void {
   const session = getAgentSession(sessionId);
-  if (!session || TERMINAL_STATUSES.includes(session.status)) return false;
-  if (!shouldAutoCompleteRecoverySession(session)) return false;
+  if (!session || TERMINAL_STATUSES.includes(session.status)) return;
 
-  appendSessionLog(
-    sessionId,
-    "Deploy recovery agent finished. Session marked completed.",
-  );
-  updateSessionStatus(sessionId, "completed", {
+  const log = (msg: string) => appendSessionLog(sessionId, msg);
+  const isRecovery = shouldAutoCompleteRecoverySession(session);
+
+  if (isRecovery) {
+    log(`Recovery agent finished with errors: ${message}`);
+    log(
+      "Uncommitted changes were left in the workspace. Commit them manually, or end the session with revertChanges before starting another agent.",
+    );
+  } else {
+    log(`ERROR: ${message}`);
+  }
+
+  if (session.failedTurnStartSeq == null) {
+    const events = getAllAgentEventsAfter(sessionId, 0);
+    const boundary = failedTurnEventSeq(events, null);
+    if (boundary != null) {
+      markTurnFailed(sessionId, boundary);
+    }
+  }
+
+  updateSessionStatus(sessionId, "failed", {
+    errorMessage: message,
     completedAt: new Date(),
-    errorMessage: null,
   });
   activeAgentProjects.delete(projectId);
-  return true;
+  drainAgentQueue(projectId);
 }
 
 async function finalizeSessionAfterSuccessfulTurn(
@@ -338,11 +353,6 @@ async function finalizeSessionAfterSuccessfulTurn(
   const afterTurn = getAgentSession(sessionId);
   if (!afterTurn || TERMINAL_STATUSES.includes(afterTurn.status)) return;
 
-  if (maybeCompleteRecoverySessionAfterTurn(sessionId, projectId)) {
-    drainAgentQueue(projectId);
-    return;
-  }
-
   await maybeAutoFinishSessionIfNoEdits(sessionId, projectId);
   const refreshed = getAgentSession(sessionId);
   if (!refreshed || TERMINAL_STATUSES.includes(refreshed.status)) {
@@ -350,14 +360,27 @@ async function finalizeSessionAfterSuccessfulTurn(
     return;
   }
 
+  const isRecovery = shouldAutoCompleteRecoverySession(refreshed);
   const log = (msg: string) => appendSessionLog(sessionId, msg);
   try {
     await commitAgentSessionChanges(sessionId);
-    updateSessionStatus(sessionId, "completed", { completedAt: new Date() });
-    log("Agent turn finished. Changes committed and pushed.");
+    updateSessionStatus(sessionId, "completed", {
+      completedAt: new Date(),
+      errorMessage: null,
+    });
+    log(
+      isRecovery
+        ? "Recovery agent finished. Changes committed and pushed."
+        : "Agent turn finished. Changes committed and pushed.",
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log(`ERROR committing changes: ${message}`);
+    if (isRecovery) {
+      log(
+        "Recovery agent ended without committing. Review uncommitted changes in the workspace, or end the session with revertChanges before starting another agent.",
+      );
+    }
     updateSessionStatus(sessionId, "failed", {
       errorMessage: message,
       completedAt: new Date(),
@@ -664,6 +687,7 @@ async function runAgentTurn(
         markTurnFailed(sessionId, turnStartSeq);
         updateSessionStatus(sessionId, "failed", {
           errorMessage: "Stopped by user.",
+          completedAt: new Date(),
         });
         appendSessionLog(sessionId, "Agent stopped by user.");
         activeAgentProjects.delete(project.id);
@@ -814,21 +838,7 @@ async function executeAgentTurn(
     await finalizeSessionAfterSuccessfulTurn(sessionId, projectId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log(`ERROR: ${message}`);
-    const current = getAgentSession(sessionId);
-    if (current && current.failedTurnStartSeq == null) {
-      const events = getAllAgentEventsAfter(sessionId, 0);
-      const boundary = failedTurnEventSeq(events, null);
-      if (boundary != null) {
-        markTurnFailed(sessionId, boundary);
-      }
-    }
-    updateSessionStatus(sessionId, "failed", {
-      errorMessage: message,
-      completedAt: new Date(),
-    });
-    activeAgentProjects.delete(projectId);
-    drainAgentQueue(projectId);
+    finalizeSessionAfterFailedTurn(sessionId, projectId, message);
   }
 }
 
@@ -1338,13 +1348,7 @@ export async function sendAgentMessage(
     await finalizeSessionAfterSuccessfulTurn(sessionId, session.projectId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    appendSessionLog(sessionId, `ERROR: ${message}`);
-    updateSessionStatus(sessionId, "failed", {
-      errorMessage: message,
-      completedAt: new Date(),
-    });
-    activeAgentProjects.delete(session.projectId);
-    drainAgentQueue(session.projectId);
+    finalizeSessionAfterFailedTurn(sessionId, session.projectId, message);
     throw err;
   }
 }

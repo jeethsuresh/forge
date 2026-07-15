@@ -109,6 +109,8 @@ describe("agent-ops-prompt", () => {
     expect(text).toContain("rebase/finalize");
     expect(text).toContain("NEVER run Forge's own");
     expect(text).toContain("deploy.sh");
+    expect(text).toContain("Recovery agent sessions");
+    expect(text).toContain("revertChanges");
   });
 
   it("catalog includes agent session end for recovery and manual sessions", () => {

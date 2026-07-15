@@ -38,7 +38,7 @@ export function resolveAgentSessionSource(session: {
     : "manual";
 }
 
-/** Deploy/rebase recovery turns auto-complete when the turn ends. */
+/** Deploy/rebase recovery sessions are one-shot and must not block new agents on the branch. */
 export function shouldAutoCompleteRecoverySession(session: {
   source?: AgentSessionSource | string | null;
   initialPrompt: string;
