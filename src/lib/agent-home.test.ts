@@ -19,6 +19,11 @@ describe("docker-entrypoint agent-home setup", () => {
     expect(script).not.toMatch(/chown -R node:node \/data[^/]/);
   });
 
+  it("chowns sqlite wal/shm sidecars with forge.db", () => {
+    expect(script).toContain("/data/forge.db-wal");
+    expect(script).toContain("/data/forge.db-shm");
+  });
+
   it("documents avoiding SELinux denials on bind-mounted podman sockets", () => {
     expect(script).toMatch(/SELinux blocks setattr on user_tmp_t sockets/);
   });

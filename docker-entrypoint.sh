@@ -62,6 +62,8 @@ chown_forge_data_paths() {
   done
   for path in \
     /data/forge.db \
+    /data/forge.db-wal \
+    /data/forge.db-shm \
     /data/forge-release.json \
     /data/forge-host-mounts.json \
     /data/forge-container-name \
