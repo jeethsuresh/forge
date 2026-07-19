@@ -72,11 +72,24 @@ export function recordOpsAction(input: RecordOpsActionInput): string {
   return id;
 }
 
-export function listRecentOpsActions(limit = 50) {
-  return db
+export function listRecentOpsActions(
+  limit = 50,
+  filter?: { projectId?: string; agentSessionId?: string },
+) {
+  const rows = db
     .select()
     .from(opsApiActions)
     .orderBy(desc(opsApiActions.createdAt))
-    .limit(limit)
+    .limit(Math.max(limit * 5, limit))
     .all();
+
+  const scoped = rows.filter((row) => {
+    if (filter?.projectId && row.projectId !== filter.projectId) return false;
+    if (filter?.agentSessionId && row.agentSessionId !== filter.agentSessionId) {
+      return false;
+    }
+    return true;
+  });
+
+  return scoped.slice(0, limit);
 }

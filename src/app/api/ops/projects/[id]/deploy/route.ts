@@ -11,6 +11,7 @@ import {
   jsonWithAudit,
   readJsonBody,
   requireActionDescription,
+  denyIfWrongProject,
   requireOpsAuth,
   requireProject,
 } from "@/lib/ops-api-route";
@@ -19,10 +20,11 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const authError = requireOpsAuth(request);
-  if (authError) return authError;
-
+  const auth = requireOpsAuth(request);
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
+  const forbidden = denyIfWrongProject(auth, id);
+  if (forbidden) return forbidden;
   const path = `/api/ops/projects/${id}/deploy`;
   const project = requireProject(id);
   if (!project) {
@@ -41,6 +43,7 @@ export async function POST(
       409,
       {
         request,
+        auth,
         method: "POST",
         path,
         actionDescription,
@@ -56,6 +59,7 @@ export async function POST(
   if (validationError) {
     return errorWithAudit(validationError, 400, {
       request,
+      auth,
       method: "POST",
       path,
       actionDescription,
@@ -74,6 +78,7 @@ export async function POST(
         { status: 202 },
         {
           request,
+          auth,
           method: "POST",
           path,
           actionDescription,
@@ -87,6 +92,7 @@ export async function POST(
       const message = err instanceof Error ? err.message : "Update failed";
       return errorWithAudit(message, 409, {
         request,
+        auth,
         method: "POST",
         path,
         actionDescription,
@@ -106,6 +112,7 @@ export async function POST(
       { status: 202 },
       {
         request,
+        auth,
         method: "POST",
         path,
         actionDescription,
@@ -119,6 +126,7 @@ export async function POST(
     const message = err instanceof Error ? err.message : "Deploy failed";
     return errorWithAudit(message, 409, {
       request,
+      auth,
       method: "POST",
       path,
       actionDescription,

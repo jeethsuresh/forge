@@ -15,6 +15,7 @@ import {
   jsonWithAudit,
   readJsonBody,
   requireActionDescription,
+  denyIfWrongProject,
   requireOpsAuth,
   requireProject,
 } from "@/lib/ops-api-route";
@@ -23,10 +24,11 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const authError = requireOpsAuth(request);
-  if (authError) return authError;
-
+  const auth = requireOpsAuth(request);
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
+  const forbidden = denyIfWrongProject(auth, id);
+  if (forbidden) return forbidden;
   const project = requireProject(id);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
@@ -52,10 +54,11 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const authError = requireOpsAuth(request);
-  if (authError) return authError;
-
+  const auth = requireOpsAuth(request);
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
+  const forbidden = denyIfWrongProject(auth, id);
+  if (forbidden) return forbidden;
   const path = `/api/ops/projects/${id}/agent-sessions`;
   const project = requireProject(id);
   if (!project) {
@@ -72,6 +75,7 @@ export async function POST(
   if (!prompt) {
     return errorWithAudit("prompt is required", 400, {
       request,
+      auth,
       method: "POST",
       path,
       actionDescription,
@@ -83,6 +87,7 @@ export async function POST(
   if (!branch) {
     return errorWithAudit("branch is required", 400, {
       request,
+      auth,
       method: "POST",
       path,
       actionDescription,
@@ -99,6 +104,7 @@ export async function POST(
       { status: queued ? 202 : 201 },
       {
         request,
+        auth,
         method: "POST",
         path,
         actionDescription,
@@ -113,6 +119,7 @@ export async function POST(
     const status = message.includes("already active") ? 409 : 500;
     return errorWithAudit(message, status, {
       request,
+      auth,
       method: "POST",
       path,
       actionDescription,

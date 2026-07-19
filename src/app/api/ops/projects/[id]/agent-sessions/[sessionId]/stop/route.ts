@@ -5,6 +5,7 @@ import {
   jsonWithAudit,
   readJsonBody,
   requireActionDescription,
+  denyIfWrongProject,
   requireOpsAuth,
   requireProject,
 } from "@/lib/ops-api-route";
@@ -13,10 +14,12 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string; sessionId: string }> },
 ) {
-  const authError = requireOpsAuth(request);
-  if (authError) return authError;
+  const auth = requireOpsAuth(request);
+  if (auth instanceof NextResponse) return auth;
 
   const { id, sessionId } = await params;
+  const forbidden = denyIfWrongProject(auth, id);
+  if (forbidden) return forbidden;
   const path = `/api/ops/projects/${id}/agent-sessions/${sessionId}/stop`;
   const project = requireProject(id);
   if (!project) {
@@ -40,6 +43,7 @@ export async function POST(
       { status: 200 },
       {
         request,
+        auth,
         method: "POST",
         path,
         actionDescription,
@@ -53,6 +57,7 @@ export async function POST(
     const message = err instanceof Error ? err.message : "Failed to stop agent";
     return errorWithAudit(message, 409, {
       request,
+      auth,
       method: "POST",
       path,
       actionDescription,

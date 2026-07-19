@@ -4,8 +4,8 @@ import { opsApiBaseUrl } from "@/lib/ops-api-auth";
 import { requireOpsAuth } from "@/lib/ops-api-route";
 
 export async function GET(request: Request) {
-  const authError = requireOpsAuth(request);
-  if (authError) return authError;
+  const auth = requireOpsAuth(request);
+  if (auth instanceof NextResponse) return auth;
 
   return NextResponse.json(forgeOpsApiCatalog(opsApiBaseUrl()));
 }

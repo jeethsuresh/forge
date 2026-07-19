@@ -4,16 +4,21 @@ import {
   getAgentSessionForClient,
   getAllAgentEventsAfter,
 } from "@/lib/agent-runner";
-import { requireOpsAuth, requireProject } from "@/lib/ops-api-route";
+import {
+  denyIfWrongProject,
+  requireOpsAuth,
+  requireProject,
+} from "@/lib/ops-api-route";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string; sessionId: string }> },
 ) {
-  const authError = requireOpsAuth(_request);
-  if (authError) return authError;
-
+  const auth = requireOpsAuth(_request);
+  if (auth instanceof NextResponse) return auth;
   const { id, sessionId } = await params;
+  const forbidden = denyIfWrongProject(auth, id);
+  if (forbidden) return forbidden;
   const project = requireProject(id);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });

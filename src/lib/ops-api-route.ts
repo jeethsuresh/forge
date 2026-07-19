@@ -2,26 +2,44 @@ import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { projects } from "@/lib/db/schema";
-import { isOpsApiConfigured, verifyOpsApiToken } from "@/lib/ops-api-auth";
+import {
+  authenticateOpsRequest,
+  isOpsApiConfigured,
+  type OpsAuth,
+} from "@/lib/ops-api-auth";
 import { parseActionDescription, recordOpsAction } from "@/lib/ops-api-actions";
 
-export function opsAuthErrorResponse(): NextResponse | null {
+export type { OpsAuth };
+
+export function requireOpsAuth(request: Request): OpsAuth | NextResponse {
   if (!isOpsApiConfigured()) {
     return NextResponse.json(
-      { error: "Forge Ops API is not configured (set FORGE_OPS_API_TOKEN)" },
+      { error: "Forge Ops API is not configured" },
       { status: 503 },
     );
   }
-  return null;
-}
-
-export function requireOpsAuth(request: Request): NextResponse | null {
-  const configError = opsAuthErrorResponse();
-  if (configError) return configError;
-  if (!verifyOpsApiToken(request)) {
+  const auth = authenticateOpsRequest(request);
+  if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  return null;
+  return auth;
+}
+
+export function denyIfWrongProject(
+  auth: OpsAuth,
+  projectId: string,
+): NextResponse | null {
+  if (auth.kind === "global") return null;
+  if (auth.projectId === projectId) return null;
+  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+}
+
+export function resolveOpsActorSessionId(
+  auth: OpsAuth,
+  request: Request,
+): string | null {
+  if (auth.kind === "session") return auth.sessionId;
+  return request.headers.get("x-forge-agent-session-id")?.trim() || null;
 }
 
 export function readAgentSessionHeader(request: Request): string | null {
@@ -61,6 +79,7 @@ export function auditOpsAction(input: {
   projectId?: string | null;
   resourceType?: string | null;
   resourceId?: string | null;
+  auth?: OpsAuth;
 }): string {
   return recordOpsAction({
     actionDescription: input.actionDescription,
@@ -69,7 +88,9 @@ export function auditOpsAction(input: {
     requestBody: input.requestBody ?? null,
     responseStatus: input.responseStatus,
     projectId: input.projectId ?? null,
-    agentSessionId: readAgentSessionHeader(input.request),
+    agentSessionId: input.auth
+      ? resolveOpsActorSessionId(input.auth, input.request)
+      : readAgentSessionHeader(input.request),
     resourceType: input.resourceType ?? null,
     resourceId: input.resourceId ?? null,
   });

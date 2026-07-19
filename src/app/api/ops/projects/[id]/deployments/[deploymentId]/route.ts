@@ -1,15 +1,21 @@
 import { NextResponse } from "next/server";
 import { getOpsDeployment } from "@/lib/ops-api-project";
-import { requireOpsAuth, requireProject } from "@/lib/ops-api-route";
+import {
+  denyIfWrongProject,
+  requireOpsAuth,
+  requireProject,
+} from "@/lib/ops-api-route";
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string; deploymentId: string }> },
 ) {
-  const authError = requireOpsAuth(request);
-  if (authError) return authError;
-
+  const auth = requireOpsAuth(request);
+  if (auth instanceof NextResponse) return auth;
   const { id, deploymentId } = await params;
+  const forbidden = denyIfWrongProject(auth, id);
+  if (forbidden) return forbidden;
+
   const project = requireProject(id);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });

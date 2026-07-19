@@ -8,6 +8,7 @@ import {
   jsonWithAudit,
   readJsonBody,
   requireActionDescription,
+  denyIfWrongProject,
   requireOpsAuth,
   requireProject,
 } from "@/lib/ops-api-route";
@@ -20,10 +21,11 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const authError = requireOpsAuth(request);
-  if (authError) return authError;
-
+  const auth = requireOpsAuth(request);
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
+  const forbidden = denyIfWrongProject(auth, id);
+  if (forbidden) return forbidden;
   const project = requireProject(id);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
@@ -36,10 +38,11 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const authError = requireOpsAuth(request);
-  if (authError) return authError;
-
+  const auth = requireOpsAuth(request);
+  if (auth instanceof NextResponse) return auth;
   const { id } = await params;
+  const forbidden = denyIfWrongProject(auth, id);
+  if (forbidden) return forbidden;
   const path = `/api/ops/projects/${id}`;
   const project = requireProject(id);
   if (!project) {
@@ -69,6 +72,7 @@ export async function PATCH(
     if (routingError) {
       return errorWithAudit(routingError, 400, {
         request,
+        auth,
         method: "PATCH",
         path,
         actionDescription,
@@ -90,6 +94,7 @@ export async function PATCH(
       400,
       {
         request,
+        auth,
         method: "PATCH",
         path,
         actionDescription,
@@ -112,6 +117,7 @@ export async function PATCH(
     { status: 200 },
     {
       request,
+      auth,
       method: "PATCH",
       path,
       actionDescription,
