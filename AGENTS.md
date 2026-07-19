@@ -23,9 +23,9 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 Forge exposes a machine-readable **Ops API** at `/api/ops/*` for deploy, rollback, monitoring, agent control, and config changes.
 
-- **Auth:** `Authorization: Bearer $FORGE_OPS_API_TOKEN` (set in `.env` / container env).
+- **Auth:** Agents get a project-scoped session token in `$FORGE_OPS_API_TOKEN` (`fos.<sessionId>.…`, HMAC via `FORGE_OPS_SESSION_SECRET` or an auto-persisted secret beside the DB). Optional global `FORGE_OPS_API_TOKEN` in `.env` grants full Ops access for CI/curl. Archiving a session revokes its token.
 - **Audit:** Every POST/PATCH must include `actionDescription` (10–2000 chars) stating exactly what the agent is doing and why.
-- **Session link:** Pass `X-Forge-Agent-Session-Id: <session-id>` to attach ops calls to the agent session audit log.
+- **Session link:** Pass `X-Forge-Agent-Session-Id: <session-id>` to attach ops calls to the agent session audit log (also inferred from session tokens).
 - **Catalog:** `GET /api/ops` returns all endpoints and curl examples.
 - **Agent prompt:** Forge prepends ops instructions to the first turn of each agent session automatically.
 
