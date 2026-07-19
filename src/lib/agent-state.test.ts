@@ -80,7 +80,9 @@ describe("reconcileProjectAgentSessions", () => {
       .where(eq(agentSessions.id, sessionId))
       .get();
     expect(session?.status).toBe("failed");
-    expect(session?.errorMessage).toBe("Agent session interrupted");
+    expect(session?.errorMessage).toBe(
+      "Agent turn did not finish (orchestrator restarted or the agent process exited). Use Retry to run the prompt again.",
+    );
     expect(session?.completedAt).not.toBeNull();
     expect(isAgentSessionActive(projectId)).toBe(false);
     expect(getBlockingAgentSession(projectId)).toBeNull();
@@ -218,7 +220,9 @@ describe("reconcileProjectAgentSessions", () => {
       .where(eq(agentSessions.id, sessionId))
       .get();
     expect(session?.status).toBe("failed");
-    expect(session?.errorMessage).toBe("Agent session interrupted");
+    expect(session?.errorMessage).toBe(
+      "Recovery agent turn did not finish (orchestrator restarted or the agent process exited). Review workspace for uncommitted changes, then retry or end the session.",
+    );
     expect(isAgentSessionActive(projectId)).toBe(false);
   });
 

@@ -8,6 +8,7 @@ import {
   isAgentTurnComplete,
   isStuckActiveSession,
   isTerminalSessionStatus,
+  staleAgentSessionFailureMessage,
 } from "@/lib/agent-turn";
 import {
   isIdleAgentSession,
@@ -168,10 +169,11 @@ function reconcileStaleActiveSessions(projectId: string): number {
     });
     if (!stuck) continue;
 
-    const message =
-      session.status === "pending"
-        ? "Agent session did not start (orchestrator restarted or session interrupted)"
-        : "Agent session interrupted";
+    const isRecovery = shouldAutoCompleteRecoverySession(session);
+    const message = staleAgentSessionFailureMessage(
+      session.status === "pending" ? "pending" : "running",
+      { isRecovery },
+    );
 
     appendSessionLog(session.id, message);
     db.update(agentSessions)

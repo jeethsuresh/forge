@@ -18,6 +18,7 @@ import {
   findFailedTurnPrompt,
   isAgentTurnComplete,
   isStuckActiveSession,
+  staleAgentSessionFailureMessage,
 } from "@/lib/agent-turn";
 import {
   activeAgentProjects,
@@ -408,10 +409,11 @@ export function reconcileStuckAgentSession(sessionId: string) {
 
   if (!stuck) return session;
 
-  const message =
-    session.status === "pending"
-      ? "Agent session did not start (server may have restarted)"
-      : "Agent process ended unexpectedly";
+  const isRecovery = shouldAutoCompleteRecoverySession(session);
+  const message = staleAgentSessionFailureMessage(
+    session.status === "pending" ? "pending" : "running",
+    { isRecovery },
+  );
 
   appendSessionLog(sessionId, `ERROR: ${message}`);
 

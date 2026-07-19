@@ -10,6 +10,7 @@ import {
   isTerminalSessionStatus,
   parseStoredUserEventPrompt,
   resolveAgentSessionBanner,
+  staleAgentSessionFailureMessage,
 } from "@/lib/agent-turn";
 
 const EVENTS = [
@@ -263,5 +264,23 @@ describe("isStuckActiveSession", () => {
         projectMarkedActive: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("staleAgentSessionFailureMessage", () => {
+  it("describes pending sessions that never started", () => {
+    expect(staleAgentSessionFailureMessage("pending")).toMatch(/did not start/i);
+    expect(staleAgentSessionFailureMessage("pending")).toMatch(/orchestrator restarted/i);
+  });
+
+  it("describes incomplete running turns with retry guidance", () => {
+    expect(staleAgentSessionFailureMessage("running")).toMatch(/did not finish/i);
+    expect(staleAgentSessionFailureMessage("running")).toMatch(/Retry/i);
+  });
+
+  it("adds recovery-specific guidance for recovery sessions", () => {
+    const message = staleAgentSessionFailureMessage("running", { isRecovery: true });
+    expect(message).toMatch(/Recovery agent turn/i);
+    expect(message).toMatch(/uncommitted changes/i);
   });
 });

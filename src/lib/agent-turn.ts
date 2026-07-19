@@ -75,6 +75,22 @@ export interface StuckSessionInput {
   turnIncomplete?: boolean;
 }
 
+/** User-facing message when a session is reconciled as failed after restart. */
+export function staleAgentSessionFailureMessage(
+  status: "pending" | "running",
+  options?: { isRecovery?: boolean },
+): string {
+  if (status === "pending") {
+    return "Agent session did not start (orchestrator restarted before the turn began)";
+  }
+
+  if (options?.isRecovery) {
+    return "Recovery agent turn did not finish (orchestrator restarted or the agent process exited). Review workspace for uncommitted changes, then retry or end the session.";
+  }
+
+  return "Agent turn did not finish (orchestrator restarted or the agent process exited). Use Retry to run the prompt again.";
+}
+
 /** Detect sessions stuck active in DB after the agent process has ended. */
 export function isStuckActiveSession(input: StuckSessionInput): boolean {
   const {
