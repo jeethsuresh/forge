@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { randomUUID } from "crypto";
+import { eq } from "drizzle-orm";
 import {
+  authenticateOpsRequest,
   isOpsApiConfigured,
+  mintSessionOpsToken,
   opsApiBaseUrl,
   verifyOpsApiToken,
 } from "@/lib/ops-api-auth";
@@ -14,16 +18,20 @@ import {
   buildForgeOpsAgentInstructions,
   forgeOpsApiCatalog,
 } from "@/lib/agent-ops-prompt";
+import { db } from "@/lib/db";
+import { agentSessions, projects } from "@/lib/db/schema";
 
 describe("ops-api-auth", () => {
   let previousToken: string | undefined;
   let previousBase: string | undefined;
   let previousPort: string | undefined;
+  let previousSessionSecret: string | undefined;
 
   beforeEach(() => {
     previousToken = process.env.FORGE_OPS_API_TOKEN;
     previousBase = process.env.FORGE_OPS_API_BASE;
     previousPort = process.env.PORT;
+    previousSessionSecret = process.env.FORGE_OPS_SESSION_SECRET;
   });
 
   afterEach(() => {
@@ -33,16 +41,25 @@ describe("ops-api-auth", () => {
     else process.env.FORGE_OPS_API_BASE = previousBase;
     if (previousPort === undefined) delete process.env.PORT;
     else process.env.PORT = previousPort;
+    if (previousSessionSecret === undefined) {
+      delete process.env.FORGE_OPS_SESSION_SECRET;
+    } else {
+      process.env.FORGE_OPS_SESSION_SECRET = previousSessionSecret;
+    }
   });
 
-  it("detects configured token", () => {
+  it("is configured when session secret exists even without global token", () => {
     delete process.env.FORGE_OPS_API_TOKEN;
-    expect(isOpsApiConfigured()).toBe(false);
+    process.env.FORGE_OPS_SESSION_SECRET = "test-session-secret-value";
+    expect(isOpsApiConfigured()).toBe(true);
+  });
+
+  it("is configured when global token is set", () => {
     process.env.FORGE_OPS_API_TOKEN = "secret";
     expect(isOpsApiConfigured()).toBe(true);
   });
 
-  it("verifies bearer and header tokens", () => {
+  it("verifies bearer and header global tokens", () => {
     process.env.FORGE_OPS_API_TOKEN = "secret";
     expect(
       verifyOpsApiToken(
@@ -67,6 +84,120 @@ describe("ops-api-auth", () => {
     expect(opsApiBaseUrl()).toBe("http://127.0.0.1:3456");
     process.env.FORGE_OPS_API_BASE = "http://forge.local/";
     expect(opsApiBaseUrl()).toBe("http://forge.local");
+  });
+
+  it("mints stable fos tokens and authenticates them for live sessions", () => {
+    process.env.FORGE_OPS_SESSION_SECRET = "test-session-secret-value";
+    delete process.env.FORGE_OPS_API_TOKEN;
+
+    const projectId = randomUUID();
+    const sessionId = randomUUID();
+    const now = new Date();
+
+    db.insert(projects)
+      .values({
+        id: projectId,
+        name: "Ops Token Project",
+        githubRepo: "acme/ops-token",
+        branch: "main",
+        clonePath: "/tmp/ops-token-project",
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "main",
+        status: "running",
+        initialPrompt: "test",
+        source: "manual",
+        logs: "",
+        startedAt: now,
+      })
+      .run();
+
+    try {
+      const token = mintSessionOpsToken(sessionId, projectId);
+      expect(token.startsWith(`fos.${sessionId}.`)).toBe(true);
+      expect(mintSessionOpsToken(sessionId, projectId)).toBe(token);
+
+      const auth = authenticateOpsRequest(
+        new Request("http://localhost", {
+          headers: { authorization: `Bearer ${token}` },
+        }),
+      );
+      expect(auth).toEqual({
+        kind: "session",
+        sessionId,
+        projectId,
+      });
+    } finally {
+      db.delete(agentSessions).where(eq(agentSessions.id, sessionId)).run();
+      db.delete(projects).where(eq(projects.id, projectId)).run();
+    }
+  });
+
+  it("rejects session tokens for archived sessions", () => {
+    process.env.FORGE_OPS_SESSION_SECRET = "test-session-secret-value";
+    delete process.env.FORGE_OPS_API_TOKEN;
+
+    const projectId = randomUUID();
+    const sessionId = randomUUID();
+    const now = new Date();
+
+    db.insert(projects)
+      .values({
+        id: projectId,
+        name: "Archived Ops Project",
+        githubRepo: "acme/archived-ops",
+        branch: "main",
+        clonePath: "/tmp/archived-ops-project",
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "main",
+        status: "completed",
+        initialPrompt: "test",
+        source: "manual",
+        logs: "",
+        startedAt: now,
+        archivedAt: now,
+      })
+      .run();
+
+    try {
+      const token = mintSessionOpsToken(sessionId, projectId);
+      expect(
+        authenticateOpsRequest(
+          new Request("http://localhost", {
+            headers: { authorization: `Bearer ${token}` },
+          }),
+        ),
+      ).toBeNull();
+    } finally {
+      db.delete(agentSessions).where(eq(agentSessions.id, sessionId)).run();
+      db.delete(projects).where(eq(projects.id, projectId)).run();
+    }
+  });
+
+  it("still accepts global bearer token", () => {
+    process.env.FORGE_OPS_API_TOKEN = "global-secret";
+    process.env.FORGE_OPS_SESSION_SECRET = "test-session-secret-value";
+    const auth = authenticateOpsRequest(
+      new Request("http://localhost", {
+        headers: { authorization: "Bearer global-secret" },
+      }),
+    );
+    expect(auth).toEqual({ kind: "global" });
   });
 });
 
