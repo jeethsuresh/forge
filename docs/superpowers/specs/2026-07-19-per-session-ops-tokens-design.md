@@ -110,9 +110,9 @@ Document both global and session-token auth. Session scope rule must be explicit
 | Path | Global | Session |
 |------|--------|---------|
 | `GET /api/ops` | yes | yes |
-| `GET /api/ops/actions` | yes | yes (filter or allow; implementations may return only actions for that project / session) |
-| `GET /api/ops/projects` | yes | yes — return **only** the session’s project, or `403` if listing all is undesirable; prefer filtered list of one |
-| `…/projects/{projectId}/…` | yes if exists | yes only when `projectId === auth.projectId` |
+| `GET /api/ops/actions` | yes | yes — return only actions where `project_id === auth.projectId` (and/or `agent_session_id === auth.sessionId`) |
+| `GET /api/ops/projects` | yes | yes — return a one-element list containing only the session’s project |
+| `…/projects/{projectId}/…` | yes if exists | yes only when `projectId === auth.projectId`; otherwise `403` |
 
 Mutating routes keep `actionDescription` + audit behavior unchanged.
 
