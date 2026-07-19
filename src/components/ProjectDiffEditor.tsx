@@ -133,10 +133,12 @@ export function ProjectDiffEditor({
   const readOnly = !file.editable || file.binary || file.status === "deleted";
 
   useEffect(() => {
-    savedContentRef.current = file.content;
-    setDraft(file.content);
-    setDirty(false);
-    onDirtyChange?.(false);
+    queueMicrotask(() => {
+      savedContentRef.current = file.content;
+      setDraft(file.content);
+      setDirty(false);
+      onDirtyChange?.(false);
+    });
   }, [file.path, file.content, onDirtyChange]);
 
   const applyDecorations = useCallback(
