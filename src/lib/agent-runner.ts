@@ -48,7 +48,7 @@ import { resolveCursorAgentBin } from "@/lib/cursor-agent";
 import { runDeployment } from "@/lib/deployer";
 import { resolveClonePath } from "@/lib/paths";
 import { prependForgeOpsInstructions, buildForgeOpsAgentInstructions } from "@/lib/agent-ops-prompt";
-import { opsApiBaseUrl } from "@/lib/ops-api-auth";
+import { mintSessionOpsToken, opsApiBaseUrl } from "@/lib/ops-api-auth";
 import {
   isProjectAgentPipelineBusy,
   markAgentSessionQueued,
@@ -620,9 +620,7 @@ async function runAgentTurn(
   const env = { ...process.env };
   const apiKey = process.env.FORGE_CURSOR_API_KEY ?? process.env.CURSOR_API_KEY;
   if (apiKey) env.CURSOR_API_KEY = apiKey;
-  if (process.env.FORGE_OPS_API_TOKEN?.trim()) {
-    env.FORGE_OPS_API_TOKEN = process.env.FORGE_OPS_API_TOKEN.trim();
-  }
+  env.FORGE_OPS_API_TOKEN = mintSessionOpsToken(sessionId, project.id);
   env.FORGE_OPS_API_BASE = opsApiBaseUrl();
 
   return new Promise((resolve, reject) => {

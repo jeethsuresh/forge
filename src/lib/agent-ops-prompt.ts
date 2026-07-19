@@ -1,4 +1,4 @@
-import { opsApiBaseUrl, isOpsApiConfigured } from "@/lib/ops-api-auth";
+import { opsApiBaseUrl } from "@/lib/ops-api-auth";
 
 export function forgeOpsApiCatalog(baseUrl: string) {
   return {
@@ -9,6 +9,8 @@ export function forgeOpsApiCatalog(baseUrl: string) {
       alternateHeader: "X-Forge-Ops-Token: $FORGE_OPS_API_TOKEN",
       agentSessionHeader:
         "X-Forge-Agent-Session-Id: <session-id> (optional, links audit log to your session)",
+      sessionTokens:
+        "Agents receive a project-scoped session token (fos.<sessionId>.…) in FORGE_OPS_API_TOKEN. Optional global FORGE_OPS_API_TOKEN grants full access for CI.",
     },
     rules: [
       "Every POST, PATCH, and DELETE request MUST include a non-empty actionDescription field (10–2000 chars) stating exactly what you are doing and why.",
@@ -110,12 +112,11 @@ export function buildForgeOpsAgentInstructions(
   sessionId: string,
 ): string {
   const baseUrl = opsApiBaseUrl();
-  const configured = isOpsApiConfigured();
 
   return `# Forge Operations API
 
 You orchestrate deployments and monitoring for this project through Forge's Ops API.
-${configured ? "The token is available in your environment as FORGE_OPS_API_TOKEN." : "WARNING: FORGE_OPS_API_TOKEN is not configured; ops calls will fail until an operator sets it."}
+The token is available in your environment as FORGE_OPS_API_TOKEN.
 
 ## Required behavior
 

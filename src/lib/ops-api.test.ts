@@ -244,6 +244,16 @@ describe("agent-ops-prompt", () => {
     expect(text).toContain("revertChanges");
   });
 
+  it("never warns that FORGE_OPS_API_TOKEN is not configured", () => {
+    delete process.env.FORGE_OPS_API_TOKEN;
+    process.env.FORGE_OPS_SESSION_SECRET = "test-session-secret-value";
+    const text = buildForgeOpsAgentInstructions("proj-1", "sess-1");
+    expect(text).not.toContain("WARNING: FORGE_OPS_API_TOKEN is not configured");
+    expect(text).toContain(
+      "The token is available in your environment as FORGE_OPS_API_TOKEN.",
+    );
+  });
+
   it("catalog includes agent session end for recovery and manual sessions", () => {
     const catalog = forgeOpsApiCatalog("http://example.test");
     const paths = catalog.endpoints.map((e) => e.path);
@@ -253,5 +263,6 @@ describe("agent-ops-prompt", () => {
     expect(paths).toContain(
       "/api/ops/projects/{projectId}/agent-sessions/{sessionId}/stop",
     );
+    expect(catalog.auth.sessionTokens).toMatch(/fos\./);
   });
 });
