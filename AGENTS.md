@@ -7,6 +7,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 ## Agent workflow (mandatory)
 
 - **Run `./test.sh` before finishing any task** that touches code or config. Do not end the turn with failing or unrun tests.
+- Agents automatically enable Layer C live Forge Redeploy/smoke tests when `FORGE_OPS_API_TOKEN` is a `fos.*` session token (or pass `./test.sh --live-smoke`). Force off with `FORGE_LIVE_SMOKE=0`. Self-update staging never nests live cutover.
 - If tests fail, **fix them** (or revert the breaking change) and re-run `./test.sh` until all pass.
 - Use `./build.sh` → `./test.sh` → `./deploy.sh` for deploy-related work on **managed (non-Forge) projects**; a failing test blocks deploy.
 - **NEVER run Forge's own `./deploy.sh`.** For the Forge/Orchestrator project, always redeploy via the Ops API (`POST /api/ops/projects/{id}/deploy`) or the UI “Redeploy” / “Update Forge” action. Running `deploy.sh` against Forge leaves the container in a state the self-updater cannot recreate properly.

@@ -7,6 +7,7 @@ import {
   agentEvents,
   agentSessions,
   deployments,
+  forgeUpdates,
   projects,
   type AgentSessionStatus,
   type Project,
@@ -46,8 +47,11 @@ import {
 } from "@/lib/github";
 import { resolveCursorAgentBin } from "@/lib/cursor-agent";
 import { runDeployment } from "@/lib/deployer";
+import { isForgeProjectId } from "@/lib/forge-project";
+import { startForgeUpdate } from "@/lib/self-update";
 import { resolveClonePath } from "@/lib/paths";
 import { prependForgeOpsInstructions, buildForgeOpsAgentInstructions } from "@/lib/agent-ops-prompt";
+import { isForgeUpdateTerminalStatus } from "@/lib/ops-session-deploy";
 import { mintSessionOpsToken, opsApiBaseUrl } from "@/lib/ops-api-auth";
 import {
   isProjectAgentPipelineBusy,
@@ -718,6 +722,19 @@ async function deployAfterAgent(
   appendSessionLog(sessionId, "Agent finished. Starting rebuild and release…");
 
   try {
+    if (isForgeProjectId(projectId)) {
+      const updateId = await startForgeUpdate({ branch });
+      db.update(agentSessions)
+        .set({ deploymentId: updateId })
+        .where(eq(agentSessions.id, sessionId))
+        .run();
+      appendSessionLog(
+        sessionId,
+        `Forge self-update ${updateId} started (not ./deploy.sh).`,
+      );
+      return;
+    }
+
     const deploymentId = await runDeployment(projectId, "agent", {
       branch,
       skipPull: true,
@@ -772,6 +789,25 @@ async function waitForDeploymentAndFinalize(
 
     if (!current?.deploymentId) {
       cancelDeploymentPoll(sessionId);
+      return;
+    }
+
+    const forgeUpdate = db
+      .select()
+      .from(forgeUpdates)
+      .where(eq(forgeUpdates.id, current.deploymentId))
+      .get();
+
+    if (forgeUpdate) {
+      if (
+        !forgeUpdate.completedAt ||
+        !isForgeUpdateTerminalStatus(forgeUpdate.status)
+      ) {
+        deploymentPollTimers.set(sessionId, setTimeout(poll, 2000));
+        return;
+      }
+      cancelDeploymentPoll(sessionId);
+      applyAgentDeploymentOutcome(sessionId, forgeUpdate.id);
       return;
     }
 

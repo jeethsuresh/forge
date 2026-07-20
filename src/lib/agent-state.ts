@@ -1,6 +1,11 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { agentEvents, agentSessions, deployments } from "@/lib/db/schema";
+import {
+  agentEvents,
+  agentSessions,
+  deployments,
+  forgeUpdates,
+} from "@/lib/db/schema";
 import {
   reconcileAbandonedDeployingSessions,
 } from "@/lib/deploy-reconcile";
@@ -14,6 +19,10 @@ import {
   resolveAgentSessionSource,
   shouldAutoCompleteRecoverySession,
 } from "@/lib/agent-session-source";
+import {
+  isForgeUpdateSuccessful,
+  isForgeUpdateTerminalStatus,
+} from "@/lib/ops-session-deploy";
 
 export const activeAgentProjects = new Set<string>();
 
@@ -45,10 +54,59 @@ function sessionEvents(sessionId: string) {
     .all();
 }
 
+function finalizeDeployingSessionFromForgeUpdate(
+  session: typeof agentSessions.$inferSelect,
+): boolean {
+  if (session.status !== "deploying" || !session.deploymentId) return false;
+
+  const update = db
+    .select()
+    .from(forgeUpdates)
+    .where(eq(forgeUpdates.id, session.deploymentId))
+    .get();
+  if (!update?.completedAt || !isForgeUpdateTerminalStatus(update.status)) {
+    return false;
+  }
+
+  if (isForgeUpdateSuccessful(update.status)) {
+    appendSessionLog(
+      session.id,
+      "Forge self-update completed successfully.",
+    );
+    db.update(agentSessions)
+      .set({
+        status: "completed",
+        completedAt: new Date(),
+        errorMessage: null,
+        commitSha: update.targetCommitSha ?? session.commitSha,
+      })
+      .where(eq(agentSessions.id, session.id))
+      .run();
+  } else {
+    const message = update.errorMessage ?? `Forge update ${update.status}`;
+    appendSessionLog(session.id, `Forge self-update failed: ${message}`);
+    db.update(agentSessions)
+      .set({
+        status: "failed",
+        completedAt: new Date(),
+        errorMessage: message,
+      })
+      .where(eq(agentSessions.id, session.id))
+      .run();
+  }
+
+  activeAgentProjects.delete(session.projectId);
+  return true;
+}
+
 function finalizeDeployingSessionFromDeployment(
   session: typeof agentSessions.$inferSelect,
 ): boolean {
   if (session.status !== "deploying" || !session.deploymentId) return false;
+
+  if (finalizeDeployingSessionFromForgeUpdate(session)) {
+    return true;
+  }
 
   const deployment = db
     .select()

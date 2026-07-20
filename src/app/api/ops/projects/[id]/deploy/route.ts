@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
 import { runDeployment } from "@/lib/deployer";
-import { isAgentSessionActive, getBlockingAgentSession } from "@/lib/agent-state";
+import {
+  isAgentSessionActive,
+  getBlockingAgentSession,
+  getActiveSessionForProject,
+} from "@/lib/agent-state";
+import { db } from "@/lib/db";
+import { agentSessions } from "@/lib/db/schema";
 import { isForgeProject } from "@/lib/forge-project";
 import { validateBranchName } from "@/lib/github";
 import { invalidateProjectBranches } from "@/lib/project-branches-cache";
 import { invalidateProjectRuntimeCache } from "@/lib/project-runtime-cache";
+import { shouldAuthorizeActiveSessionDeploy } from "@/lib/ops-session-deploy";
 import { startForgeUpdate } from "@/lib/self-update";
 import {
   errorWithAudit,
@@ -36,7 +44,15 @@ export async function POST(
   if (actionResult instanceof NextResponse) return actionResult;
   const { actionDescription } = actionResult;
 
-  if (isAgentSessionActive(id)) {
+  const authorizeActiveSessionDeploy = body.authorizeActiveSessionDeploy === true;
+  const activeSession = getActiveSessionForProject(id);
+  const sessionAuthorized = shouldAuthorizeActiveSessionDeploy({
+    auth,
+    authorizeActiveSessionDeploy,
+    blockingSessionId: activeSession?.id,
+  });
+
+  if (isAgentSessionActive(id) && !sessionAuthorized) {
     const blocking = getBlockingAgentSession(id);
     return errorWithAudit(
       "An agent session is active. End it before deploying.",
@@ -71,10 +87,30 @@ export async function POST(
 
   if (isForgeProject(project)) {
     try {
+      if (sessionAuthorized && activeSession) {
+        db.update(agentSessions)
+          .set({ status: "deploying" })
+          .where(eq(agentSessions.id, activeSession.id))
+          .run();
+      }
+
       const updateId = await startForgeUpdate({ branch });
+
+      if (sessionAuthorized && activeSession) {
+        db.update(agentSessions)
+          .set({ deploymentId: updateId })
+          .where(eq(agentSessions.id, activeSession.id))
+          .run();
+      }
+
       invalidateProjectRuntimeCache(id);
       return jsonWithAudit(
-        { updateId, branch, mode: "forge-self-update" },
+        {
+          updateId,
+          branch,
+          mode: "forge-self-update",
+          authorizedActiveSession: sessionAuthorized,
+        },
         { status: 202 },
         {
           request,

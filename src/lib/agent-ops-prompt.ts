@@ -36,8 +36,13 @@ export function forgeOpsApiCatalog(baseUrl: string) {
       {
         method: "POST",
         path: "/api/ops/projects/{projectId}/deploy",
-        description: "Start deploy or Forge self-update",
-        body: { actionDescription: "string (required)", branch: "string?" },
+        description:
+          "Start deploy or Forge self-update. Forge agents may pass authorizeActiveSessionDeploy:true with their fos.* session token to cut over while mid-turn.",
+        body: {
+          actionDescription: "string (required)",
+          branch: "string?",
+          authorizeActiveSessionDeploy: "boolean? (Forge + session token only)",
+        },
       },
       {
         method: "POST",

@@ -4,11 +4,16 @@ import { db } from "@/lib/db";
 import {
   agentSessions,
   deployments,
+  forgeUpdates,
   projects,
   type Project,
 } from "@/lib/db/schema";
 import { readProjectReleaseState } from "@/lib/deploy-rollback";
 import { findForgeProject } from "@/lib/forge-project";
+import {
+  isForgeUpdateSuccessful,
+  isForgeUpdateTerminalStatus,
+} from "@/lib/ops-session-deploy";
 
 const INTERRUPTED_DEPLOY_STATUSES = [
   "staging",
@@ -208,6 +213,70 @@ export function reconcileAbandonedDeployingSessions(
       .where(eq(projects.id, session.projectId))
       .get();
     if (!project) continue;
+
+    const forgeUpdate = session.deploymentId
+      ? db
+          .select()
+          .from(forgeUpdates)
+          .where(eq(forgeUpdates.id, session.deploymentId))
+          .get()
+      : undefined;
+
+    if (forgeUpdate) {
+      if (
+        forgeUpdate.completedAt &&
+        isForgeUpdateTerminalStatus(forgeUpdate.status)
+      ) {
+        if (isForgeUpdateSuccessful(forgeUpdate.status)) {
+          appendSessionLogForReconcile(
+            session.id,
+            "Forge self-update completed successfully.",
+          );
+          db.update(agentSessions)
+            .set({
+              status: "completed",
+              completedAt: new Date(),
+              errorMessage: null,
+              commitSha: forgeUpdate.targetCommitSha ?? session.commitSha,
+            })
+            .where(eq(agentSessions.id, session.id))
+            .run();
+        } else {
+          const message =
+            forgeUpdate.errorMessage ?? `Forge update ${forgeUpdate.status}`;
+          appendSessionLogForReconcile(session.id, message);
+          db.update(agentSessions)
+            .set({
+              status: "failed",
+              completedAt: new Date(),
+              errorMessage: message,
+            })
+            .where(eq(agentSessions.id, session.id))
+            .run();
+        }
+        reconciled += 1;
+        continue;
+      }
+
+      const updateAge = now - forgeUpdate.startedAt.getTime();
+      if (updateAge < ABANDONED_DEPLOYING_SESSION_MS) {
+        continue;
+      }
+
+      const message =
+        "Forge self-update did not complete (orchestrator restarted during cutover)";
+      appendSessionLogForReconcile(session.id, message);
+      db.update(agentSessions)
+        .set({
+          status: "failed",
+          completedAt: new Date(),
+          errorMessage: message,
+        })
+        .where(eq(agentSessions.id, session.id))
+        .run();
+      reconciled += 1;
+      continue;
+    }
 
     const deployment = session.deploymentId
       ? db
