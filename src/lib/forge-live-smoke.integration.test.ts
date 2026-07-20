@@ -54,6 +54,34 @@ async function findForgeProjectId(): Promise<string> {
   return forge.id;
 }
 
+async function readForgeUpdateFromDb(
+  updateId: string,
+): Promise<{ status: string; logs: string; errorMessage?: string | null } | null> {
+  try {
+    const out = execFileSync(
+      "docker",
+      [
+        "exec",
+        "forge_app_1",
+        "sqlite3",
+        "-json",
+        "/data/forge.db",
+        `SELECT status, logs, error_message AS errorMessage FROM forge_updates WHERE id='${updateId.replace(/'/g, "''")}';`,
+      ],
+      { encoding: "utf8", timeout: 15_000 },
+    ).trim();
+    if (!out) return null;
+    const rows = JSON.parse(out) as Array<{
+      status: string;
+      logs: string;
+      errorMessage?: string | null;
+    }>;
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function pollForgeUpdate(
   projectId: string,
   updateId: string,
@@ -61,45 +89,67 @@ async function pollForgeUpdate(
 ): Promise<{ status: string; logs: string; errorMessage?: string | null }> {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    const res = await opsFetch(`/api/ops/projects/${projectId}`);
-    if (!res.ok) {
-      await new Promise((r) => setTimeout(r, 5000));
-      continue;
-    }
-    const data = (await res.json()) as {
-      forgeStatus?: {
-        activeUpdate?: {
-          id: string;
-          status: string;
-          logs?: string;
-          errorMessage?: string | null;
+    try {
+      const res = await opsFetch(`/api/ops/projects/${projectId}`);
+      if (res.ok) {
+        const data = (await res.json()) as {
+          forgeStatus?: {
+            activeUpdate?: {
+              id: string;
+              status: string;
+              logs?: string;
+              errorMessage?: string | null;
+            } | null;
+            recentUpdates?: Array<{
+              id: string;
+              status: string;
+              logs?: string;
+              errorMessage?: string | null;
+            }>;
+          };
         };
-        recentUpdates?: Array<{
+        const candidates = [
+          data.forgeStatus?.activeUpdate,
+          ...(data.forgeStatus?.recentUpdates ?? []),
+        ].filter(Boolean) as Array<{
           id: string;
           status: string;
           logs?: string;
           errorMessage?: string | null;
         }>;
-      };
-    };
-    const active = data.forgeStatus?.activeUpdate;
-    if (active?.id === updateId) {
-      if (["success", "failed", "rolled_back"].includes(active.status)) {
-        return {
-          status: active.status,
-          logs: active.logs ?? "",
-          errorMessage: active.errorMessage,
-        };
+
+        const match = candidates.find((u) => u.id === updateId);
+        if (
+          match &&
+          ["success", "failed", "rolled_back"].includes(match.status)
+        ) {
+          return {
+            status: match.status,
+            logs: match.logs ?? "",
+            errorMessage: match.errorMessage,
+          };
+        }
+        process.stdout.write(
+          `live-smoke: waiting for update ${updateId.slice(0, 8)}… ops=${match?.status ?? "n/a"}\n`,
+        );
+      } else {
+        process.stdout.write(
+          `live-smoke: waiting for update ${updateId.slice(0, 8)}… ops_http=${res.status}\n`,
+        );
       }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stdout.write(
+        `live-smoke: waiting for update ${updateId.slice(0, 8)}… ops_error=${message.slice(0, 80)}\n`,
+      );
     }
-    const recent = data.forgeStatus?.recentUpdates?.find((u) => u.id === updateId);
-    if (recent && ["success", "failed", "rolled_back"].includes(recent.status)) {
-      return {
-        status: recent.status,
-        logs: recent.logs ?? "",
-        errorMessage: recent.errorMessage,
-      };
+
+    // Fallback: older Forge images omit recentUpdates; cutover also drops the port briefly.
+    const fromDb = await readForgeUpdateFromDb(updateId);
+    if (fromDb && ["success", "failed", "rolled_back"].includes(fromDb.status)) {
+      return fromDb;
     }
+
     await new Promise((r) => setTimeout(r, 10_000));
   }
   throw new Error(`Timed out waiting for forge update ${updateId}`);
@@ -154,31 +204,43 @@ describe.skipIf(!liveEnabled)("forge live smoke (Layer C)", () => {
     expect(result.status).toBe("success");
   }, 50 * 60_000);
 
-  it("agent-commit path: marker branch deploy via Ops (or authorized session)", async () => {
-    const projectId = await findForgeProjectId();
-    // Prefer redeploying current watch branch again is covered above;
-    // this asserts Ops accepts authorizeActiveSessionDeploy for fos tokens.
-    if (!opsToken()?.startsWith("fos.")) {
-      // Global-token hosts already redeployed in prior test; soft-pass structure.
-      expect(true).toBe(true);
-      return;
+  it("post-cutover Ops remains usable and session is not falsely interrupted", async () => {
+    const suiteStartedAt = Date.now() - 10 * 60_000; // ignore interrupts older than this smoke window
+    // Cutover briefly drops the port — wait for health before Ops checks.
+    const started = Date.now();
+    while (Date.now() - started < 120_000) {
+      try {
+        const health = await fetch(`${opsBase()}/api/forge/health`);
+        if (health.ok) break;
+      } catch {
+        // retry
+      }
+      await new Promise((r) => setTimeout(r, 3000));
     }
 
-    const res = await opsFetch(`/api/ops/projects/${projectId}`, {
-      method: "GET",
-    });
+    const projectId = await findForgeProjectId();
+    const res = await opsFetch(`/api/ops/projects/${projectId}`);
     expect(res.ok).toBe(true);
     const detail = (await res.json()) as {
-      agentSessions?: Array<{ id: string; status: string; errorMessage?: string }>;
+      agentSessions?: Array<{
+        id: string;
+        status: string;
+        errorMessage?: string;
+        completedAt?: string | null;
+      }>;
+      forgeStatus?: { activeUpdate?: { status: string } | null };
     };
-    const interrupted = (detail.agentSessions ?? []).filter((s) =>
-      /interrupted/i.test(s.errorMessage ?? ""),
-    );
-    // After prior cutover, this session should not be falsely interrupted mid-suite.
-    for (const s of interrupted) {
-      expect(
-        s.status === "failed" && /did not start|unexpectedly/i.test(s.errorMessage ?? ""),
-      ).toBe(true);
-    }
-  }, 120_000);
+    expect(detail.forgeStatus?.activeUpdate ?? null).toBeNull();
+
+    const freshFalseInterrupts = (detail.agentSessions ?? []).filter((s) => {
+      const interrupted =
+        s.errorMessage === "Agent session interrupted" ||
+        s.errorMessage ===
+          "Agent session did not start (orchestrator restarted or session interrupted)";
+      if (!interrupted) return false;
+      const completed = s.completedAt ? Date.parse(s.completedAt) : NaN;
+      return !Number.isNaN(completed) && completed >= suiteStartedAt;
+    });
+    expect(freshFalseInterrupts).toEqual([]);
+  }, 180_000);
 });

@@ -172,6 +172,7 @@ export async function buildOpsProjectDetail(project: typeof projects.$inferSelec
           updateAvailable: forgeStatus.updateAvailable,
           deployAllowed: forgeStatus.deployAllowed,
           activeUpdate: forgeStatus.activeUpdate,
+          recentUpdates: forgeStatus.recentUpdates,
           runningCommitSha: forgeStatus.runningCommitSha,
           remoteCommitSha: forgeStatus.remoteCommitSha,
         }
