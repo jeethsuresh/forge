@@ -67,6 +67,7 @@ describe("agent container lifecycle", () => {
       gitUsername: "git",
       gitPassword: "secret",
       heartbeatIntervalSec: 10,
+      workspaceBind: "/data/clones/proj",
     });
 
     expect(args[0]).toBe("run");
@@ -80,9 +81,24 @@ describe("agent container lifecycle", () => {
     expect(args.some((a) => a.includes("FORGE_AGENT_HEARTBEAT_INTERVAL_SEC=10"))).toBe(
       true,
     );
+    expect(args).toContain("/data/clones/proj:/workspace/repo:z");
     expect(args.some((a) => a.includes("docker.sock"))).toBe(false);
     expect(args.some((a) => a.includes("podman.sock"))).toBe(false);
     expect(() => assertNoDockerSockMount(args)).not.toThrow();
+  });
+
+  it("rejects workspace binds that look like docker.sock", () => {
+    expect(() =>
+      buildAgentContainerRunArgs({
+        sessionId: "sess-1",
+        projectId: "proj-1",
+        branch: "main",
+        cloneUrl: "https://github.com/owner/repo.git",
+        opsBaseUrl: "http://127.0.0.1:3456",
+        opsToken: "fos.x",
+        workspaceBind: "/var/run/docker.sock",
+      }),
+    ).toThrow(/socket/i);
   });
 
   it("assertNoDockerSockMount rejects sock binds", () => {

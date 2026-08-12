@@ -39,6 +39,8 @@ export type StartAgentContainerOpts = {
   agentPrompt?: string;
   cursorApiKey?: string;
   packagesJson?: string;
+  /** Host path bind-mounted at /workspace/repo (shared edits; never a docker sock). */
+  workspaceBind?: string;
 };
 
 export type DockerRunResult = { stdout: string; stderr: string };
@@ -155,6 +157,17 @@ export function buildAgentContainerRunArgs(
     args.push("-e", `${key}=${value}`);
   }
 
+  // Optional shared worktree bind — never docker.sock.
+  if (opts.workspaceBind?.trim()) {
+    const bind = opts.workspaceBind.trim();
+    if (mountArgTargetsDockerSock(bind)) {
+      throw new Error(
+        `Refusing workspace bind that looks like a container socket: ${bind}`,
+      );
+    }
+    args.push("-v", `${bind}:/workspace/repo:z`);
+  }
+
   // Intentionally no -v docker.sock / podman.sock mounts.
   args.push(image);
 
@@ -231,6 +244,26 @@ export async function startAgentContainer(
   });
 
   return { containerId };
+}
+
+export async function waitForAgentContainerExit(
+  sessionId: string,
+): Promise<number> {
+  const row = db
+    .select()
+    .from(agentContainers)
+    .where(eq(agentContainers.sessionId, sessionId))
+    .get();
+  const name = agentContainerName(sessionId);
+  const target = row?.containerId || name;
+
+  try {
+    const { stdout } = await runDocker(["wait", target]);
+    const code = Number.parseInt(stdout.trim(), 10);
+    return Number.isFinite(code) ? code : 1;
+  } catch {
+    return 1;
+  }
 }
 
 export async function stopAgentContainer(sessionId: string): Promise<void> {

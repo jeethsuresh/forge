@@ -44,6 +44,8 @@ import {
   revertAgentSessionCommit as revertPushedAgentCommit,
   createLocalBranchFromBase,
   validateBranchName,
+  githubCloneUrl,
+  gitHubCredentials,
 } from "@/lib/github";
 import { resolveCursorAgentBin } from "@/lib/cursor-agent";
 import { runDeployment } from "@/lib/deployer";
@@ -58,8 +60,19 @@ import {
   markAgentSessionQueued,
   processAgentQueue,
 } from "@/lib/agent-queue";
+import {
+  removeAgentContainer,
+  startAgentContainer,
+  stopAgentContainer,
+  waitForAgentContainerExit,
+} from "@/lib/agent-container";
+import { AGENT_HEARTBEAT_INTERVAL_SEC } from "@/lib/agent-heartbeat";
+import { getProjectForgefile } from "@/lib/forgefile-project";
+import type { Forgefile } from "@/lib/forgefile-types";
 
 const activeAgentProcesses = new Map<string, ChildProcess>();
+/** Sessions with a live agent container (Forge 2.0 default runtime). */
+const activeAgentContainers = new Set<string>();
 const stoppingSessions = new Set<string>();
 const cancelledSessions = new Set<string>();
 /** Session ended via endAgentSession — process close must not overwrite status. */
@@ -68,6 +81,40 @@ const deploymentPollTimers = new Map<string, NodeJS.Timeout>();
 const deploymentPollActive = new Set<string>();
 
 const AGENT_KILL_GRACE_MS = 5000;
+
+/** Default: container. `FORGE_AGENT_RUNTIME=process` keeps host-child spawn for tests/legacy. */
+export function agentRuntimeMode(): "container" | "process" {
+  const raw = process.env.FORGE_AGENT_RUNTIME?.trim().toLowerCase();
+  if (raw === "process") return "process";
+  return "container";
+}
+
+function isAgentRuntimeActive(sessionId: string): boolean {
+  return (
+    activeAgentProcesses.has(sessionId) || activeAgentContainers.has(sessionId)
+  );
+}
+
+async function stopAgentRuntime(sessionId: string): Promise<void> {
+  const proc = activeAgentProcesses.get(sessionId);
+  if (proc) {
+    terminateAgentProcess(proc);
+    activeAgentProcesses.delete(sessionId);
+  }
+  if (activeAgentContainers.has(sessionId)) {
+    try {
+      await stopAgentContainer(sessionId);
+    } catch {
+      // ignore stop failures
+    }
+    try {
+      await removeAgentContainer(sessionId);
+    } catch {
+      // ignore remove failures
+    }
+    activeAgentContainers.delete(sessionId);
+  }
+}
 
 const TERMINAL_STATUSES: AgentSessionStatus[] = [
   "completed",
@@ -252,7 +299,7 @@ function reactivateFailedSession(sessionId: string): void {
 }
 
 export function isAgentProcessRunning(sessionId: string): boolean {
-  return activeAgentProcesses.has(sessionId);
+  return isAgentRuntimeActive(sessionId);
 }
 
 export type AgentSessionForClient = NonNullable<ReturnType<typeof getAgentSession>> & {
@@ -405,7 +452,7 @@ export function reconcileStuckAgentSession(sessionId: string) {
   const stuck = isStuckActiveSession({
     status: session.status,
     failedTurnStartSeq: session.failedTurnStartSeq,
-    hasActiveProcess: activeAgentProcesses.has(sessionId),
+    hasActiveProcess: isAgentRuntimeActive(sessionId),
     projectMarkedActive: activeAgentProjects.has(session.projectId),
     turnIncomplete,
   });
@@ -578,10 +625,12 @@ function buildAgentArgs(
   return args;
 }
 
-async function runAgentTurn(
+async function runAgentTurnProcess(
   sessionId: string,
   project: Project,
   prompt: string,
+  effectivePrompt: string,
+  turnStartSeq: number,
   workspacePath?: string,
 ): Promise<void> {
   const session = db
@@ -589,36 +638,7 @@ async function runAgentTurn(
     .from(agentSessions)
     .where(eq(agentSessions.id, sessionId))
     .get();
-
   if (!session) throw new Error("Session not found");
-
-  updateSessionStatus(sessionId, "running");
-  const includeOpsInstructions = !session.resumeCursorSessionId;
-  const opsInstructions = includeOpsInstructions
-    ? buildForgeOpsAgentInstructions(project.id, sessionId)
-    : null;
-  const effectivePrompt = opsInstructions
-    ? prependForgeOpsInstructions(prompt, project.id, sessionId, true)
-    : prompt;
-
-  appendSessionLog(
-    sessionId,
-    `Starting agent turn: ${prompt.slice(0, 80)}…`,
-  );
-
-  const turnStartSeq = getNextEventSeq(sessionId);
-  if (opsInstructions) {
-    recordEvent(
-      sessionId,
-      "system",
-      JSON.stringify({
-        type: "system",
-        subtype: "forge-ops",
-        text: opsInstructions,
-      }),
-    );
-  }
-  recordEvent(sessionId, "user", JSON.stringify({ type: "user", text: prompt }));
 
   const args = buildAgentArgs(effectivePrompt, session.resumeCursorSessionId);
   const env = { ...process.env };
@@ -711,6 +731,168 @@ async function runAgentTurn(
       resolve();
     });
   });
+}
+
+function resolveAgentPackagesJson(projectId: string): string | undefined {
+  const row = getProjectForgefile(projectId);
+  if (!row || row.status !== "valid") return undefined;
+  try {
+    const parsed = JSON.parse(row.parsedJson) as Forgefile;
+    const packages = parsed.agent?.packages;
+    if (!Array.isArray(packages) || packages.length === 0) return undefined;
+    return JSON.stringify(packages);
+  } catch {
+    return undefined;
+  }
+}
+
+async function runAgentTurnContainer(
+  sessionId: string,
+  project: Project,
+  prompt: string,
+  effectivePrompt: string,
+  turnStartSeq: number,
+  workspacePath?: string,
+): Promise<void> {
+  const session = db
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.id, sessionId))
+    .get();
+  if (!session) throw new Error("Session not found");
+
+  const workspace = resolveClonePath(workspacePath ?? project.clonePath);
+  const creds = gitHubCredentials();
+  const apiKey = process.env.FORGE_CURSOR_API_KEY ?? process.env.CURSOR_API_KEY;
+
+  activeAgentContainers.add(sessionId);
+  appendSessionLog(sessionId, "Starting agent container (no docker.sock)…");
+
+  try {
+    const { containerId } = await startAgentContainer({
+      sessionId,
+      projectId: project.id,
+      branch: session.branch,
+      cloneUrl: githubCloneUrl(project.githubRepo),
+      opsBaseUrl: opsApiBaseUrl(),
+      opsToken: mintSessionOpsToken(sessionId, project.id),
+      gitUsername: creds?.username,
+      gitPassword: creds?.password,
+      heartbeatIntervalSec: AGENT_HEARTBEAT_INTERVAL_SEC,
+      agentPrompt: effectivePrompt,
+      cursorApiKey: apiKey,
+      packagesJson: resolveAgentPackagesJson(project.id),
+      workspaceBind: existsSync(workspace) ? workspace : undefined,
+    });
+
+    appendSessionLog(
+      sessionId,
+      `Agent container ${containerId.slice(0, 12)} started; events via Ops ingest.`,
+    );
+
+    const code = await waitForAgentContainerExit(sessionId);
+
+    if (cancelledSessions.has(sessionId)) {
+      cancelledSessions.delete(sessionId);
+      return;
+    }
+
+    if (endedSessions.has(sessionId)) {
+      endedSessions.delete(sessionId);
+      stoppingSessions.delete(sessionId);
+      return;
+    }
+
+    if (stoppingSessions.has(sessionId)) {
+      stoppingSessions.delete(sessionId);
+      markTurnFailed(sessionId, turnStartSeq);
+      updateSessionStatus(sessionId, "failed", {
+        errorMessage: "Stopped by user.",
+        completedAt: new Date(),
+      });
+      appendSessionLog(sessionId, "Agent stopped by user.");
+      activeAgentProjects.delete(project.id);
+      drainAgentQueue(project.id);
+      return;
+    }
+
+    if (code !== 0) {
+      markTurnFailed(sessionId, turnStartSeq);
+      throw new Error(`Agent container exited with code ${code}`);
+    }
+    markTurnSucceeded(sessionId);
+  } finally {
+    activeAgentContainers.delete(sessionId);
+    try {
+      await removeAgentContainer(sessionId);
+    } catch {
+      // already removed
+    }
+  }
+}
+
+async function runAgentTurn(
+  sessionId: string,
+  project: Project,
+  prompt: string,
+  workspacePath?: string,
+): Promise<void> {
+  const session = db
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.id, sessionId))
+    .get();
+
+  if (!session) throw new Error("Session not found");
+
+  updateSessionStatus(sessionId, "running");
+  const includeOpsInstructions = !session.resumeCursorSessionId;
+  const opsInstructions = includeOpsInstructions
+    ? buildForgeOpsAgentInstructions(project.id, sessionId)
+    : null;
+  const effectivePrompt = opsInstructions
+    ? prependForgeOpsInstructions(prompt, project.id, sessionId, true)
+    : prompt;
+
+  appendSessionLog(
+    sessionId,
+    `Starting agent turn: ${prompt.slice(0, 80)}…`,
+  );
+
+  const turnStartSeq = getNextEventSeq(sessionId);
+  if (opsInstructions) {
+    recordEvent(
+      sessionId,
+      "system",
+      JSON.stringify({
+        type: "system",
+        subtype: "forge-ops",
+        text: opsInstructions,
+      }),
+    );
+  }
+  recordEvent(sessionId, "user", JSON.stringify({ type: "user", text: prompt }));
+
+  if (agentRuntimeMode() === "process") {
+    await runAgentTurnProcess(
+      sessionId,
+      project,
+      prompt,
+      effectivePrompt,
+      turnStartSeq,
+      workspacePath,
+    );
+    return;
+  }
+
+  await runAgentTurnContainer(
+    sessionId,
+    project,
+    prompt,
+    effectivePrompt,
+    turnStartSeq,
+    workspacePath,
+  );
 }
 
 async function deployAfterAgent(
@@ -1038,7 +1220,7 @@ export async function waitForAgentSessionTerminal(
     if (session && TERMINAL_STATUSES.includes(session.status)) {
       return session;
     }
-    if (session && !activeAgentProcesses.has(sessionId)) {
+    if (session && !isAgentRuntimeActive(sessionId)) {
       await new Promise((resolve) => setTimeout(resolve, 500));
       const refreshed = getAgentSession(sessionId);
       if (refreshed && TERMINAL_STATUSES.includes(refreshed.status)) {
@@ -1196,7 +1378,7 @@ function assertSessionReadyForPostAgentAction(sessionId: string) {
   if (!allowedStatuses.includes(session.status)) {
     throw new Error("Session is not ready for commit or deploy");
   }
-  if (activeAgentProcesses.has(sessionId)) {
+  if (isAgentRuntimeActive(sessionId)) {
     throw new Error("Agent is still processing; wait for the current turn to finish");
   }
   if (session.status === "deploying") {
@@ -1367,7 +1549,7 @@ export async function sendAgentMessage(
   if (session.status === "deploying") {
     throw new Error("Session is deploying; wait for completion before sending more messages");
   }
-  if (activeAgentProcesses.has(sessionId)) {
+  if (isAgentRuntimeActive(sessionId)) {
     throw new Error("Agent is still processing the previous message");
   }
 
@@ -1403,7 +1585,7 @@ export async function retryAgentTurn(sessionId: string): Promise<string> {
   if (session.status !== "failed") {
     throw new Error("Only failed agent turns can be retried");
   }
-  if (activeAgentProcesses.has(sessionId)) {
+  if (isAgentRuntimeActive(sessionId)) {
     throw new Error("Agent is still processing");
   }
 
@@ -1434,16 +1616,13 @@ export async function stopAgentTurn(sessionId: string): Promise<void> {
     await endAgentSession(sessionId);
     return;
   }
-  if (!activeAgentProcesses.has(sessionId)) {
+  if (!isAgentRuntimeActive(sessionId)) {
     await endAgentSession(sessionId);
     return;
   }
 
   stoppingSessions.add(sessionId);
-  const proc = activeAgentProcesses.get(sessionId);
-  if (proc) {
-    terminateAgentProcess(proc);
-  }
+  await stopAgentRuntime(sessionId);
 
   appendSessionLog(sessionId, "Agent stopped by user.");
 }
@@ -1490,12 +1669,10 @@ export async function endAgentSession(
     .get();
   if (!project) throw new Error("Project not found");
 
-  const proc = activeAgentProcesses.get(sessionId);
-  if (proc) {
+  if (isAgentRuntimeActive(sessionId)) {
     endedSessions.add(sessionId);
     stoppingSessions.delete(sessionId);
-    terminateAgentProcess(proc);
-    activeAgentProcesses.delete(sessionId);
+    await stopAgentRuntime(sessionId);
   }
 
   cancelDeploymentPoll(sessionId);
@@ -1543,10 +1720,8 @@ export async function cancelAgentSession(sessionId: string): Promise<void> {
 
   cancelledSessions.add(sessionId);
   cancelDeploymentPoll(sessionId);
-  const proc = activeAgentProcesses.get(sessionId);
-  if (proc) {
-    terminateAgentProcess(proc);
-    activeAgentProcesses.delete(sessionId);
+  if (isAgentRuntimeActive(sessionId)) {
+    await stopAgentRuntime(sessionId);
   }
 
   appendSessionLog(sessionId, "Session cancelled by user.");

@@ -50,6 +50,12 @@ configure_git() {
 }
 
 clone_repo() {
+  if [[ -d "${WORKDIR}/.git" ]]; then
+    cd "${WORKDIR}"
+    git fetch --all --prune 2>/dev/null || true
+    git checkout "${BRANCH}" 2>/dev/null || git checkout -B "${BRANCH}"
+    return 0
+  fi
   rm -rf "${WORKDIR}"
   mkdir -p "$(dirname "${WORKDIR}")"
   git clone --branch "${BRANCH}" --single-branch "${CLONE_URL}" "${WORKDIR}"
