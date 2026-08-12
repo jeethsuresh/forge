@@ -112,6 +112,49 @@ export const deployTargets = sqliteTable(
   ],
 );
 
+export type ArtifactBuildStatus =
+  | "pending"
+  | "running"
+  | "success"
+  | "failed";
+
+export const artifacts = sqliteTable(
+  "artifacts",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    buildCommand: text("build_command").notNull(),
+    outputPath: text("output_path").notNull(),
+    contentType: text("content_type"),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_artifacts_project_name").on(table.projectId, table.name),
+  ],
+);
+
+export const artifactBuilds = sqliteTable("artifact_builds", {
+  id: text("id").primaryKey(),
+  artifactId: text("artifact_id")
+    .notNull()
+    .references(() => artifacts.id, { onDelete: "cascade" }),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  status: text("status").$type<ArtifactBuildStatus>().notNull(),
+  commitSha: text("commit_sha"),
+  branch: text("branch"),
+  storageKey: text("storage_key"),
+  sizeBytes: integer("size_bytes"),
+  errorMessage: text("error_message"),
+  startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+});
+
 export type ServiceDirectoryStatus = "unknown" | "up" | "down";
 export type ServiceDirectoryRouteStatus = "none" | "synced" | "error";
 
@@ -230,6 +273,8 @@ export type User = typeof users.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type ProjectForgefile = typeof projectForgefiles.$inferSelect;
 export type DeployTarget = typeof deployTargets.$inferSelect;
+export type Artifact = typeof artifacts.$inferSelect;
+export type ArtifactBuild = typeof artifactBuilds.$inferSelect;
 export type ServiceDirectoryRow = typeof serviceDirectory.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
 export type AgentSession = typeof agentSessions.$inferSelect;

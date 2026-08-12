@@ -165,6 +165,40 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_service_directory_project_target_port
   ON service_directory(project_id, deploy_target, port_name);
 CREATE INDEX IF NOT EXISTS idx_service_directory_project_id
   ON service_directory(project_id);
+
+CREATE TABLE IF NOT EXISTS artifacts (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  build_command TEXT NOT NULL,
+  output_path TEXT NOT NULL,
+  content_type TEXT,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_artifacts_project_name
+  ON artifacts(project_id, name);
+CREATE INDEX IF NOT EXISTS idx_artifacts_project_id ON artifacts(project_id);
+
+CREATE TABLE IF NOT EXISTS artifact_builds (
+  id TEXT PRIMARY KEY,
+  artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  commit_sha TEXT,
+  branch TEXT,
+  storage_key TEXT,
+  size_bytes INTEGER,
+  error_message TEXT,
+  started_at INTEGER NOT NULL,
+  completed_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_artifact_builds_artifact_id
+  ON artifact_builds(artifact_id);
+CREATE INDEX IF NOT EXISTS idx_artifact_builds_project_id
+  ON artifact_builds(project_id);
 `;
 
 sqlite.exec(INIT_SQL);

@@ -1,15 +1,21 @@
 import { randomUUID } from "crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  artifacts,
   deployTargets,
   projectForgefiles,
+  type Artifact,
   type DeployTarget,
   type ProjectForgefile,
   type ProjectForgefileStatus,
 } from "@/lib/db/schema";
 import { loadForgefile } from "@/lib/forgefile-load";
-import type { Forgefile, ForgefilePort } from "@/lib/forgefile-types";
+import type {
+  Forgefile,
+  ForgefileArtifact,
+  ForgefilePort,
+} from "@/lib/forgefile-types";
 import { hostPortConflict } from "@/lib/project-routing";
 import {
   clearServiceDirectoryForProject,
@@ -80,8 +86,13 @@ function clearDeployTargets(projectId: string): void {
   db.delete(deployTargets).where(eq(deployTargets.projectId, projectId)).run();
 }
 
+function clearArtifacts(projectId: string): void {
+  db.delete(artifacts).where(eq(artifacts.projectId, projectId)).run();
+}
+
 function clearProjectedState(projectId: string): void {
   clearDeployTargets(projectId);
+  clearArtifacts(projectId);
   clearServiceDirectoryForProject(projectId);
 }
 
@@ -160,6 +171,51 @@ function replaceDeployTargets(projectId: string, forgefile: Forgefile): void {
         composeSlug: deployment.compose_slug ?? null,
         portsJson: JSON.stringify(deployment.ports),
         scriptsJson: JSON.stringify(deployment.scripts),
+        updatedAt: now,
+      })
+      .run();
+  }
+}
+
+export function syncArtifactDeclarations(
+  projectId: string,
+  decls: Record<string, ForgefileArtifact>,
+): void {
+  const now = new Date();
+  const keepNames = new Set(Object.keys(decls));
+  const existing = listArtifacts(projectId);
+
+  for (const row of existing) {
+    if (!keepNames.has(row.name)) {
+      db.delete(artifacts).where(eq(artifacts.id, row.id)).run();
+    }
+  }
+
+  for (const [name, decl] of Object.entries(decls)) {
+    const current = existing.find((r) => r.name === name);
+    if (current) {
+      db.update(artifacts)
+        .set({
+          description: decl.description ?? null,
+          buildCommand: decl.build,
+          outputPath: decl.path,
+          contentType: decl.content_type ?? null,
+          updatedAt: now,
+        })
+        .where(eq(artifacts.id, current.id))
+        .run();
+      continue;
+    }
+
+    db.insert(artifacts)
+      .values({
+        id: randomUUID(),
+        projectId,
+        name,
+        description: decl.description ?? null,
+        buildCommand: decl.build,
+        outputPath: decl.path,
+        contentType: decl.content_type ?? null,
         updatedAt: now,
       })
       .run();
@@ -259,6 +315,7 @@ export function projectForgefile(
       parsedJson: JSON.stringify(forgefile),
     });
     replaceDeployTargets(projectId, forgefile);
+    syncArtifactDeclarations(projectId, forgefile.artifacts);
     reconcileServiceDirectory(projectId);
   });
 
@@ -283,6 +340,27 @@ export function listDeployTargets(projectId: string): DeployTarget[] {
     .from(deployTargets)
     .where(eq(deployTargets.projectId, projectId))
     .all();
+}
+
+export function listArtifacts(projectId: string): Artifact[] {
+  return db
+    .select()
+    .from(artifacts)
+    .where(eq(artifacts.projectId, projectId))
+    .all();
+}
+
+export function getArtifactByName(
+  projectId: string,
+  name: string,
+): Artifact | null {
+  return (
+    db
+      .select()
+      .from(artifacts)
+      .where(and(eq(artifacts.projectId, projectId), eq(artifacts.name, name)))
+      .get() ?? null
+  );
 }
 
 export function requireValidForgefile(projectId: string): void {
