@@ -145,7 +145,7 @@ artifacts:
     writeFileSync(join(tempDir, "Forgefile"), withArtifacts);
     expect(projectForgefile(projectId, tempDir, "sha1").status).toBe("valid");
 
-    let rows = listArtifacts(projectId);
+    const rows = listArtifacts(projectId);
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       name: "cli",
