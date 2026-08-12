@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   deployGuardsApplyForTrigger,
+  forgefileProjectionFailureMessage,
   isOlderThanRunningCommit,
   isSameAsPreviousBuild,
   resolveAutoDeployBranch,
 } from "@/lib/deployer";
+import { resolveDeployTargetName } from "@/lib/forgefile-run";
 
 describe("deployGuardsApplyForTrigger", () => {
   it("restricts only automatic (watcher) deploys", () => {
@@ -60,5 +62,25 @@ describe("isOlderThanRunningCommit", () => {
 
   it("returns false when the candidate is not an ancestor of the running commit", () => {
     expect(isOlderThanRunningCommit("other", "newer", false)).toBe(false);
+  });
+});
+
+describe("forgefile deploy gate", () => {
+  it("explains missing Forgefile with agent CTA guidance", () => {
+    expect(forgefileProjectionFailureMessage("missing")).toMatch(
+      /Create Forgefile with agent/i,
+    );
+  });
+
+  it("includes validation errors for invalid Forgefile", () => {
+    expect(
+      forgefileProjectionFailureMessage("invalid", ["version: required"]),
+    ).toContain("version: required");
+  });
+
+  it("requires an explicit deployment when multiple targets exist", () => {
+    expect(() => resolveDeployTargetName(["web", "api"])).toThrow(
+      /specify deployment/i,
+    );
   });
 });

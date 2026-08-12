@@ -1,7 +1,5 @@
 import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
 import { randomUUID } from "crypto";
-import { existsSync } from "fs";
-import { join } from "path";
 import { db } from "@/lib/db";
 import {
   deployments,
@@ -15,7 +13,6 @@ import {
   checkoutLocalBranch,
   getRemoteCommitSha,
   isCommitAncestor,
-  runScript,
 } from "@/lib/github";
 import { isAgentSessionActive } from "@/lib/agent-state";
 import { handleProjectDeployFailure } from "@/lib/deploy-recovery";
@@ -25,11 +22,30 @@ import {
   runProjectRollbackDeploy,
 } from "@/lib/deploy-rollback";
 import { isForgeProjectId } from "@/lib/forge-project";
+import {
+  getProjectForgefile,
+  listDeployTargets,
+  projectForgefile,
+} from "@/lib/forgefile-project";
+import {
+  listAutoDeployTargetNames,
+  parseDeployTargetScripts,
+  resolveDeployTargetName,
+  resolveRunString,
+  runForgeCommand,
+} from "@/lib/forgefile-run";
+import type { Forgefile } from "@/lib/forgefile-types";
 import { resolveClonePath } from "@/lib/paths";
 import {
   buildProjectScriptEnv,
   projectScriptArgs,
 } from "@/lib/projects";
+
+export type RunDeploymentOptions = {
+  branch?: string;
+  skipPull?: boolean;
+  deployment?: string;
+};
 
 const activeDeployments = new Set<string>();
 
@@ -58,7 +74,7 @@ function updateStatus(
 export async function runDeployment(
   projectId: string,
   trigger: DeploymentTrigger,
-  options?: { branch?: string; skipPull?: boolean },
+  options?: RunDeploymentOptions,
 ): Promise<string> {
   if (activeDeployments.has(projectId)) {
     throw new Error("A deployment is already in progress for this project");
@@ -87,6 +103,7 @@ export async function runDeployment(
       branch: deployBranch,
       status: "pending",
       trigger,
+      deployTarget: options?.deployment?.trim() || null,
       logs: "",
       startedAt: new Date(),
     })
@@ -299,11 +316,21 @@ function resolveDeploymentBranch(
   return options?.branch ?? project.branch;
 }
 
+export function forgefileProjectionFailureMessage(
+  status: "missing" | "invalid",
+  errors?: string[],
+): string {
+  if (status === "missing") {
+    return "Forgefile required. Use Create Forgefile with agent, or add a Forgefile at the repo root.";
+  }
+  return `Invalid Forgefile: ${(errors ?? []).join("; ")}`;
+}
+
 async function executeDeployment(
   deploymentId: string,
   projectId: string,
   trigger: DeploymentTrigger,
-  options?: { branch?: string; skipPull?: boolean },
+  options?: RunDeploymentOptions,
 ): Promise<void> {
   const project = db
     .select()
@@ -375,20 +402,80 @@ async function executeDeployment(
       }
     }
 
-    updateStatus(deploymentId, "building");
-    await runScript("build.sh", repoPath, log, {
-      env: scriptEnv,
-      args: scriptArgs,
-    });
+    const projection = projectForgefile(projectId, repoPath, commitSha);
+    if (projection.status !== "valid") {
+      const errorMessage = forgefileProjectionFailureMessage(
+        projection.status,
+        projection.errors,
+      );
+      log(`ERROR: ${errorMessage}`);
+      updateStatus(deploymentId, "failed", {
+        errorMessage,
+        completedAt: new Date(),
+      });
+      return;
+    }
 
-    updateStatus(deploymentId, "testing");
-    if (existsSync(join(repoPath, "test.sh"))) {
-      await runScript("test.sh", repoPath, log, {
+    const targets = listDeployTargets(projectId);
+    let deployTargetName: string;
+    try {
+      deployTargetName = resolveDeployTargetName(
+        targets.map((t) => t.name),
+        options?.deployment,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log(`ERROR: ${message}`);
+      updateStatus(deploymentId, "failed", {
+        errorMessage: message,
+        completedAt: new Date(),
+      });
+      return;
+    }
+
+    const target = targets.find((t) => t.name === deployTargetName);
+    if (!target) {
+      const message = `Deploy target "${deployTargetName}" not found after Forgefile projection`;
+      log(`ERROR: ${message}`);
+      updateStatus(deploymentId, "failed", {
+        errorMessage: message,
+        completedAt: new Date(),
+      });
+      return;
+    }
+
+    db.update(deployments)
+      .set({ deployTarget: deployTargetName })
+      .where(eq(deployments.id, deploymentId))
+      .run();
+
+    scriptEnv.FORGE_DEPLOYMENT = deployTargetName;
+    log(`Using deploy target "${deployTargetName}".`);
+
+    const forgefileRow = getProjectForgefile(projectId);
+    const forgefile = JSON.parse(forgefileRow!.parsedJson) as Forgefile;
+    const targetScripts = parseDeployTargetScripts(target.scriptsJson);
+
+    if (targetScripts.build) {
+      updateStatus(deploymentId, "building");
+      const buildCmd = resolveRunString(forgefile, targetScripts.build);
+      await runForgeCommand(buildCmd, repoPath, log, {
         env: scriptEnv,
         args: scriptArgs,
       });
     } else {
-      log("test.sh not found, skipping tests.");
+      log("No build script bound for this deploy target; skipping build.");
+    }
+
+    if (targetScripts.test) {
+      updateStatus(deploymentId, "testing");
+      const testCmd = resolveRunString(forgefile, targetScripts.test);
+      await runForgeCommand(testCmd, repoPath, log, {
+        env: scriptEnv,
+        args: scriptArgs,
+      });
+    } else {
+      log("No test script bound for this deploy target; skipping tests.");
     }
 
     updateStatus(deploymentId, "deploying");
@@ -455,7 +542,8 @@ async function executeDeployment(
       return;
     }
 
-    await runScript("deploy.sh", repoPath, log, {
+    const deployCmd = resolveRunString(forgefile, targetScripts.deploy);
+    await runForgeCommand(deployCmd, repoPath, log, {
       env: scriptEnv,
       args: scriptArgs,
     });
@@ -516,7 +604,38 @@ export async function checkProjectForChanges(projectId: string): Promise<boolean
     }
     if (await shouldSkipAutoWatcherPoll(project, remoteSha)) return false;
 
-    await runDeployment(projectId, "auto", { branch: autoBranch });
+    const repoPath = resolveClonePath(project.clonePath);
+    const commitSha = await cloneOrPull(
+      project.githubRepo,
+      autoBranch,
+      repoPath,
+      (msg) => console.log(`[watcher] ${project.name}: ${msg}`),
+    );
+
+    const projection = projectForgefile(projectId, repoPath, commitSha);
+    if (projection.status !== "valid") {
+      console.error(
+        `[watcher] Skipping auto-deploy for ${project.name}: ${forgefileProjectionFailureMessage(projection.status, projection.errors)}`,
+      );
+      return false;
+    }
+
+    const autoTargets = listAutoDeployTargetNames(projectId);
+    if (autoTargets.length === 0) {
+      syncLastSeenCommit(projectId, commitSha);
+      return false;
+    }
+
+    for (const deployment of autoTargets) {
+      while (activeDeployments.has(projectId)) {
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      await runDeployment(projectId, "auto", {
+        branch: autoBranch,
+        deployment,
+        skipPull: true,
+      });
+    }
     return true;
   } catch (err) {
     console.error(`[watcher] Error checking project ${project.name}:`, err);
