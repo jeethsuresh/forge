@@ -1297,53 +1297,7 @@ export function AgentWorkspace({
                 </p>
               )}
             </div>
-            <div className="flex shrink-0 flex-wrap justify-end gap-1">
-              {showRecreateButton && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowRecreateForm(true);
-                    setRecreatePrompt("");
-                  }}
-                  disabled={loading}
-                  className="min-h-9 rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
-                  title="Archive this session and start a fresh agent on the same branch"
-                >
-                  Recreate
-                </button>
-              )}
-              {showArchiveButton && (
-                <button
-                  type="button"
-                  onClick={() => void archiveSession()}
-                  disabled={loading}
-                  className="min-h-9 rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-                  title="Archive this session without starting a new one"
-                >
-                  Archive
-                </button>
-              )}
-              {showEndSession && (
-                <button
-                  type="button"
-                  onClick={endSession}
-                  disabled={loading}
-                  className="min-h-9 rounded-lg border border-amber-400/30 bg-amber-400/10 px-2.5 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-400/20 disabled:opacity-50"
-                  title="Stop the agent and unblock deploys"
-                >
-                  End session
-                </button>
-              )}
-              {sessionDetail?.status === "failed" && sessionDetail.canRetry && (
-                <button
-                  type="button"
-                  onClick={retryFailedTurn}
-                  disabled={loading || hasActiveProcess}
-                  className="min-h-9 rounded-lg border border-orange-400/30 bg-orange-400/10 px-2.5 py-1.5 text-xs font-medium text-orange-300 hover:bg-orange-400/20 disabled:opacity-50"
-                >
-                  Retry
-                </button>
-              )}
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
               {hasActiveProcess && !isDeploying && selectedId && (
                 <button
                   type="button"
@@ -1355,137 +1309,208 @@ export function AgentWorkspace({
                 </button>
               )}
               {showActiveAgentActions && (
-                <>
-                  <button
-                    type="button"
-                    onClick={commitSession}
-                    disabled={loading}
-                    className="min-h-9 rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
-                  >
-                    Commit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={deploySession}
-                    disabled={loading}
-                    className="min-h-9 rounded-lg border border-orange-400/30 bg-orange-400/10 px-2.5 py-1.5 text-xs font-medium text-orange-300 hover:bg-orange-400/20 disabled:opacity-50"
-                  >
-                    Deploy
-                  </button>
-                  <button
-                    type="button"
-                    onClick={finishSession}
-                    disabled={loading}
-                    className="min-h-9 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
-                  >
-                    Finish &amp; deploy
-                  </button>
-                  <button
-                    type="button"
-                    onClick={cancelSession}
-                    disabled={loading}
-                    className="min-h-9 rounded-lg border border-red-400/20 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-400/10 disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
-                </>
-              )}
-              {showFinishedAgentActions && (
-                <>
-                  <button
-                    type="button"
-                    onClick={deploySession}
-                    disabled={loading}
-                    className="min-h-9 rounded-lg border border-orange-400/30 bg-orange-400/10 px-2.5 py-1.5 text-xs font-medium text-orange-300 hover:bg-orange-400/20 disabled:opacity-50"
-                  >
-                    Deploy
-                  </button>
-                  {showRevertCommit && (
-                    <button
-                      type="button"
-                      onClick={revertSessionCommit}
-                      disabled={loading}
-                      className="min-h-9 rounded-lg border border-red-400/20 px-2.5 py-1.5 text-xs text-red-400 hover:bg-red-400/10 disabled:opacity-50"
-                    >
-                      Revert commit
-                    </button>
-                  )}
-                </>
-              )}
-              {showFailedAgentActions && (
-                <>
-                  {showFinishAndDeploy && (
-                    <button
-                      type="button"
-                      onClick={finishSession}
-                      disabled={loading}
-                      className="min-h-9 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
-                    >
-                      Finish &amp; deploy
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={commitSession}
-                    disabled={loading}
-                    className="min-h-9 rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
-                  >
-                    Commit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={deploySession}
-                    disabled={loading}
-                    className="min-h-9 rounded-lg border border-orange-400/30 bg-orange-400/10 px-2.5 py-1.5 text-xs font-medium text-orange-300 hover:bg-orange-400/20 disabled:opacity-50"
-                  >
-                    Deploy
-                  </button>
-                </>
-              )}
-              {selectedId && (
-                <>
-                  <Link
-                    href={agentSessionUncommittedDiffHref(projectId, selectedId)}
-                    className="min-h-9 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
-                  >
-                    View changes
-                  </Link>
-                  {selectedBranch && (
-                    <Link
-                      href={branchVsMainDiffHref(projectId, selectedBranch)}
-                      className="min-h-9 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300"
-                    >
-                      vs {watchBranch}
-                    </Link>
-                  )}
-                </>
-              )}
-              {selectedId && (
                 <button
                   type="button"
-                  onClick={() => setShowLogs((v) => !v)}
-                  className="min-h-9 rounded-lg px-2 py-1.5 text-xs text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+                  onClick={finishSession}
+                  disabled={loading}
+                  className="min-h-9 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
                 >
-                  {showLogs ? "Chat" : "Logs"}
+                  Finish &amp; deploy
                 </button>
               )}
-              {selectedId && showLogs && (
+              {showFailedAgentActions && showFinishAndDeploy && (
                 <button
                   type="button"
-                  onClick={clearLogs}
-                  disabled={loading || hasActiveProcess || !sessionDetail?.logs}
-                  className="min-h-9 rounded-lg border border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-300 disabled:opacity-50"
-                  title={
-                    hasActiveProcess
-                      ? "Stop the agent before clearing logs"
-                      : !sessionDetail?.logs
-                        ? "No logs to clear"
-                        : "Clear raw agent logs"
-                  }
+                  onClick={finishSession}
+                  disabled={loading}
+                  className="min-h-9 rounded-lg bg-orange-500 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
                 >
-                  Clear logs
+                  Finish &amp; deploy
                 </button>
               )}
+              {selectedId && (
+                <div className="flex rounded-lg border border-zinc-700 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowLogs(false)}
+                    className={`min-h-8 rounded-md px-2.5 text-xs ${
+                      !showLogs
+                        ? "bg-zinc-800 text-zinc-100"
+                        : "text-zinc-500 hover:text-zinc-300"
+                    }`}
+                  >
+                    Chat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowLogs(true)}
+                    className={`min-h-8 rounded-md px-2.5 text-xs ${
+                      showLogs
+                        ? "bg-zinc-800 text-zinc-100"
+                        : "text-zinc-500 hover:text-zinc-300"
+                    }`}
+                  >
+                    Logs
+                  </button>
+                </div>
+              )}
+              <details className="relative">
+                <summary className="flex min-h-9 cursor-pointer list-none items-center rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 [&::-webkit-details-marker]:hidden">
+                  Session
+                </summary>
+                <div className="absolute right-0 z-30 mt-1 max-h-[70vh] w-52 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 py-1 shadow-xl">
+                  {showRecreateButton && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowRecreateForm(true);
+                        setRecreatePrompt("");
+                      }}
+                      disabled={loading}
+                      className="flex w-full px-3 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                    >
+                      Recreate
+                    </button>
+                  )}
+                  {showArchiveButton && (
+                    <button
+                      type="button"
+                      onClick={() => void archiveSession()}
+                      disabled={loading}
+                      className="flex w-full px-3 py-2 text-left text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                    >
+                      Archive
+                    </button>
+                  )}
+                  {showEndSession && (
+                    <button
+                      type="button"
+                      onClick={endSession}
+                      disabled={loading}
+                      className="flex w-full px-3 py-2 text-left text-xs text-amber-200 hover:bg-amber-400/10 disabled:opacity-50"
+                    >
+                      End session
+                    </button>
+                  )}
+                  {sessionDetail?.status === "failed" &&
+                    sessionDetail.canRetry && (
+                      <button
+                        type="button"
+                        onClick={retryFailedTurn}
+                        disabled={loading || hasActiveProcess}
+                        className="flex w-full px-3 py-2 text-left text-xs text-orange-300 hover:bg-orange-400/10 disabled:opacity-50"
+                      >
+                        Retry
+                      </button>
+                    )}
+                  {showActiveAgentActions && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={commitSession}
+                        disabled={loading}
+                        className="flex w-full px-3 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                      >
+                        Commit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={deploySession}
+                        disabled={loading}
+                        className="flex w-full px-3 py-2 text-left text-xs text-orange-300 hover:bg-orange-400/10 disabled:opacity-50"
+                      >
+                        Deploy
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelSession}
+                        disabled={loading}
+                        className="flex w-full px-3 py-2 text-left text-xs text-red-400 hover:bg-red-400/10 disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  )}
+                  {showFinishedAgentActions && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={deploySession}
+                        disabled={loading}
+                        className="flex w-full px-3 py-2 text-left text-xs text-orange-300 hover:bg-orange-400/10 disabled:opacity-50"
+                      >
+                        Deploy
+                      </button>
+                      {showRevertCommit && (
+                        <button
+                          type="button"
+                          onClick={revertSessionCommit}
+                          disabled={loading}
+                          className="flex w-full px-3 py-2 text-left text-xs text-red-400 hover:bg-red-400/10 disabled:opacity-50"
+                        >
+                          Revert commit
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {showFailedAgentActions && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={commitSession}
+                        disabled={loading}
+                        className="flex w-full px-3 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                      >
+                        Commit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={deploySession}
+                        disabled={loading}
+                        className="flex w-full px-3 py-2 text-left text-xs text-orange-300 hover:bg-orange-400/10 disabled:opacity-50"
+                      >
+                        Deploy
+                      </button>
+                    </>
+                  )}
+                  {selectedId && (
+                    <>
+                      <Link
+                        href={agentSessionUncommittedDiffHref(
+                          projectId,
+                          selectedId,
+                        )}
+                        className="flex w-full px-3 py-2 text-left text-xs text-zinc-300 hover:bg-zinc-800"
+                      >
+                        View changes
+                      </Link>
+                      {selectedBranch && (
+                        <Link
+                          href={branchVsMainDiffHref(
+                            projectId,
+                            selectedBranch,
+                          )}
+                          className="flex w-full px-3 py-2 text-left text-xs text-zinc-400 hover:bg-zinc-800"
+                        >
+                          vs {watchBranch}
+                        </Link>
+                      )}
+                    </>
+                  )}
+                  {selectedId && showLogs && (
+                    <button
+                      type="button"
+                      onClick={clearLogs}
+                      disabled={
+                        loading || hasActiveProcess || !sessionDetail?.logs
+                      }
+                      className="flex w-full px-3 py-2 text-left text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
+                    >
+                      Clear logs
+                    </button>
+                  )}
+                </div>
+              </details>
             </div>
           </div>
 

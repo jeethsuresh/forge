@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { APP_DISPLAY_NAME, appDisplayInitial } from "@/lib/app-name";
 import { Sidebar } from "@/components/Sidebar";
+import { CommandPalette } from "@/components/CommandPalette";
+import { Kbd } from "@/components/ui";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -13,7 +15,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-zinc-900">
+    <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-forge-app">
       <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-zinc-800 bg-zinc-950/95 px-4 backdrop-blur md:hidden">
         <button
           type="button"
@@ -35,12 +37,15 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             />
           </svg>
         </button>
-        <Link href="/projects" className="flex items-center gap-2">
+        <Link href="/" className="flex items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-md bg-orange-500/20 text-xs font-bold text-orange-400">
             {appDisplayInitial()}
           </span>
           <span className="font-semibold text-zinc-100">{APP_DISPLAY_NAME}</span>
         </Link>
+        <span className="ml-auto text-zinc-500">
+          <Kbd>⌘K</Kbd>
+        </span>
       </header>
 
       {menuOpen && (
@@ -63,6 +68,10 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pt-14 md:pt-0">
         {children}
       </main>
+
+      <Suspense fallback={null}>
+        <CommandPalette />
+      </Suspense>
     </div>
   );
 }

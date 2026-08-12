@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  createAgentBranch,
   createAgentSession,
   getBranchAgentOverview,
   listAgentSessionsForClient,
@@ -72,6 +73,7 @@ export async function POST(
 
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
   const branch = typeof body.branch === "string" ? body.branch.trim() : "";
+  const createBranch = body.createBranch === true;
   if (!prompt) {
     return errorWithAudit("prompt is required", 400, {
       request,
@@ -98,9 +100,12 @@ export async function POST(
   }
 
   try {
+    if (createBranch) {
+      await createAgentBranch(id, branch);
+    }
     const { sessionId, queued } = await createAgentSession(id, branch, prompt);
     return jsonWithAudit(
-      { sessionId, branch, queued },
+      { sessionId, branch, queued, createdBranch: createBranch },
       { status: queued ? 202 : 201 },
       {
         request,

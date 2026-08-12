@@ -33,6 +33,9 @@ import {
   agentSessionSourceBadgeClass,
   agentSessionSourceLabel,
 } from "@/lib/agent-session-source";
+import { projectSwatch } from "@/lib/project-swatch";
+import { statusTone } from "@/lib/ui-status";
+import { Badge, Button, TabButton, TabList } from "@/components/ui";
 
 const AgentWorkspace = dynamic(
   () =>
@@ -49,18 +52,20 @@ const AgentWorkspace = dynamic(
   },
 );
 
-type ProjectTab = "deploy" | "config" | "agents" | "diff";
+type ProjectTab = "overview" | "deploy" | "settings" | "agents" | "diff";
 
 function resolveProjectTab(tab: string | null): ProjectTab {
+  if (tab === "config") return "settings";
   if (
+    tab === "overview" ||
     tab === "deploy" ||
-    tab === "config" ||
+    tab === "settings" ||
     tab === "agents" ||
     tab === "diff"
   ) {
     return tab;
   }
-  return "deploy";
+  return "overview";
 }
 
 const DEPLOYMENTS_PER_PAGE = 10;
@@ -73,7 +78,7 @@ function projectPollIntervalMs(
     return null;
   }
   if (tab === "agents" || tab === "diff") return 12_000;
-  if (tab === "config" && !isDeploying) return 12_000;
+  if (tab === "settings" && !isDeploying) return 12_000;
   if (isDeploying) return 5_000;
   return 10_000;
 }
@@ -180,10 +185,21 @@ export default function ProjectDetailPage() {
   const [deployBranch, setDeployBranch] = useState<string | null>(null);
   const [envSaving, setEnvSaving] = useState(false);
   const [routingSaving, setRoutingSaving] = useState(false);
+  const [gitTreeOpen, setGitTreeOpen] = useState(false);
+  const [deployMoreOpen, setDeployMoreOpen] = useState(false);
   const dataRef = useRef<ProjectDetail | null>(null);
 
   const initialAgentSessionId = searchParams.get("session");
-  const activeTab = resolveProjectTab(searchParams.get("tab"));
+  const rawTab = searchParams.get("tab");
+  const activeTab = resolveProjectTab(rawTab);
+
+  useEffect(() => {
+    if (rawTab === "config") {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("tab", "settings");
+      router.replace(`/projects/${id}?${params.toString()}`, { scroll: false });
+    }
+  }, [rawTab, searchParams, router, id]);
 
   const fetchData = useCallback(async (poll = false) => {
     try {
@@ -469,7 +485,7 @@ export default function ProjectDetailPage() {
       return;
     }
     await fetch(`/api/projects/${id}`, { method: "DELETE" });
-    router.push("/projects");
+    router.push("/");
     router.refresh();
   }
 
@@ -575,6 +591,11 @@ export default function ProjectDetailPage() {
       <div className="mb-4 flex shrink-0 flex-col gap-4 sm:mb-5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+            <span
+              className="h-6 w-1.5 rounded-full"
+              style={projectSwatch(project.id).stripeStyle}
+              aria-hidden
+            />
             <h1 className="text-xl font-semibold text-zinc-100 sm:text-2xl">
               {project.name}
             </h1>
@@ -595,18 +616,18 @@ export default function ProjectDetailPage() {
           </p>
         </div>
 
-        <div className="flex gap-1 rounded-lg border border-zinc-800 bg-zinc-950 p-1">
+        <TabList>
+          <TabButton
+            active={activeTab === "overview"}
+            onClick={() => selectTab("overview")}
+          >
+            Overview
+          </TabButton>
           <TabButton
             active={activeTab === "deploy"}
             onClick={() => selectTab("deploy")}
           >
-            Deploy &amp; Tree
-          </TabButton>
-          <TabButton
-            active={activeTab === "config"}
-            onClick={() => selectTab("config")}
-          >
-            Config &amp; history
+            Deploy
           </TabButton>
           <TabButton
             active={activeTab === "agents"}
@@ -620,10 +641,107 @@ export default function ProjectDetailPage() {
           >
             Changes
           </TabButton>
-        </div>
+          <TabButton
+            active={activeTab === "settings"}
+            onClick={() => selectTab("settings")}
+          >
+            Settings
+          </TabButton>
+        </TabList>
       </div>
 
-      {activeTab === "deploy" ? (
+      {activeTab === "overview" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-6">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+            <StatCard label="Watch branch" value={project.branch} />
+            <StatCard
+              label="Deployed commit"
+              value={shortSha(currentDeployment?.commitSha ?? project.lastSeenCommit)}
+              mono
+            />
+            <StatCard
+              label="Last deployed"
+              value={deployedAt ? formatRelativeTime(deployedAt) : "Never"}
+            />
+            <StatCard
+              label="Status"
+              value={runtimeStatusLabel(runtimeStatus)}
+              valueClassName={runtimeStatusColor(runtimeStatus)}
+            />
+          </div>
+
+          {blockingAgentSession && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3">
+              <p className="text-sm text-amber-200">
+                Agent on{" "}
+                <span className="font-mono">{blockingAgentSession.branch}</span>{" "}
+                is blocking deploys ({blockingAgentSession.status}).
+              </p>
+              <Button
+                size="sm"
+                variant="warning"
+                onClick={() => openAgentSession(blockingAgentSession.id)}
+              >
+                Open agent
+              </Button>
+            </div>
+          )}
+
+          {currentDeployment && (
+            <div className="rounded-xl border border-zinc-800 bg-forge-panel px-4 py-4">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Latest deploy
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={statusTone(currentDeployment.status)} className="capitalize">
+                  {currentDeployment.status}
+                </Badge>
+                <span className="font-mono text-sm text-zinc-300">
+                  {shortSha(currentDeployment.commitSha)}
+                </span>
+                <span className="text-xs text-zinc-500">
+                  {formatRelativeTime(currentDeployment.startedAt)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {containers.length > 0 && (
+            <div className="rounded-xl border border-zinc-800 bg-forge-panel px-4 py-4">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Containers
+              </div>
+              <ul className="space-y-1 text-sm text-zinc-300">
+                {containers.slice(0, 6).map((c) => (
+                  <li key={`${c.service}-${c.name}`} className="flex justify-between gap-2">
+                    <span>{c.service}</span>
+                    <span className="capitalize text-zinc-500">{c.state}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="flex flex-wrap gap-2">
+            <Button variant="primary" onClick={() => selectTab("deploy")}>
+              Deploy
+            </Button>
+            <Button
+              variant="secondary"
+              className="border-cyan-400/30 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/20"
+              onClick={() => selectTab("agents")}
+            >
+              Agents
+            </Button>
+            <Button variant="secondary" onClick={() => selectTab("diff")}>
+              Changes
+            </Button>
+            <Button variant="ghost" onClick={() => selectTab("settings")}>
+              Settings
+            </Button>
+          </div>
+        </div>
+      ) : activeTab === "deploy" ? (
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {blockingAgentSession && (
             <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3">
@@ -693,33 +811,18 @@ export default function ProjectDetailPage() {
                 ))}
               </select>
             </label>
-            {!isForge ? (
-              <button
-                onClick={deployNow}
-                disabled={
-                  actionLoading ||
-                  deployBusy ||
-                  Boolean(blockingAgentSession) ||
-                  deployUpdate?.deployAllowed === false
-                }
-                className="min-h-11 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
-              >
-                {deployPrimaryLabel}
-              </button>
-            ) : (
-              <button
-                onClick={deployNow}
-                disabled={
-                  actionLoading ||
-                  deployBusy ||
-                  Boolean(blockingAgentSession) ||
-                  deployUpdate?.deployAllowed === false
-                }
-                className="min-h-11 rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
-              >
-                {deployPrimaryLabel}
-              </button>
-            )}
+            <Button
+              variant="primary"
+              onClick={deployNow}
+              disabled={
+                actionLoading ||
+                deployBusy ||
+                Boolean(blockingAgentSession) ||
+                deployUpdate?.deployAllowed === false
+              }
+            >
+              {deployPrimaryLabel}
+            </Button>
             {updateAvailable && deployUpdate?.remoteCommitSha && (
               <span className="self-center rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-300">
                 {shortSha(deployUpdate.deployedCommitSha)} →{" "}
@@ -732,26 +835,6 @@ export default function ProjectDetailPage() {
                 <span className="font-mono">{selectedDeployBranch}</span>.
               </p>
             )}
-            {!isForge && (
-              <button
-                onClick={toggleEnabled}
-                disabled={actionLoading}
-                className="min-h-11 rounded-lg border border-zinc-700 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-              >
-                {project.enabled ? "Pause watching" : "Resume watching"}
-              </button>
-            )}
-            {!isForge && supportsRollback && (
-              <button
-                onClick={rollbackProject}
-                disabled={
-                  actionLoading || deployBusy || !hasRollbackImage
-                }
-                className="min-h-11 rounded-lg border border-zinc-700 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-              >
-                Roll back
-              </button>
-            )}
             {isForge && selectedDeployBranch !== project.branch && (
               <p className="w-full text-xs text-amber-300/90">
                 Redeploying from{" "}
@@ -760,13 +843,59 @@ export default function ProjectDetailPage() {
                 <span className="font-mono">{project.branch}</span>).
               </p>
             )}
-            <button
-              onClick={stopProject}
-              disabled={actionLoading || deployBusy}
-              className="min-h-11 rounded-lg border border-amber-400/20 px-4 py-2.5 text-sm text-amber-400 hover:bg-amber-400/10 disabled:opacity-50"
-            >
-              Stop containers
-            </button>
+            <div className="relative">
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={() => setDeployMoreOpen((v) => !v)}
+                aria-expanded={deployMoreOpen}
+              >
+                More
+              </Button>
+              {deployMoreOpen && (
+                <div className="absolute left-0 z-20 mt-1 min-w-[12rem] rounded-lg border border-zinc-700 bg-zinc-950 p-1 shadow-xl">
+                  {!isForge && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeployMoreOpen(false);
+                        void toggleEnabled();
+                      }}
+                      disabled={actionLoading}
+                      className="flex w-full rounded-md px-3 py-2 text-left text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                    >
+                      {project.enabled ? "Pause watching" : "Resume watching"}
+                    </button>
+                  )}
+                  {!isForge && supportsRollback && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeployMoreOpen(false);
+                        void rollbackProject();
+                      }}
+                      disabled={
+                        actionLoading || deployBusy || !hasRollbackImage
+                      }
+                      className="flex w-full rounded-md px-3 py-2 text-left text-sm text-red-300 hover:bg-red-400/10 disabled:opacity-50"
+                    >
+                      Roll back
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeployMoreOpen(false);
+                      void stopProject();
+                    }}
+                    disabled={actionLoading || deployBusy}
+                    className="flex w-full rounded-md px-3 py-2 text-left text-sm text-red-300 hover:bg-red-400/10 disabled:opacity-50"
+                  >
+                    Stop containers
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="mb-6 grid grid-cols-2 gap-3 sm:mb-8 sm:gap-4 lg:grid-cols-4">
@@ -853,15 +982,29 @@ export default function ProjectDetailPage() {
             </section>
           )}
 
-          <ProjectGitTreePanel
-            projectId={id}
-            watchBranch={project.branch}
-            disabled={actionLoading || deployBusy}
-            onRefreshProject={() => void fetchData()}
-            onOpenAgentSession={openAgentSession}
-          />
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => setGitTreeOpen((v) => !v)}
+              className="flex w-full items-center justify-between rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-left text-sm text-zinc-300 hover:bg-zinc-900"
+            >
+              <span className="font-medium">Git tree</span>
+              <span className="text-xs text-zinc-500">
+                {gitTreeOpen ? "Hide" : "Show"} branch graph
+              </span>
+            </button>
+          </div>
+          {gitTreeOpen && (
+            <ProjectGitTreePanel
+              projectId={id}
+              watchBranch={project.branch}
+              disabled={actionLoading || deployBusy}
+              onRefreshProject={() => void fetchData()}
+              onOpenAgentSession={openAgentSession}
+            />
+          )}
         </div>
-      ) : activeTab === "config" ? (
+      ) : activeTab === "settings" ? (
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <section className="mb-8">
             <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
@@ -1096,30 +1239,6 @@ function DeploymentHistorySection({
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`min-h-10 flex-1 rounded-md px-4 text-sm font-medium transition-colors ${
-        active
-          ? "bg-zinc-800 text-zinc-100"
-          : "text-zinc-500 hover:text-zinc-300"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
 function StatCard({
   label,
   value,
@@ -1134,7 +1253,7 @@ function StatCard({
   valueClassName?: string;
 }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3">
+    <div className="rounded-xl border border-zinc-800 bg-forge-panel px-4 py-3">
       <div className="text-xs font-medium uppercase tracking-wider text-zinc-500">
         {label}
       </div>

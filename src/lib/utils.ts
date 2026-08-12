@@ -1,4 +1,10 @@
 import type { RuntimeStatus } from "@/lib/project-status";
+import {
+  runtimeTone,
+  statusTone,
+  toneBadgeClass,
+  toneTextClass,
+} from "@/lib/ui-status";
 
 export function formatRelativeTime(date: Date | string | number): string {
   const d = new Date(date);
@@ -35,32 +41,7 @@ export function shortSha(sha: string | null | undefined): string {
 }
 
 export function statusColor(status: string): string {
-  switch (status) {
-    case "success":
-      return "text-emerald-400 bg-emerald-400/10 border-emerald-400/20";
-    case "duplicate":
-      return "text-zinc-400 bg-zinc-400/10 border-zinc-400/20";
-    case "failed":
-      return "text-red-400 bg-red-400/10 border-red-400/20";
-    case "rolled_back":
-      return "text-amber-400 bg-amber-400/10 border-amber-400/20";
-    case "building":
-    case "testing":
-    case "deploying":
-    case "staging":
-    case "health_check":
-    case "pulling":
-    case "pending":
-    case "running":
-    case "deploying":
-      return "text-amber-400 bg-amber-400/10 border-amber-400/20";
-    case "completed":
-      return "text-emerald-400 bg-emerald-400/10 border-emerald-400/20";
-    case "cancelled":
-      return "text-zinc-400 bg-zinc-400/10 border-zinc-400/20";
-    default:
-      return "text-zinc-400 bg-zinc-400/10 border-zinc-400/20";
-  }
+  return toneBadgeClass(statusTone(status));
 }
 
 export function runtimeStatusLabel(status: RuntimeStatus): string {
@@ -85,43 +66,16 @@ export function runtimeStatusLabel(status: RuntimeStatus): string {
 }
 
 export function runtimeStatusColor(status: RuntimeStatus): string {
-  switch (status) {
-    case "running":
-      return "text-emerald-400";
-    case "stopped":
-      return "text-zinc-400";
-    case "partial":
-      return "text-amber-400";
-    case "deploying":
-      return "text-amber-400";
-    case "not_deployed":
-      return "text-zinc-500";
-    case "unknown":
-      return "text-zinc-500";
-    default: {
-      const _exhaustive: never = status;
-      return _exhaustive;
-    }
+  const tone = runtimeTone(status);
+  if (status === "not_deployed" || status === "unknown") {
+    return "text-zinc-500";
   }
+  return toneTextClass(tone);
 }
 
 export function runtimeStatusBadgeColor(status: RuntimeStatus): string {
-  switch (status) {
-    case "running":
-      return "text-emerald-400 bg-emerald-400/10 border-emerald-400/20";
-    case "stopped":
-      return "text-zinc-400 bg-zinc-400/10 border-zinc-400/20";
-    case "partial":
-      return "text-amber-400 bg-amber-400/10 border-amber-400/20";
-    case "deploying":
-      return "text-amber-400 bg-amber-400/10 border-amber-400/20";
-    case "not_deployed":
-      return "text-zinc-500 bg-zinc-500/10 border-zinc-500/20";
-    case "unknown":
-      return "text-zinc-500 bg-zinc-500/10 border-zinc-500/20";
-    default: {
-      const _exhaustive: never = status;
-      return _exhaustive;
-    }
+  if (status === "not_deployed" || status === "unknown") {
+    return "text-zinc-500 bg-zinc-500/10 border-zinc-500/20";
   }
+  return toneBadgeClass(runtimeTone(status));
 }

@@ -12,19 +12,49 @@ A local Docker deployment orchestrator with a web dashboard. Forge watches GitHu
 
 ## Dashboard
 
-Each project has two tabs in the main workspace.
+Intent-first UI: **Home** command center for fleet health, then a project hub with **Overview · Deploy · Agents · Changes · Settings**.
 
-### Deploy
+### Home
 
-![Deploy tab](deploy_window.png)
+Fleet tiles (project-as-hero with identity colour), a **Needs attention** lane, and one-click **Open / Deploy / Agents** per project.
 
-Branch selector, deploy/pause/stop controls, container status, and deployment history with expandable build logs.
+### Project hub
 
-### Agents
+| Tab | Purpose |
+|-----|---------|
+| Overview | Health snapshot and primary CTAs |
+| Deploy | Deploy/redeploy, logs, containers; git tree collapsed by default |
+| Agents | Cursor agent sessions (primary actions + Session menu) |
+| Changes | Diff / commit / edit |
+| Settings | Rename, branches, routing, env, history, danger zone |
 
-![Agents tab](agents_window.png)
+### Command palette (⌘K / Ctrl+K)
 
-Cursor agent sessions per branch: prompt the agent, review tool output, commit changes, and deploy from the chat UI.
+Near-fullscreen search + command runner:
+
+- Type to search projects, actions, settings, and help
+- Context-aware ranking from the current page/tab/selection
+- Detail pane documents each command; type `help` or `?` for the catalog
+- ↑↓ navigate, Enter opens, Esc closes
+- Destructive actions navigate to the target screen for confirmation (they do not silent-execute)
+
+Sidebar **Search…** also opens the palette.
+
+### Keyboard shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| ⌘K / Ctrl+K | Open / close command palette |
+| Esc | Close palette |
+| ↑ ↓ Enter | Navigate / run palette result |
+
+## Future UI work
+
+- Light mode + theme toggle
+- Rich motion / transition system
+- Dedicated routes per intent (not only `?tab=`)
+- External / heavier design-system package
+- Server-backed full-text search across logs/history
 
 ## Prerequisites
 

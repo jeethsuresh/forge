@@ -399,14 +399,20 @@ build_test_stage_and_cutover() {
 
   set_status "building"
   log "Building new image (no-cache; tag=${release_tag})"
+  local build_log
+  build_log="$(mktemp)"
   if ! (
     cd "$SOURCE_DIR"
     FORGE_COMMIT_SHA="$release_tag" HOST_PORT="$STAGING_PORT" COMPOSE_PROJECT_NAME="$STAGING_PROJECT" \
       ./build.sh --host-port "$STAGING_PORT"
-  ); then
+  ) >"$build_log" 2>&1; then
+    log "Build failed. Last output:"
+    log "$(tail -c 6000 "$build_log" | tr -d '\0')"
+    rm -f "$build_log"
     LAST_UPGRADE_ERROR="Build failed"
     return 1
   fi
+  rm -f "$build_log"
 
   local built_id
   built_id="$(

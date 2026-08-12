@@ -74,11 +74,13 @@ export function forgeOpsApiCatalog(baseUrl: string) {
       {
         method: "POST",
         path: "/api/ops/projects/{projectId}/agent-sessions",
-        description: "Start or resume an agent on a branch",
+        description:
+          "Start or resume an agent on a branch; pass createBranch:true to create the local branch first",
         body: {
           actionDescription: "string (required)",
           branch: "string (required)",
           prompt: "string (required)",
+          createBranch: "boolean?",
         },
       },
       {

@@ -5,6 +5,9 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { APP_DISPLAY_NAME, appDisplayInitial } from "@/lib/app-name";
 import type { RuntimeStatus } from "@/lib/project-status";
+import { runtimeTone } from "@/lib/ui-status";
+import { projectSwatch } from "@/lib/project-swatch";
+import { Kbd, StatusDot } from "@/components/ui";
 
 interface ProjectSummary {
   id: string;
@@ -23,31 +26,6 @@ interface ProjectsResponse {
   forgeConfigured: boolean;
 }
 
-function sidebarDotClass(
-  enabled: boolean,
-  runtimeStatus: RuntimeStatus,
-): string {
-  if (!enabled) return "bg-zinc-600";
-  switch (runtimeStatus) {
-    case "running":
-      return "bg-emerald-400";
-    case "stopped":
-      return "bg-zinc-500";
-    case "partial":
-      return "bg-amber-400";
-    case "deploying":
-      return "bg-amber-400 animate-pulse";
-    case "not_deployed":
-      return "bg-zinc-600";
-    case "unknown":
-      return "bg-zinc-600";
-    default: {
-      const _exhaustive: never = runtimeStatus;
-      return _exhaustive;
-    }
-  }
-}
-
 function ProjectNavLink({
   project,
   active,
@@ -59,11 +37,18 @@ function ProjectNavLink({
   onNavigate?: () => void;
   variant?: "default" | "forge";
 }) {
+  const swatch = projectSwatch(project.id);
+  const tone = !project.enabled
+    ? "neutral"
+    : project.isDeploying
+      ? "warning"
+      : runtimeTone(project.runtimeStatus);
+
   return (
     <Link
-      href={`/projects/${project.id}`}
+      href={`/projects/${project.id}?tab=overview`}
       onClick={onNavigate}
-      className={`flex min-h-11 items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+      className={`flex min-h-11 items-center gap-2 rounded-lg px-2 py-2.5 text-sm transition-colors ${
         active
           ? variant === "forge"
             ? "bg-orange-500/15 text-orange-100 ring-1 ring-orange-500/30"
@@ -72,9 +57,17 @@ function ProjectNavLink({
             ? "text-orange-200/80 hover:bg-orange-500/10 hover:text-orange-100"
             : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
       }`}
+      style={active ? { boxShadow: `inset 3px 0 0 0 ${swatch.hex}` } : undefined}
     >
       <span
-        className={`h-2 w-2 shrink-0 rounded-full ${sidebarDotClass(project.enabled, project.runtimeStatus)}`}
+        className="h-2.5 w-1 shrink-0 rounded-full"
+        style={swatch.stripeStyle}
+        aria-hidden
+      />
+      <StatusDot
+        tone={tone}
+        pulse={project.isDeploying}
+        className="ml-0.5"
       />
       <span className="min-w-0 flex-1 truncate font-medium">{project.name}</span>
       {variant === "forge" && (
@@ -131,7 +124,7 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
     >
       <div className="border-b border-zinc-800 px-5 py-4">
         <Link
-          href="/projects"
+          href="/"
           onClick={onNavigate}
           className="flex items-center gap-2"
         >
@@ -142,6 +135,33 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
             <div className="font-semibold text-zinc-100">{APP_DISPLAY_NAME}</div>
             <div className="text-xs text-zinc-500">Deploy orchestrator</div>
           </div>
+        </Link>
+        <button
+          type="button"
+          onClick={() => {
+            window.dispatchEvent(new Event("forge:open-palette"));
+          }}
+          className="mt-3 flex w-full items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-xs text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
+        >
+          <span>Search…</span>
+          <span className="flex gap-1">
+            <Kbd>⌘</Kbd>
+            <Kbd>K</Kbd>
+          </span>
+        </button>
+      </div>
+
+      <div className="border-b border-zinc-800 px-3 py-2">
+        <Link
+          href="/"
+          onClick={onNavigate}
+          className={`flex min-h-10 items-center rounded-lg px-3 text-sm transition-colors ${
+            pathname === "/"
+              ? "bg-zinc-800 text-zinc-100"
+              : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+          }`}
+        >
+          Home
         </Link>
       </div>
 

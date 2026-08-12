@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { HomeCommandCenter } from "@/components/HomeCommandCenter";
 
 export default function HomePage() {
-  redirect("/projects");
+  return <HomeCommandCenter />;
 }

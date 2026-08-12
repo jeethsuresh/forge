@@ -30,7 +30,7 @@ function LoginForm() {
         return;
       }
 
-      const from = searchParams.get("from") ?? "/projects";
+      const from = searchParams.get("from") ?? "/";
       router.push(from);
       router.refresh();
     } catch {
