@@ -152,6 +152,32 @@ export function forgeOpsApiCatalog(baseUrl: string) {
           revertChanges: "boolean?",
         },
       },
+      {
+        method: "POST",
+        path: "/api/ops/projects/{projectId}/agent-sessions/{sessionId}/heartbeat",
+        description:
+          "Agent container heartbeat (miss threshold kills the session)",
+        body: { actionDescription: "string (required)" },
+      },
+      {
+        method: "POST",
+        path: "/api/ops/projects/{projectId}/agent-sessions/{sessionId}/events",
+        description:
+          "Ingest agent stream/events into agent_events (UI must not depend on docker logs)",
+        body: {
+          actionDescription: "string (required)",
+          events: "array? of {type,payload,line}",
+          event: "object?",
+          line: "string?",
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/ops/projects/{projectId}/secrets/{name}/request",
+        description:
+          "Request a named project/global secret (hybrid model; docker/host names always denied; audited)",
+        body: { actionDescription: "string (required)" },
+      },
     ],
   };
 }
@@ -243,6 +269,33 @@ curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
 \`\`\`bash
 curl -sS -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
   "${baseUrl}/api/ops/projects/${projectId}/deployments/{deploymentId}"
+\`\`\`
+
+**Agent heartbeat** (containers must post every ~10s)
+\`\`\`bash
+curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  -d '{"actionDescription":"Agent heartbeat for session ${sessionId}."}' \\
+  "${baseUrl}/api/ops/projects/${projectId}/agent-sessions/${sessionId}/heartbeat"
+\`\`\`
+
+**Post agent events** (preferred over docker logs)
+\`\`\`bash
+curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  -d '{"actionDescription":"Ingesting agent stream events.","events":[{"type":"assistant","payload":{"text":"hello"}}]}' \\
+  "${baseUrl}/api/ops/projects/${projectId}/agent-sessions/${sessionId}/events"
+\`\`\`
+
+**Request a project secret** (hybrid; docker/host names always denied)
+\`\`\`bash
+curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  -d '{"actionDescription":"Requesting NPM_TOKEN to install private packages."}' \\
+  "${baseUrl}/api/ops/projects/${projectId}/secrets/NPM_TOKEN/request"
 \`\`\`
 
 **Roll back**

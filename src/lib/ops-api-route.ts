@@ -8,6 +8,8 @@ import {
   type OpsAuth,
 } from "@/lib/ops-api-auth";
 import { parseActionDescription, recordOpsAction } from "@/lib/ops-api-actions";
+import { denyIfBootstrapRestricted } from "@/lib/ops-bootstrap-guard";
+import { recordAgentActivity } from "@/lib/agent-heartbeat";
 
 export type { OpsAuth };
 
@@ -22,6 +24,8 @@ export function requireOpsAuth(request: Request): OpsAuth | NextResponse {
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+  const bootstrapDenied = denyIfBootstrapRestricted(auth, request);
+  if (bootstrapDenied) return bootstrapDenied;
   return auth;
 }
 
@@ -81,6 +85,12 @@ export function auditOpsAction(input: {
   resourceId?: string | null;
   auth?: OpsAuth;
 }): string {
+  const agentSessionId = input.auth
+    ? resolveOpsActorSessionId(input.auth, input.request)
+    : readAgentSessionHeader(input.request);
+  if (agentSessionId && input.responseStatus < 400) {
+    recordAgentActivity(agentSessionId);
+  }
   return recordOpsAction({
     actionDescription: input.actionDescription,
     method: input.method,
@@ -88,9 +98,7 @@ export function auditOpsAction(input: {
     requestBody: input.requestBody ?? null,
     responseStatus: input.responseStatus,
     projectId: input.projectId ?? null,
-    agentSessionId: input.auth
-      ? resolveOpsActorSessionId(input.auth, input.request)
-      : readAgentSessionHeader(input.request),
+    agentSessionId,
     resourceType: input.resourceType ?? null,
     resourceId: input.resourceId ?? null,
   });
