@@ -12,10 +12,25 @@ export const users = sqliteTable("users", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+/** Bare git repositories hosted by Forge (`/data/git/<slug>.git`). */
+export const gitRepositories = sqliteTable("git_repositories", {
+  id: text("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  barePath: text("bare_path").notNull(),
+  defaultBranch: text("default_branch").notNull().default("main"),
+  /** One-shot GitHub source (`owner/repo`); null for Forge-native repos. */
+  importedFrom: text("imported_from"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  githubRepo: text("github_repo").notNull(),
+  /**
+   * Legacy / import hint (`owner/repo`). Empty string for Forge-native projects
+   * that use `gitRepositoryId` as origin.
+   */
+  githubRepo: text("github_repo").notNull().default(""),
   branch: text("branch").notNull().default("main"),
   clonePath: text("clone_path").notNull(),
   lastSeenCommit: text("last_seen_commit"),
@@ -23,6 +38,10 @@ export const projects = sqliteTable("projects", {
   deployEnvJson: text("deploy_env_json").notNull().default("[]"),
   hostPort: integer("host_port"),
   caddyRouteJson: text("caddy_route_json"),
+  gitRepositoryId: text("git_repository_id").references(
+    () => gitRepositories.id,
+    { onDelete: "set null" },
+  ),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
@@ -337,6 +356,7 @@ export const opsApiActions = sqliteTable("ops_api_actions", {
 });
 
 export type User = typeof users.$inferSelect;
+export type GitRepository = typeof gitRepositories.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type ProjectForgefile = typeof projectForgefiles.$inferSelect;
 export type DeployTarget = typeof deployTargets.$inferSelect;

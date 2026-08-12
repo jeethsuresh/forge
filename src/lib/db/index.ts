@@ -22,15 +22,25 @@ CREATE TABLE IF NOT EXISTS users (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS git_repositories (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  bare_path TEXT NOT NULL,
+  default_branch TEXT NOT NULL DEFAULT 'main',
+  imported_from TEXT,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  github_repo TEXT NOT NULL,
+  github_repo TEXT NOT NULL DEFAULT '',
   branch TEXT NOT NULL DEFAULT 'main',
   clone_path TEXT NOT NULL,
   last_seen_commit TEXT,
   enabled INTEGER NOT NULL DEFAULT 1,
   deploy_env_json TEXT NOT NULL DEFAULT '[]',
+  git_repository_id TEXT REFERENCES git_repositories(id) ON DELETE SET NULL,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -274,7 +284,19 @@ addColumnIfMissing("agent_sessions", "archived_at", "INTEGER");
 addColumnIfMissing("projects", "deploy_env_json", "TEXT NOT NULL DEFAULT '[]'");
 addColumnIfMissing("projects", "host_port", "INTEGER");
 addColumnIfMissing("projects", "caddy_route_json", "TEXT");
+addColumnIfMissing("projects", "git_repository_id", "TEXT");
 addColumnIfMissing("deployments", "deploy_target", "TEXT");
+
+sqlite.exec(`
+CREATE TABLE IF NOT EXISTS git_repositories (
+  id TEXT PRIMARY KEY,
+  slug TEXT NOT NULL UNIQUE,
+  bare_path TEXT NOT NULL,
+  default_branch TEXT NOT NULL DEFAULT 'main',
+  imported_from TEXT,
+  created_at INTEGER NOT NULL
+);
+`);
 
 // Migrate the old unique (project_id, branch) index to a partial live-only unique index.
 try {
