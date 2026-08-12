@@ -40,6 +40,12 @@ export function forgeOpsApiCatalog(baseUrl: string) {
           "Forgefile projection status, parsed manifest, and deploy targets",
       },
       {
+        method: "GET",
+        path: "/api/ops/services",
+        description:
+          "Fleet service directory (declared + observed ports, health, Caddy route status). Optional ?projectId= filter; session tokens are scoped to their project.",
+      },
+      {
         method: "POST",
         path: "/api/ops/projects/{projectId}/scripts/{name}/run",
         description:
@@ -168,6 +174,13 @@ curl -sS -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
 curl -sS -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
   -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
   "${baseUrl}/api/ops/projects/${projectId}/forgefile"
+\`\`\`
+
+**List service directory**
+\`\`\`bash
+curl -sS -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  "${baseUrl}/api/ops/services?projectId=${projectId}"
 \`\`\`
 
 **Run a named Forgefile script**
