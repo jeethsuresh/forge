@@ -37,6 +37,7 @@ import {
   deployedCommitShaForProjectBranch,
 } from "@/lib/project-deploy-update";
 import { getRemoteCommitSha } from "@/lib/github";
+import { projectRemoteUrl } from "@/lib/project-git-remote";
 import {
   buildDeployEnvVarViews,
   fillDeployEnvFromRepo,
@@ -192,14 +193,14 @@ export async function GET(
     const remoteLookup = poll
       ? await getCachedRemoteCommitSha(
           id,
-          project.githubRepo,
+          projectRemoteUrl(project),
           deployBranch,
           60_000,
-          () => getRemoteCommitSha(project.githubRepo, deployBranch),
+          () => getRemoteCommitSha(projectRemoteUrl(project), deployBranch),
         )
       : await (async () => {
           try {
-            const sha = await getRemoteCommitSha(project.githubRepo, deployBranch);
+            const sha = await getRemoteCommitSha(projectRemoteUrl(project), deployBranch);
             return { sha, failed: false };
           } catch {
             return { sha: null, failed: true };

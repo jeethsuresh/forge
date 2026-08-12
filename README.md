@@ -4,7 +4,8 @@ A local Docker deployment orchestrator with a web dashboard. Forge watches GitHu
 
 ## Features
 
-- **GitHub monitoring** — polls remote branches every 60 seconds for new commits
+- **Forge git host** — smart HTTP (+ optional SSH) bare repos; create empty projects or one-shot import from GitHub ([docs/git-server.md](docs/git-server.md))
+- **GitHub monitoring** — polls remotes every 60 seconds for new commits (Forge-origin projects use bare repos / hooks)
 - **Automated pipeline** — clones/pulls, validates `Forgefile`, then runs each deploy target’s bound build/test/deploy scripts
 - **Web dashboard** — login-protected UI with project sidebar, deployment history, container status, and live logs
 - **SQLite tracking** — persists projects, deployments, and state locally
@@ -61,7 +62,7 @@ Sidebar **Search…** also opens the palette.
 - Node.js 20+
 - Git
 - Docker and Docker Compose
-- Network access to GitHub (public repos, or configure git credentials for private repos)
+- Network access to GitHub (public repos, or configure git credentials for private repos). Existing GitHub-only projects can **Import** into Forge once (see [docs/git-server.md](docs/git-server.md)); day-to-day origin is then Forge.
 
 ## Setup
 

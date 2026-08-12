@@ -14,6 +14,7 @@ import {
   getRemoteCommitSha,
   isCommitAncestor,
 } from "@/lib/github";
+import { projectRemoteUrl } from "@/lib/project-git-remote";
 import { isAgentSessionActive } from "@/lib/agent-state";
 import { handleProjectDeployFailure } from "@/lib/deploy-recovery";
 import {
@@ -360,7 +361,7 @@ async function executeDeployment(
 
     if (deployGuardsApplyForTrigger(trigger) && !options?.skipPull) {
       const remoteSha = await getRemoteCommitSha(
-        project.githubRepo,
+        projectRemoteUrl(project),
         deployBranch,
       );
 
@@ -383,7 +384,7 @@ async function executeDeployment(
       commitSha = await checkoutLocalBranch(repoPath, deployBranch, log);
     } else {
       commitSha = await cloneOrPull(
-        project.githubRepo,
+        projectRemoteUrl(project),
         deployBranch,
         repoPath,
         log,
@@ -616,7 +617,7 @@ export async function checkProjectForChanges(projectId: string): Promise<boolean
       project.branch,
       getLatestDeploymentBranch(projectId),
     );
-    const remoteSha = await getRemoteCommitSha(project.githubRepo, autoBranch);
+    const remoteSha = await getRemoteCommitSha(projectRemoteUrl(project), autoBranch);
     const runningSha = getCurrentlyRunningCommitSha(projectId);
 
     if (await shouldSkipStaleAutoCommit(project, remoteSha, runningSha)) {
@@ -626,7 +627,7 @@ export async function checkProjectForChanges(projectId: string): Promise<boolean
 
     const repoPath = resolveClonePath(project.clonePath);
     const commitSha = await cloneOrPull(
-      project.githubRepo,
+      projectRemoteUrl(project),
       autoBranch,
       repoPath,
       (msg) => console.log(`[watcher] ${project.name}: ${msg}`),

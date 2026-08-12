@@ -14,6 +14,7 @@ import {
 import { isForgeProject } from "@/lib/forge-project";
 import { getForgeStatus } from "@/lib/self-update";
 import { getRemoteCommitSha, listAvailableBranches } from "@/lib/github";
+import { projectRemoteUrl } from "@/lib/project-git-remote";
 import { deploymentRowForClient } from "@/lib/project-poll";
 import { projectComposeSlug } from "@/lib/projects";
 import {
@@ -108,7 +109,7 @@ export async function buildOpsProjectDetail(project: typeof projects.$inferSelec
 
   let deployUpdate = null;
   try {
-    const remoteSha = await getRemoteCommitSha(project.githubRepo, project.branch);
+    const remoteSha = await getRemoteCommitSha(projectRemoteUrl(project), project.branch);
     deployUpdate = computeProjectDeployUpdate({
       branch: project.branch,
       watchBranch: project.branch,

@@ -2,6 +2,7 @@ import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { deployments, type Project } from "@/lib/db/schema";
 import { getRemoteCommitSha } from "@/lib/github";
+import { projectRemoteUrl } from "@/lib/project-git-remote";
 import type { ProjectReleaseState } from "@/lib/deploy-rollback";
 import {
   computeForgeUpdateAvailability,
@@ -102,7 +103,7 @@ export async function resolveProjectDeployUpdate(
   let remoteCommitSha: string | null = null;
   let remoteCommitLookupFailed = false;
   try {
-    remoteCommitSha = await getRemoteCommitSha(project.githubRepo, branch);
+    remoteCommitSha = await getRemoteCommitSha(projectRemoteUrl(project), branch);
   } catch {
     remoteCommitSha = null;
     remoteCommitLookupFailed = true;

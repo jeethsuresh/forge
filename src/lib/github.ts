@@ -1,9 +1,9 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { chmod, writeFile } from "fs/promises";
-import { existsSync } from "fs";
+import { existsSync, readdirSync, rmSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
+import { chmod, writeFile } from "fs/promises";
 import { DEFAULT_GIT_USER_NAME } from "@/lib/app-name";
 import { resolveClonePath } from "@/lib/paths";
 
@@ -50,12 +50,46 @@ export function githubCloneUrl(repo: string): string {
   return `https://github.com/${repo}.git`;
 }
 
+/** Accept owner/repo, absolute bare path, or http(s)/file URL. */
+export function resolveGitRemoteUrl(repoOrUrl: string): string {
+  const trimmed = repoOrUrl.trim();
+  if (
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("./") ||
+    trimmed.startsWith("../") ||
+    trimmed.includes("://") ||
+    /^[a-zA-Z]:[\\/]/.test(trimmed)
+  ) {
+    return trimmed;
+  }
+  return githubCloneUrl(trimmed);
+}
+
+function isGitCheckout(path: string): boolean {
+  return existsSync(join(path, ".git")) || existsSync(join(path, "HEAD"));
+}
+
+function prepareCloneTarget(resolvedPath: string): void {
+  if (!existsSync(resolvedPath)) return;
+  if (isGitCheckout(resolvedPath)) return;
+  const entries = readdirSync(resolvedPath);
+  if (entries.length === 0) {
+    rmSync(resolvedPath, { recursive: true, force: true });
+    return;
+  }
+  throw new Error(
+    `Clone path exists but is not a git checkout: ${resolvedPath}`,
+  );
+}
+
 export async function getRemoteCommitSha(
-  repo: string,
+  repoOrUrl: string,
   branch: string,
 ): Promise<string> {
-  await ensureGitCredentialStore();
-  const url = githubCloneUrl(repo);
+  const url = resolveGitRemoteUrl(repoOrUrl);
+  if (url.includes("github.com")) {
+    await ensureGitCredentialStore();
+  }
   const { stdout } = await execGit([
     "ls-remote",
     url,
@@ -63,7 +97,7 @@ export async function getRemoteCommitSha(
   ]);
   const line = stdout.trim().split("\n")[0];
   if (!line) {
-    throw new Error(`Branch "${branch}" not found on ${repo}`);
+    throw new Error(`Branch "${branch}" not found on ${repoOrUrl}`);
   }
   return line.split("\t")[0];
 }
@@ -102,22 +136,35 @@ export async function isCommitAncestor(
 }
 
 export async function cloneOrPull(
-  repo: string,
+  repoOrUrl: string,
   branch: string,
   clonePath: string,
   onLog: (line: string) => void,
 ): Promise<string> {
-  const url = githubCloneUrl(repo);
+  const url = resolveGitRemoteUrl(repoOrUrl);
   const resolvedPath = resolveClonePath(clonePath);
 
-  await ensureGitCredentialStore();
+  if (url.includes("github.com")) {
+    await ensureGitCredentialStore();
+  }
 
-  if (!existsSync(resolvedPath)) {
+  prepareCloneTarget(resolvedPath);
+
+  if (!existsSync(resolvedPath) || !isGitCheckout(resolvedPath)) {
     onLog(`Cloning ${url} (branch: ${branch})...`);
     await execGit(["clone", "--branch", branch, url, resolvedPath]);
     onLog("Clone complete.");
   } else {
     onLog("Fetching latest changes...");
+    try {
+      await execGit(["remote", "set-url", "origin", url], { cwd: resolvedPath });
+    } catch {
+      try {
+        await execGit(["remote", "add", "origin", url], { cwd: resolvedPath });
+      } catch {
+        // keep existing remotes if both fail
+      }
+    }
     await execGit(["fetch", "origin", branch], { cwd: resolvedPath });
     onLog(`Checking out ${branch}...`);
     try {
@@ -167,17 +214,21 @@ export async function runScript(
 }
 
 export async function ensureRepoCloned(
-  repo: string,
+  repoOrUrl: string,
   branch: string,
   clonePath: string,
   onLog: (line: string) => void,
 ): Promise<void> {
-  const url = githubCloneUrl(repo);
+  const url = resolveGitRemoteUrl(repoOrUrl);
   const resolvedPath = resolveClonePath(clonePath);
 
-  await ensureGitCredentialStore();
+  if (url.includes("github.com")) {
+    await ensureGitCredentialStore();
+  }
 
-  if (!existsSync(resolvedPath)) {
+  prepareCloneTarget(resolvedPath);
+
+  if (!existsSync(resolvedPath) || !isGitCheckout(resolvedPath)) {
     onLog(`Cloning ${url} (branch: ${branch})...`);
     await execGit(["clone", "--branch", branch, url, resolvedPath]);
     onLog("Clone complete.");
@@ -185,6 +236,15 @@ export async function ensureRepoCloned(
   }
 
   onLog("Fetching latest changes...");
+  try {
+    await execGit(["remote", "set-url", "origin", url], { cwd: resolvedPath });
+  } catch {
+    try {
+      await execGit(["remote", "add", "origin", url], { cwd: resolvedPath });
+    } catch {
+      // keep existing remotes
+    }
+  }
   await execGit(["fetch", "origin"], { cwd: resolvedPath });
 }
 

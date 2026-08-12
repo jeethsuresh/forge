@@ -44,9 +44,13 @@ import {
   revertAgentSessionCommit as revertPushedAgentCommit,
   createLocalBranchFromBase,
   validateBranchName,
-  githubCloneUrl,
   gitHubCredentials,
 } from "@/lib/github";
+import {
+  projectAgentCloneUrl,
+  projectRemoteUrl,
+  projectUsesForgeGit,
+} from "@/lib/project-git-remote";
 import { resolveCursorAgentBin } from "@/lib/cursor-agent";
 import { runDeployment } from "@/lib/deployer";
 import { isForgeProjectId } from "@/lib/forge-project";
@@ -350,7 +354,7 @@ async function maybeAutoFinishSessionIfNoEdits(
 
   try {
     await prepareAgentWorkspace(
-      project.githubRepo,
+      projectRemoteUrl(project),
       project.branch,
       project.clonePath,
       session.branch,
@@ -779,11 +783,13 @@ async function runAgentTurnContainer(
       sessionId,
       projectId: project.id,
       branch: session.branch,
-      cloneUrl: githubCloneUrl(project.githubRepo),
+      cloneUrl: projectAgentCloneUrl(project),
       opsBaseUrl: opsApiBaseUrl(),
       opsToken: mintSessionOpsToken(sessionId, project.id),
-      gitUsername: creds?.username,
-      gitPassword: creds?.password,
+      gitUsername: projectUsesForgeGit(project) ? "forge" : creds?.username,
+      gitPassword: projectUsesForgeGit(project)
+        ? mintSessionOpsToken(sessionId, project.id)
+        : creds?.password,
       heartbeatIntervalSec: AGENT_HEARTBEAT_INTERVAL_SEC,
       agentPrompt: effectivePrompt,
       cursorApiKey: apiKey,
@@ -1053,7 +1059,7 @@ async function executeAgentTurn(
 
   try {
     await prepareAgentWorkspace(
-      project.githubRepo,
+      projectRemoteUrl(project),
       project.branch,
       options?.workspacePath ?? project.clonePath,
       session.branch,
@@ -1096,7 +1102,7 @@ export async function createAgentBranch(
   }
 
   await createLocalBranchFromBase(
-    project.githubRepo,
+    projectRemoteUrl(project),
     project.branch,
     project.clonePath,
     trimmedBranch,
@@ -1421,7 +1427,7 @@ export async function commitAgentSessionChanges(
   const workspacePath = options?.workspacePath ?? project.clonePath;
 
   await prepareAgentWorkspace(
-    project.githubRepo,
+    projectRemoteUrl(project),
     project.branch,
     workspacePath,
     session.branch,
@@ -1474,7 +1480,7 @@ export async function revertAgentSessionChanges(sessionId: string): Promise<void
 
   const log = (msg: string) => appendSessionLog(sessionId, msg);
   await prepareAgentWorkspace(
-    project.githubRepo,
+    projectRemoteUrl(project),
     project.branch,
     project.clonePath,
     session.branch,
@@ -1508,7 +1514,7 @@ export async function deployAgentSession(sessionId: string): Promise<void> {
   const log = (msg: string) => appendSessionLog(sessionId, msg);
 
   await prepareAgentWorkspace(
-    project.githubRepo,
+    projectRemoteUrl(project),
     project.branch,
     project.clonePath,
     session.branch,
@@ -1570,7 +1576,7 @@ export async function sendAgentMessage(
   const log = (msg: string) => appendSessionLog(sessionId, msg);
   try {
     await prepareAgentWorkspace(
-      project.githubRepo,
+      projectRemoteUrl(project),
       project.branch,
       project.clonePath,
       session.branch,

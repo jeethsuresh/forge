@@ -157,7 +157,10 @@ export async function createForgeGitRepository(
   const projectId = randomUUID();
   const now = new Date();
   const clonePath = workingClonePathForSlug(slug, defaultBranch);
-  mkdirSync(clonePath, { recursive: true });
+  if (existsSync(clonePath)) {
+    rmSync(clonePath, { recursive: true, force: true });
+  }
+  await execGit(["clone", "--branch", defaultBranch, barePath, clonePath]);
 
   db.insert(gitRepositories)
     .values({

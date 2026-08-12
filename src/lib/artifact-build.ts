@@ -18,6 +18,7 @@ import {
   requireValidForgefile,
 } from "@/lib/forgefile-project";
 import { cloneOrPull } from "@/lib/github";
+import { projectRemoteUrl } from "@/lib/project-git-remote";
 import { resolveArtifactsRoot, resolveClonePath } from "@/lib/paths";
 import {
   buildProjectScriptEnv,
@@ -99,7 +100,7 @@ export async function buildArtifact(
 
     const repoPath = resolveClonePath(project.clonePath);
     const commitSha = await cloneOrPull(
-      project.githubRepo,
+      projectRemoteUrl(project),
       branch,
       repoPath,
       () => {},
