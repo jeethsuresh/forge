@@ -199,6 +199,49 @@ CREATE INDEX IF NOT EXISTS idx_artifact_builds_artifact_id
   ON artifact_builds(artifact_id);
 CREATE INDEX IF NOT EXISTS idx_artifact_builds_project_id
   ON artifact_builds(project_id);
+
+CREATE TABLE IF NOT EXISTS agent_containers (
+  session_id TEXT PRIMARY KEY REFERENCES agent_sessions(id) ON DELETE CASCADE,
+  container_id TEXT NOT NULL,
+  image TEXT NOT NULL,
+  status TEXT NOT NULL,
+  last_heartbeat_at INTEGER,
+  last_activity_at INTEGER,
+  started_at INTEGER NOT NULL,
+  deadline_at INTEGER NOT NULL,
+  kill_reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_containers_status
+  ON agent_containers(status);
+
+CREATE TABLE IF NOT EXISTS secrets (
+  id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  project_id TEXT REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  ciphertext TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_secrets_scope_project_name
+  ON secrets(scope, project_id, name);
+CREATE INDEX IF NOT EXISTS idx_secrets_project_id ON secrets(project_id);
+
+CREATE TABLE IF NOT EXISTS secret_requests (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  allowed INTEGER NOT NULL,
+  reason TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_secret_requests_session_id
+  ON secret_requests(session_id);
+CREATE INDEX IF NOT EXISTS idx_secret_requests_project_id
+  ON secret_requests(project_id);
 `;
 
 sqlite.exec(INIT_SQL);

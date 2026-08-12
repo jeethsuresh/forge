@@ -254,6 +254,73 @@ export const agentEvents = sqliteTable("agent_events", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+export type AgentContainerStatus =
+  | "starting"
+  | "running"
+  | "stopping"
+  | "stopped"
+  | "failed"
+  | "removed";
+
+export type AgentKillReason =
+  | "heartbeat_miss"
+  | "idle_timeout"
+  | "wall_clock"
+  | "user_stop"
+  | "reconcile_missing"
+  | "error";
+
+export const agentContainers = sqliteTable("agent_containers", {
+  sessionId: text("session_id")
+    .primaryKey()
+    .references(() => agentSessions.id, { onDelete: "cascade" }),
+  containerId: text("container_id").notNull(),
+  image: text("image").notNull(),
+  status: text("status").$type<AgentContainerStatus>().notNull(),
+  lastHeartbeatAt: integer("last_heartbeat_at", { mode: "timestamp" }),
+  lastActivityAt: integer("last_activity_at", { mode: "timestamp" }),
+  startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
+  deadlineAt: integer("deadline_at", { mode: "timestamp" }).notNull(),
+  killReason: text("kill_reason").$type<AgentKillReason>(),
+});
+
+export type SecretScope = "global" | "project";
+
+export const secrets = sqliteTable(
+  "secrets",
+  {
+    id: text("id").primaryKey(),
+    scope: text("scope").$type<SecretScope>().notNull(),
+    projectId: text("project_id").references(() => projects.id, {
+      onDelete: "cascade",
+    }),
+    name: text("name").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_secrets_scope_project_name").on(
+      table.scope,
+      table.projectId,
+      table.name,
+    ),
+  ],
+);
+
+export const secretRequests = sqliteTable("secret_requests", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id")
+    .notNull()
+    .references(() => agentSessions.id, { onDelete: "cascade" }),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  allowed: integer("allowed", { mode: "boolean" }).notNull(),
+  reason: text("reason"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 export const opsApiActions = sqliteTable("ops_api_actions", {
   id: text("id").primaryKey(),
   actionDescription: text("action_description").notNull(),
@@ -279,5 +346,8 @@ export type ServiceDirectoryRow = typeof serviceDirectory.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
 export type AgentSession = typeof agentSessions.$inferSelect;
 export type AgentEvent = typeof agentEvents.$inferSelect;
+export type AgentContainer = typeof agentContainers.$inferSelect;
+export type Secret = typeof secrets.$inferSelect;
+export type SecretRequest = typeof secretRequests.$inferSelect;
 export type ForgeUpdate = typeof forgeUpdates.$inferSelect;
 export type OpsApiAction = typeof opsApiActions.$inferSelect;
