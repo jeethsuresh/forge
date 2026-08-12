@@ -46,6 +46,28 @@ export function forgeOpsApiCatalog(baseUrl: string) {
           "Fleet service directory (declared + observed ports, health, Caddy route status). Optional ?projectId= filter; session tokens are scoped to their project.",
       },
       {
+        method: "GET",
+        path: "/api/ops/projects/{projectId}/artifacts",
+        description:
+          "List Forgefile artifact declarations and recent builds for a project",
+      },
+      {
+        method: "POST",
+        path: "/api/ops/projects/{projectId}/artifacts/{name}/build",
+        description:
+          "Build a declared Forgefile artifact (checkout + build command + disk store)",
+        body: {
+          actionDescription: "string (required)",
+          branch: "string?",
+        },
+      },
+      {
+        method: "GET",
+        path: "/api/ops/projects/{projectId}/artifacts/{name}/builds/{buildId}/download",
+        description:
+          "Download a successful artifact build (Ops auth required; optional ?token= HMAC)",
+      },
+      {
         method: "POST",
         path: "/api/ops/projects/{projectId}/scripts/{name}/run",
         description:
@@ -181,6 +203,22 @@ curl -sS -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
 curl -sS -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
   -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
   "${baseUrl}/api/ops/services?projectId=${projectId}"
+\`\`\`
+
+**List artifacts**
+\`\`\`bash
+curl -sS -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  "${baseUrl}/api/ops/projects/${projectId}/artifacts"
+\`\`\`
+
+**Build an artifact**
+\`\`\`bash
+curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  -d '{"actionDescription":"Building linux-amd64 artifact for release packaging."}' \\
+  "${baseUrl}/api/ops/projects/${projectId}/artifacts/linux-amd64/build"
 \`\`\`
 
 **Run a named Forgefile script**

@@ -5,7 +5,6 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   artifactBuilds,
-  artifacts,
   projects,
   type ArtifactBuild,
 } from "@/lib/db/schema";
