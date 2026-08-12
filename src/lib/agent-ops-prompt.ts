@@ -34,13 +34,27 @@ export function forgeOpsApiCatalog(baseUrl: string) {
         body: { actionDescription: "string (required)", enabled: "boolean?", hostPort: "number|null?" },
       },
       {
+        method: "GET",
+        path: "/api/ops/projects/{projectId}/forgefile",
+        description:
+          "Forgefile projection status, parsed manifest, and deploy targets",
+      },
+      {
+        method: "POST",
+        path: "/api/ops/projects/{projectId}/scripts/{name}/run",
+        description:
+          "Run a named Forgefile scripts.<name> command in the project checkout",
+        body: { actionDescription: "string (required)" },
+      },
+      {
         method: "POST",
         path: "/api/ops/projects/{projectId}/deploy",
         description:
-          "Start deploy or Forge self-update. Forge agents may pass authorizeActiveSessionDeploy:true with their fos.* session token to cut over while mid-turn.",
+          "Start deploy or Forge self-update. Forge agents may pass authorizeActiveSessionDeploy:true with their fos.* session token to cut over while mid-turn. Pass deployment to select a Forgefile deploy target when multiple exist.",
         body: {
           actionDescription: "string (required)",
           branch: "string?",
+          deployment: "string? (Forgefile deploy target name)",
           authorizeActiveSessionDeploy: "boolean? (Forge + session token only)",
         },
       },
@@ -149,12 +163,28 @@ curl -sS -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
   "${baseUrl}/api/ops/projects/${projectId}"
 \`\`\`
 
+**Check Forgefile status**
+\`\`\`bash
+curl -sS -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  "${baseUrl}/api/ops/projects/${projectId}/forgefile"
+\`\`\`
+
+**Run a named Forgefile script**
+\`\`\`bash
+curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  -d '{"actionDescription":"Running migrate after schema review before deploy."}' \\
+  "${baseUrl}/api/ops/projects/${projectId}/scripts/migrate/run"
+\`\`\`
+
 **Deploy**
 \`\`\`bash
 curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
   -H "Content-Type: application/json" \\
   -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
-  -d '{"actionDescription":"Deploying main after merging the feature branch because tests passed locally.","branch":"main"}' \\
+  -d '{"actionDescription":"Deploying main after merging the feature branch because tests passed locally.","branch":"main","deployment":"web"}' \\
   "${baseUrl}/api/ops/projects/${projectId}/deploy"
 \`\`\`
 

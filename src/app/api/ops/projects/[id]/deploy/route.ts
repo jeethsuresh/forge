@@ -71,6 +71,10 @@ export async function POST(
   }
 
   const branch = typeof body.branch === "string" ? body.branch.trim() : project.branch;
+  const deployment =
+    typeof body.deployment === "string" && body.deployment.trim()
+      ? body.deployment.trim()
+      : undefined;
   const validationError = validateBranchName(branch);
   if (validationError) {
     return errorWithAudit(validationError, 400, {
@@ -140,11 +144,14 @@ export async function POST(
   }
 
   try {
-    const deploymentId = await runDeployment(id, "manual", { branch });
+    const deploymentId = await runDeployment(id, "manual", {
+      branch,
+      deployment,
+    });
     invalidateProjectRuntimeCache(id);
     invalidateProjectBranches(id);
     return jsonWithAudit(
-      { deploymentId, branch, mode: "project" },
+      { deploymentId, branch, deployment: deployment ?? null, mode: "project" },
       { status: 202 },
       {
         request,

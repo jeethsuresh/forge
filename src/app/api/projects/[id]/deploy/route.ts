@@ -45,8 +45,12 @@ export async function POST(
     );
   }
 
-  const body = (await request.json().catch(() => ({}))) as { branch?: string };
+  const body = (await request.json().catch(() => ({}))) as {
+    branch?: string;
+    deployment?: string;
+  };
   const branch = body.branch?.trim() || project.branch;
+  const deployment = body.deployment?.trim() || undefined;
   const validationError = validateBranchName(branch);
   if (validationError) {
     return NextResponse.json({ error: validationError }, { status: 400 });
@@ -67,10 +71,16 @@ export async function POST(
   }
 
   try {
-    const deploymentId = await runDeployment(id, "manual", { branch });
+    const deploymentId = await runDeployment(id, "manual", {
+      branch,
+      deployment,
+    });
     invalidateProjectRuntimeCache(id);
     invalidateProjectBranches(id);
-    return NextResponse.json({ deploymentId, branch }, { status: 202 });
+    return NextResponse.json(
+      { deploymentId, branch, deployment: deployment ?? null },
+      { status: 202 },
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : "Deploy failed";
     return NextResponse.json({ error: message }, { status: 409 });
