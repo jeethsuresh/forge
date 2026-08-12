@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  agentContainers,
   agentEvents,
   agentSessions,
   deployments,
@@ -15,6 +16,7 @@ import {
   isAgentSessionActive,
   reconcileProjectAgentSessions,
 } from "@/lib/agent-state";
+import { AGENT_WALL_CLOCK_MS } from "@/lib/agent-heartbeat";
 
 describe("reconcileProjectAgentSessions", () => {
   let projectId: string;
@@ -41,6 +43,7 @@ describe("reconcileProjectAgentSessions", () => {
 
   afterEach(() => {
     activeAgentProjects.delete(projectId);
+    db.delete(agentContainers).where(eq(agentContainers.sessionId, sessionId)).run();
     db.delete(agentEvents).where(eq(agentEvents.sessionId, sessionId)).run();
     db.delete(agentSessions).where(eq(agentSessions.projectId, projectId)).run();
     db.delete(deployments).where(eq(deployments.projectId, projectId)).run();
@@ -340,5 +343,51 @@ describe("reconcileProjectAgentSessions", () => {
     expect(session?.status).toBe("running");
     expect(isAgentSessionActive(projectId)).toBe(true);
     expect(getBlockingAgentSession(projectId)?.id).toBe(sessionId);
+  });
+
+  it("fails running sessions whose agent container is already stopped", () => {
+    const now = new Date();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "agent/test",
+        status: "running",
+        initialPrompt: "do work",
+        logs: "",
+        startedAt: now,
+      })
+      .run();
+    db.insert(agentContainers)
+      .values({
+        sessionId,
+        containerId: "deadcid",
+        image: "forge-agent:latest",
+        status: "stopped",
+        lastHeartbeatAt: now,
+        lastActivityAt: now,
+        startedAt: now,
+        deadlineAt: new Date(now.getTime() + AGENT_WALL_CLOCK_MS),
+        killReason: null,
+      })
+      .run();
+
+    const count = reconcileProjectAgentSessions(projectId);
+    expect(count).toBeGreaterThanOrEqual(1);
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    expect(session?.status).toBe("failed");
+    expect(session?.errorMessage).toMatch(/container/i);
+
+    const container = db
+      .select()
+      .from(agentContainers)
+      .where(eq(agentContainers.sessionId, sessionId))
+      .get();
+    expect(container?.killReason).toBe("reconcile_missing");
   });
 });

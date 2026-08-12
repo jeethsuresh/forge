@@ -223,6 +223,10 @@ export function startAgentKillPolicyTicker(): void {
   const tick = async () => {
     try {
       await evaluateAgentKillPolicy();
+      const { reconcileMissingAgentContainers } = await import(
+        "@/lib/agent-state"
+      );
+      await reconcileMissingAgentContainers();
     } catch (err) {
       console.error("[forge] Agent kill-policy tick failed:", err);
     }

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";

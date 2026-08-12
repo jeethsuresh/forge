@@ -65,6 +65,7 @@ import {
   startAgentContainer,
   stopAgentContainer,
   waitForAgentContainerExit,
+  getAgentContainer,
 } from "@/lib/agent-container";
 import { AGENT_HEARTBEAT_INTERVAL_SEC } from "@/lib/agent-heartbeat";
 import { getProjectForgefile } from "@/lib/forgefile-project";
@@ -308,11 +309,14 @@ export type AgentSessionForClient = NonNullable<ReturnType<typeof getAgentSessio
   hasFileEdits: boolean;
   sessionSource: ReturnType<typeof resolveAgentSessionSource>;
   sessionSourceLabel: string;
+  containerId: string | null;
+  killReason: string | null;
 };
 
 function withClientFields(session: NonNullable<ReturnType<typeof getAgentSession>>): AgentSessionForClient {
   const events = getAllAgentEventsAfter(session.id, 0);
   const sessionSource = resolveAgentSessionSource(session);
+  const container = getAgentContainer(session.id);
   return {
     ...session,
     hasActiveProcess: isAgentProcessRunning(session.id),
@@ -320,6 +324,8 @@ function withClientFields(session: NonNullable<ReturnType<typeof getAgentSession
     hasFileEdits: sessionEventsHaveFileEdits(events),
     sessionSource,
     sessionSourceLabel: agentSessionSourceLabel(sessionSource),
+    containerId: container?.containerId ?? null,
+    killReason: container?.killReason ?? null,
   };
 }
 

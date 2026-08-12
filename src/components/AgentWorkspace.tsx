@@ -45,6 +45,8 @@ interface AgentSession {
   hasFileEdits?: boolean;
   sessionSource?: "manual" | "recovery" | "rebase-recovery";
   sessionSourceLabel?: string;
+  containerId?: string | null;
+  killReason?: string | null;
 }
 
 type StatusBanner =
@@ -369,7 +371,9 @@ export function AgentWorkspace({
           current.deploymentId === payload.session.deploymentId &&
           current.commitSha === payload.session.commitSha &&
           current.hasActiveProcess === payload.session.hasActiveProcess &&
-          current.canRetry === payload.session.canRetry
+          current.canRetry === payload.session.canRetry &&
+          current.containerId === payload.session.containerId &&
+          current.killReason === payload.session.killReason
         ) {
           return current;
         }
@@ -1296,6 +1300,19 @@ export function AgentWorkspace({
                   Deploy {shortSha(sessionDetail.deploymentId)}
                 </p>
               )}
+              {sessionDetail?.containerId && (
+                <p className="text-xs text-[var(--forge-faint)]">
+                  Container{" "}
+                  <span className="font-mono">
+                    {sessionDetail.containerId.slice(0, 12)}
+                  </span>
+                </p>
+              )}
+              {sessionDetail?.killReason && (
+                <p className="text-xs text-red-400/90">
+                  Kill reason: {sessionDetail.killReason.replace(/_/g, " ")}
+                </p>
+              )}
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
               {hasActiveProcess && !isDeploying && selectedId && (
@@ -1693,6 +1710,9 @@ export function AgentWorkspace({
               {sessionDetail.errorMessage && (
                 <span className="mt-2 block text-red-400">
                   {sessionDetail.errorMessage}
+                  {sessionDetail.killReason
+                    ? ` (kill: ${sessionDetail.killReason})`
+                    : ""}
                 </span>
               )}
             </pre>

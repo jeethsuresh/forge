@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  agentContainers,
   agentEvents,
   agentSessions,
   deployments,
@@ -23,6 +24,11 @@ import {
   isForgeUpdateSuccessful,
   isForgeUpdateTerminalStatus,
 } from "@/lib/ops-session-deploy";
+import {
+  agentContainerIsRunning,
+  removeAgentContainer,
+  setAgentContainerKillReason,
+} from "@/lib/agent-container";
 
 export const activeAgentProjects = new Set<string>();
 
@@ -250,6 +256,116 @@ function reconcileStaleActiveSessions(projectId: string): number {
   return reconciled;
 }
 
+/**
+ * Fail active sessions whose agent_containers row is already stopped/removed
+ * (sync path used by deploy gating / list endpoints).
+ */
+function reconcileStoppedContainerSessions(projectId: string): number {
+  const sessions = db
+    .select()
+    .from(agentSessions)
+    .where(
+      and(
+        eq(agentSessions.projectId, projectId),
+        inArray(agentSessions.status, [...ACTIVE_STATUSES]),
+        isNull(agentSessions.completedAt),
+        isNull(agentSessions.archivedAt),
+      ),
+    )
+    .all();
+
+  let reconciled = 0;
+  for (const session of sessions) {
+    const container = db
+      .select()
+      .from(agentContainers)
+      .where(eq(agentContainers.sessionId, session.id))
+      .get();
+    if (!container) continue;
+    if (container.status !== "stopped" && container.status !== "removed") {
+      continue;
+    }
+
+    const reason = container.killReason ?? "reconcile_missing";
+    const message =
+      reason === "reconcile_missing"
+        ? "Agent container missing or stopped; session reconciled"
+        : `Agent container stopped (${reason})`;
+
+    appendSessionLog(session.id, message);
+    if (!container.killReason) {
+      setAgentContainerKillReason(session.id, "reconcile_missing");
+    }
+    db.update(agentSessions)
+      .set({
+        status: "failed",
+        completedAt: new Date(),
+        errorMessage: message,
+      })
+      .where(eq(agentSessions.id, session.id))
+      .run();
+    activeAgentProjects.delete(projectId);
+    reconciled += 1;
+  }
+  return reconciled;
+}
+
+/**
+ * Async: inspect runtime and fail sessions whose containers disappeared.
+ */
+export async function reconcileMissingAgentContainers(
+  projectId?: string,
+): Promise<number> {
+  const containers = db
+    .select()
+    .from(agentContainers)
+    .where(inArray(agentContainers.status, ["starting", "running"]))
+    .all();
+
+  let reconciled = 0;
+  for (const container of containers) {
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, container.sessionId))
+      .get();
+    if (!session) continue;
+    if (projectId && session.projectId !== projectId) continue;
+    if (
+      session.status !== "running" &&
+      session.status !== "pending" &&
+      session.status !== "deploying"
+    ) {
+      continue;
+    }
+    if (session.archivedAt || session.completedAt) continue;
+
+    const running = await agentContainerIsRunning(session.id);
+    if (running) continue;
+
+    const message =
+      "Agent container missing from runtime; session failed by reconcile";
+    setAgentContainerKillReason(session.id, "reconcile_missing");
+    try {
+      await removeAgentContainer(session.id);
+    } catch {
+      // ignore
+    }
+    appendSessionLog(session.id, message);
+    db.update(agentSessions)
+      .set({
+        status: "failed",
+        completedAt: new Date(),
+        errorMessage: message,
+      })
+      .where(eq(agentSessions.id, session.id))
+      .run();
+    activeAgentProjects.delete(session.projectId);
+    reconciled += 1;
+  }
+  return reconciled;
+}
+
 /** Reconcile orphaned agent rows so failed/interrupted sessions do not block deploys. */
 export function reconcileProjectAgentSessions(projectId: string): number {
   let reconciled = reconcileAbandonedDeployingSessions(projectId);
@@ -273,6 +389,7 @@ export function reconcileProjectAgentSessions(projectId: string): number {
     }
   }
 
+  reconciled += reconcileStoppedContainerSessions(projectId);
   reconciled += reconcileStaleActiveSessions(projectId);
   return reconciled;
 }
