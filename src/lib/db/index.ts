@@ -111,6 +111,34 @@ CREATE TABLE IF NOT EXISTS ops_api_actions (
 
 CREATE INDEX IF NOT EXISTS idx_ops_api_actions_created_at ON ops_api_actions(created_at);
 CREATE INDEX IF NOT EXISTS idx_ops_api_actions_project_id ON ops_api_actions(project_id);
+
+CREATE TABLE IF NOT EXISTS project_forgefiles (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  status TEXT NOT NULL,
+  content_hash TEXT,
+  source_path TEXT,
+  commit_sha TEXT,
+  error_message TEXT,
+  parsed_json TEXT NOT NULL DEFAULT '{}',
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS deploy_targets (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  description TEXT,
+  auto_deploy INTEGER NOT NULL,
+  subdomain TEXT,
+  compose_slug TEXT,
+  ports_json TEXT NOT NULL,
+  scripts_json TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deploy_targets_project_name
+  ON deploy_targets(project_id, name);
+CREATE INDEX IF NOT EXISTS idx_deploy_targets_project_id ON deploy_targets(project_id);
 `;
 
 sqlite.exec(INIT_SQL);
@@ -143,6 +171,7 @@ addColumnIfMissing("agent_sessions", "archived_at", "INTEGER");
 addColumnIfMissing("projects", "deploy_env_json", "TEXT NOT NULL DEFAULT '[]'");
 addColumnIfMissing("projects", "host_port", "INTEGER");
 addColumnIfMissing("projects", "caddy_route_json", "TEXT");
+addColumnIfMissing("deployments", "deploy_target", "TEXT");
 
 // Migrate the old unique (project_id, branch) index to a partial live-only unique index.
 try {

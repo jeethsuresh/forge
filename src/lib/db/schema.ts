@@ -1,4 +1,9 @@
-import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
+import {
+  sqliteTable,
+  text,
+  integer,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -68,6 +73,45 @@ export type ForgeUpdateStatus =
 
 export type ForgeUpdateTrigger = "manual" | "rollback";
 
+export type ProjectForgefileStatus = "missing" | "invalid" | "valid";
+
+export const projectForgefiles = sqliteTable("project_forgefiles", {
+  projectId: text("project_id")
+    .primaryKey()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  status: text("status").$type<ProjectForgefileStatus>().notNull(),
+  contentHash: text("content_hash"),
+  sourcePath: text("source_path"),
+  commitSha: text("commit_sha"),
+  errorMessage: text("error_message"),
+  parsedJson: text("parsed_json").notNull().default("{}"),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const deployTargets = sqliteTable(
+  "deploy_targets",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description"),
+    autoDeploy: integer("auto_deploy", { mode: "boolean" }).notNull(),
+    subdomain: text("subdomain"),
+    composeSlug: text("compose_slug"),
+    portsJson: text("ports_json").notNull(),
+    scriptsJson: text("scripts_json").notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_deploy_targets_project_name").on(
+      table.projectId,
+      table.name,
+    ),
+  ],
+);
+
 export const deployments = sqliteTable("deployments", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
@@ -79,6 +123,7 @@ export const deployments = sqliteTable("deployments", {
   trigger: text("trigger").$type<DeploymentTrigger>().notNull(),
   logs: text("logs").notNull().default(""),
   errorMessage: text("error_message"),
+  deployTarget: text("deploy_target"),
   startedAt: integer("started_at", { mode: "timestamp" }).notNull(),
   completedAt: integer("completed_at", { mode: "timestamp" }),
 });
@@ -145,6 +190,8 @@ export const opsApiActions = sqliteTable("ops_api_actions", {
 
 export type User = typeof users.$inferSelect;
 export type Project = typeof projects.$inferSelect;
+export type ProjectForgefile = typeof projectForgefiles.$inferSelect;
+export type DeployTarget = typeof deployTargets.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
 export type AgentSession = typeof agentSessions.$inferSelect;
 export type AgentEvent = typeof agentEvents.$inferSelect;
