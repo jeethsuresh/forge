@@ -41,5 +41,8 @@ export async function register() {
 
     const { startCaddyLogTcpIngest } = await import("@/lib/caddy-log-tcp-ingest");
     startCaddyLogTcpIngest();
+
+    const { startServiceHealthMonitor } = await import("@/lib/service-health");
+    startServiceHealthMonitor();
   }
 }
