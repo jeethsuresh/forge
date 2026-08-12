@@ -29,6 +29,7 @@ import { ProjectGitTreePanel } from "@/components/ProjectGitTreePanel";
 import { ProjectDiffPanel } from "@/components/ProjectDiffPanel";
 import { ProjectCaddyLogsSection } from "@/components/ProjectCaddyLogsSection";
 import { ProjectLocalBranchesEditor } from "@/components/ProjectLocalBranchesEditor";
+import { ForgefileStatusBanner } from "@/components/ForgefileStatusBanner";
 import {
   agentSessionSourceBadgeClass,
   agentSessionSourceLabel,
@@ -171,11 +172,19 @@ interface ProjectDetail {
   } | null;
 }
 
+type ForgefileStatus = {
+  status: "missing" | "invalid" | "valid" | "unknown";
+  errorMessage: string | null;
+};
+
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [data, setData] = useState<ProjectDetail | null>(null);
+  const [forgefileStatus, setForgefileStatus] = useState<ForgefileStatus | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [expandedDeploymentId, setExpandedDeploymentId] = useState<string | null>(
@@ -208,9 +217,10 @@ export default function ProjectDetailPage() {
       if (poll) params.set("poll", "1");
       if (branch) params.set("deployBranch", branch);
       const qs = params.toString();
-      const res = await fetch(
-        qs ? `/api/projects/${id}?${qs}` : `/api/projects/${id}`,
-      );
+      const [res, forgefileRes] = await Promise.all([
+        fetch(qs ? `/api/projects/${id}?${qs}` : `/api/projects/${id}`),
+        fetch(`/api/projects/${id}/forgefile`),
+      ]);
       if (!res.ok) return;
       const json = (await res.json()) as ProjectDetail;
       setData((previous) => {
@@ -218,6 +228,13 @@ export default function ProjectDetailPage() {
         dataRef.current = next;
         return next;
       });
+      if (forgefileRes.ok) {
+        const forgefileJson = (await forgefileRes.json()) as ForgefileStatus;
+        setForgefileStatus({
+          status: forgefileJson.status,
+          errorMessage: forgefileJson.errorMessage ?? null,
+        });
+      }
       setDeployBranch((prev) => {
         if (prev && json.branches.includes(prev)) return prev;
         return json.project.branch;
@@ -653,6 +670,15 @@ export default function ProjectDetailPage() {
 
       {activeTab === "overview" ? (
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-5">
+          {forgefileStatus && forgefileStatus.status !== "valid" ? (
+            <ForgefileStatusBanner
+              projectId={project.id}
+              projectName={project.name}
+              branch={selectedDeployBranch}
+              status={forgefileStatus.status}
+              errorMessage={forgefileStatus.errorMessage}
+            />
+          ) : null}
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <div className="forge-surface p-4">
               <div className="forge-section-label mb-2">Watch branch</div>
@@ -765,6 +791,17 @@ export default function ProjectDetailPage() {
         </div>
       ) : activeTab === "deploy" ? (
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          {forgefileStatus && forgefileStatus.status !== "valid" ? (
+            <div className="mb-6">
+              <ForgefileStatusBanner
+                projectId={project.id}
+                projectName={project.name}
+                branch={selectedDeployBranch}
+                status={forgefileStatus.status}
+                errorMessage={forgefileStatus.errorMessage}
+              />
+            </div>
+          ) : null}
           {blockingAgentSession && (
             <div className="forge-attention-row mb-6 justify-between">
               <div className="min-w-0 space-y-1">
