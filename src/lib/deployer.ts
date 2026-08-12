@@ -36,6 +36,7 @@ import {
 } from "@/lib/forgefile-run";
 import type { Forgefile } from "@/lib/forgefile-types";
 import { resolveClonePath } from "@/lib/paths";
+import { observeDeployTargetPorts } from "@/lib/service-observe";
 import {
   buildProjectScriptEnv,
   projectScriptArgs,
@@ -494,6 +495,14 @@ async function executeDeployment(
         updateStatus(deploymentId, "success", { completedAt: new Date() });
         syncLastSeenCommit(projectId, commitSha);
         log(`Deployment successful (${commitSha.slice(0, 7)}).`);
+        const observeSlug = target.composeSlug?.trim() || composeSlug;
+        await observeDeployTargetPorts({
+          projectId,
+          deployTarget: deployTargetName,
+          composeSlug: observeSlug,
+          deploymentId,
+          commitSha,
+        });
         return;
       }
 
@@ -553,6 +562,14 @@ async function executeDeployment(
     syncLastSeenCommit(projectId, commitSha);
 
     log(`Deployment successful (${commitSha.slice(0, 7)}).`);
+    const observeSlug = target.composeSlug?.trim() || composeSlug;
+    await observeDeployTargetPorts({
+      projectId,
+      deployTarget: deployTargetName,
+      composeSlug: observeSlug,
+      deploymentId,
+      commitSha,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log(`ERROR: ${message}`);
