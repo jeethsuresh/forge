@@ -44,5 +44,8 @@ export async function register() {
 
     const { startServiceHealthMonitor } = await import("@/lib/service-health");
     startServiceHealthMonitor();
+
+    const { startAgentKillPolicyTicker } = await import("@/lib/agent-heartbeat");
+    startAgentKillPolicyTicker();
   }
 }
