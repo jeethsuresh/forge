@@ -125,6 +125,10 @@ interface ProjectDetail {
     caddyRoute?: ProjectCaddySettings | null;
     linkedRouteKeys?: string[];
     isForge?: boolean;
+    gitSlug?: string | null;
+    httpsCloneUrl?: string | null;
+    sshCloneUrl?: string | null;
+    importedFrom?: string | null;
   };
   deployments: Deployment[];
   currentDeployment: Deployment | null;
@@ -628,7 +632,17 @@ export default function ProjectDetailPage() {
               ) : null}
             </div>
             <p className="mt-2 break-all font-mono text-xs text-[var(--forge-faint)] sm:text-[13px]">
-              {project.githubRepo}
+              {project.httpsCloneUrl
+                ? project.gitSlug
+                  ? `forge/${project.gitSlug}`
+                  : project.httpsCloneUrl
+                : project.githubRepo || "Forge-hosted"}
+              {project.importedFrom ? (
+                <>
+                  <span className="mx-2 text-[var(--forge-line-strong)]">·</span>
+                  imported from {project.importedFrom}
+                </>
+              ) : null}
               <span className="mx-2 text-[var(--forge-line-strong)]">·</span>
               watch{" "}
               <span className="text-[var(--forge-accent-hot)]">{project.branch}</span>
@@ -1097,6 +1111,54 @@ export default function ProjectDetailPage() {
               />
             </div>
           </section>
+
+          {project.httpsCloneUrl || project.sshCloneUrl ? (
+            <section className="mb-8">
+              <h2 className="forge-section-label mb-3">Clone URLs</h2>
+              <div className="forge-surface space-y-3 px-4 py-4">
+                {project.httpsCloneUrl ? (
+                  <div>
+                    <div className="text-xs font-medium text-[var(--forge-muted)]">
+                      HTTPS (smart HTTP)
+                    </div>
+                    <code className="mt-1 block break-all font-mono text-xs text-[var(--forge-bright)]">
+                      {project.httpsCloneUrl}
+                    </code>
+                    <p className="mt-1 text-xs text-[var(--forge-faint)]">
+                      Auth with session cookie, Ops bearer, or Basic password =
+                      Ops/agent token. See docs/git-server.md.
+                    </p>
+                  </div>
+                ) : null}
+                {project.sshCloneUrl ? (
+                  <div>
+                    <div className="text-xs font-medium text-[var(--forge-muted)]">
+                      SSH
+                    </div>
+                    <code className="mt-1 block break-all font-mono text-xs text-[var(--forge-bright)]">
+                      {project.sshCloneUrl}
+                    </code>
+                    <p className="mt-1 text-xs text-[var(--forge-faint)]">
+                      Register keys under Global settings → Git SSH.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+          ) : (
+            <section className="mb-8">
+              <h2 className="forge-section-label mb-3">Git origin</h2>
+              <div className="forge-surface px-4 py-4 text-sm text-[var(--forge-muted)]">
+                This project still uses GitHub (
+                <code className="text-xs">{project.githubRepo}</code>
+                ). Import into Forge from{" "}
+                <a href="/projects/new" className="text-[var(--forge-accent-hot)]">
+                  Add project → Import GitHub
+                </a>{" "}
+                to make Forge the primary origin.
+              </div>
+            </section>
+          )}
 
           <ProjectLocalBranchesEditor
             projectId={id}

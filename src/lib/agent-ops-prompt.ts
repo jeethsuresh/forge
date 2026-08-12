@@ -17,6 +17,7 @@ export function forgeOpsApiCatalog(baseUrl: string) {
       "Before mutating production state, read current status with the matching GET endpoint.",
       "Include opsActionId from responses when reporting results to the user.",
       "NEVER run Forge's own ./deploy.sh. Redeploy Forge only via POST /api/ops/projects/{projectId}/deploy (or the UI Redeploy/Update action). Running deploy.sh against Forge leaves the container in a state the self-updater cannot recreate properly.",
+      "Prefer Forge git HTTPS (/api/git/<slug>.git) when the project has a linked git repository. Authenticate with your Ops/session token (Basic password or Bearer).",
     ],
     endpoints: [
       { method: "GET", path: "/api/ops", description: "This catalog and usage rules" },
@@ -26,6 +27,12 @@ export function forgeOpsApiCatalog(baseUrl: string) {
         method: "GET",
         path: "/api/ops/projects/{projectId}",
         description: "Project detail: deployments, containers, agents, deploy update",
+      },
+      {
+        method: "GET",
+        path: "/api/git/{slug}.git/info/refs",
+        description:
+          "Smart HTTP advertise (git clone/fetch/push). Auth: Bearer Ops/session token or Basic password=token. See docs/git-server.md",
       },
       {
         method: "PATCH",

@@ -37,7 +37,8 @@ import {
   deployedCommitShaForProjectBranch,
 } from "@/lib/project-deploy-update";
 import { getRemoteCommitSha } from "@/lib/github";
-import { projectRemoteUrl } from "@/lib/project-git-remote";
+import { projectRemoteUrl, getProjectGitRepository } from "@/lib/project-git-remote";
+import { forgeGitHttpsUrl, forgeGitSshUrl } from "@/lib/git-repo";
 import {
   buildDeployEnvVarViews,
   fillDeployEnvFromRepo,
@@ -70,6 +71,7 @@ function projectResponse(
       ? { source: null as ".env" | ".env.example" | null, vars: [] }
       : readRepoEnvFile(project.clonePath);
   const routing = projectRoutingView(project);
+  const gitRepo = getProjectGitRepository(project);
   return {
     ...rest,
     composeProjectName: composeProjectName(rest.name),
@@ -80,6 +82,10 @@ function projectResponse(
     caddyRoute: routing.caddyRoute,
     linkedRouteKeys: routing.linkedRouteKeys,
     caddyConfig: routing.caddyConfig,
+    gitSlug: gitRepo?.slug ?? null,
+    httpsCloneUrl: gitRepo ? forgeGitHttpsUrl(gitRepo.slug) : null,
+    sshCloneUrl: gitRepo ? forgeGitSshUrl(gitRepo.slug) : null,
+    importedFrom: gitRepo?.importedFrom ?? null,
   };
 }
 

@@ -10,6 +10,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Deploy and named script runs fail closed when the Forgefile is missing or invalid. Prefer Ops/UI script run and deploy endpoints over inventing ad-hoc script invocations.
 - Agents may be asked to author a Forgefile via the bootstrap CTA; do not deploy until validation passes.
 
+## Git server (Forge origin)
+
+- Forge hosts bare repos under `/data/git/<slug>.git`. Prefer HTTPS smart HTTP at `/api/git/<slug>.git` (session/Ops/agent token auth). See `docs/git-server.md`.
+- Create empty projects or one-shot **Import GitHub** from the UI; GitHub is not a dual remote after import.
+- When `gitRepositoryId` is set, deploy jobs and agent containers clone from Forge (not GitHub).
+
 ## Agent workflow (mandatory)
 
 - **Run `./test.sh` before finishing any task** that touches code or config. Do not end the turn with failing or unrun tests.

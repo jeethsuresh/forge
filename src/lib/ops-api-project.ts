@@ -14,7 +14,8 @@ import {
 import { isForgeProject } from "@/lib/forge-project";
 import { getForgeStatus } from "@/lib/self-update";
 import { getRemoteCommitSha, listAvailableBranches } from "@/lib/github";
-import { projectRemoteUrl } from "@/lib/project-git-remote";
+import { projectRemoteUrl, getProjectGitRepository } from "@/lib/project-git-remote";
+import { forgeGitHttpsUrl, forgeGitSshUrl } from "@/lib/git-repo";
 import { deploymentRowForClient } from "@/lib/project-poll";
 import { projectComposeSlug } from "@/lib/projects";
 import {
@@ -60,6 +61,16 @@ export async function buildOpsProjectSummary(project: typeof projects.$inferSele
     branch: project.branch,
     enabled: project.enabled,
     isForge: forge,
+    gitRepositoryId: project.gitRepositoryId,
+    gitSlug: getProjectGitRepository(project)?.slug ?? null,
+    httpsCloneUrl: (() => {
+      const repo = getProjectGitRepository(project);
+      return repo ? forgeGitHttpsUrl(repo.slug) : null;
+    })(),
+    sshCloneUrl: (() => {
+      const repo = getProjectGitRepository(project);
+      return repo ? forgeGitSshUrl(repo.slug) : null;
+    })(),
     runtimeStatus: deriveRuntimeStatus(containers, {
       isDeploying,
       hasSuccessfulDeploy:
