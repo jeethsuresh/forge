@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import type { ServiceDirectoryApiRow } from "@/lib/service-directory-api";
+import type { ServiceDirectoryApiRow } from "@/lib/service-directory-types";
 import { formatRelativeTime } from "@/lib/utils";
-import { statusTone } from "@/lib/ui-status";
 import { Badge, SectionLabel } from "@/components/ui";
 
 type ServicesResponse = {

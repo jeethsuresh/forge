@@ -1,0 +1,21 @@
+export type ServiceDirectoryApiRow = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  deployTarget: string;
+  portName: string;
+  port: number;
+  public: boolean;
+  subdomain: string | null;
+  url: string | null;
+  status: "unknown" | "up" | "down";
+  routeStatus: "none" | "synced" | "error";
+  routeError: string | null;
+  boundPort: number | null;
+  lastCheckedAt: string | null;
+  lastLatencyMs: number | null;
+  lastError: string | null;
+  deploymentId: string | null;
+  commitSha: string | null;
+  updatedAt: string;
+};

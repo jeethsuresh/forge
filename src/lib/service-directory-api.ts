@@ -2,28 +2,9 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { projects, type ServiceDirectoryRow } from "@/lib/db/schema";
 import { listServiceDirectory } from "@/lib/service-directory";
+import type { ServiceDirectoryApiRow } from "@/lib/service-directory-types";
 
-export type ServiceDirectoryApiRow = {
-  id: string;
-  projectId: string;
-  projectName: string;
-  deployTarget: string;
-  portName: string;
-  port: number;
-  public: boolean;
-  subdomain: string | null;
-  url: string | null;
-  status: ServiceDirectoryRow["status"];
-  routeStatus: ServiceDirectoryRow["routeStatus"];
-  routeError: string | null;
-  boundPort: number | null;
-  lastCheckedAt: string | null;
-  lastLatencyMs: number | null;
-  lastError: string | null;
-  deploymentId: string | null;
-  commitSha: string | null;
-  updatedAt: string;
-};
+export type { ServiceDirectoryApiRow } from "@/lib/service-directory-types";
 
 function toIso(value: Date | number | null | undefined): string | null {
   if (value == null) return null;
