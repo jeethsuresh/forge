@@ -20,7 +20,7 @@ describe("runtimeTone", () => {
 
 describe("toneBadgeClass", () => {
   it("includes colour tokens", () => {
-    expect(toneBadgeClass("danger")).toContain("red");
-    expect(toneBadgeClass("accent")).toContain("orange");
+    expect(toneBadgeClass("danger")).toContain("forge-tone-danger");
+    expect(toneBadgeClass("accent")).toContain("forge-tone-accent");
   });
 });

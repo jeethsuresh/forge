@@ -1,23 +1,33 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-type ButtonVariant = "primary" | "secondary" | "danger" | "ghost" | "warning";
-type ButtonSize = "sm" | "md";
+type ButtonVariant =
+  | "primary"
+  | "secondary"
+  | "danger"
+  | "ghost"
+  | "warning"
+  | "info";
+type ButtonSize = "sm" | "md" | "lg";
 
 const VARIANT: Record<ButtonVariant, string> = {
   primary:
-    "bg-orange-500 text-white hover:bg-orange-400 border border-transparent",
+    "bg-[var(--forge-accent)] text-white hover:bg-[var(--forge-accent-hot)] border border-transparent shadow-[0_0_0_1px_rgba(255,122,26,0.25)]",
   secondary:
-    "border border-zinc-700 bg-transparent text-zinc-200 hover:bg-zinc-800",
+    "border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.25)] text-[var(--forge-bright)] hover:bg-[var(--forge-hover)]",
   danger:
-    "border border-red-400/30 bg-red-400/10 text-red-300 hover:bg-red-400/20",
+    "border border-[color-mix(in_srgb,var(--forge-danger)_35%,transparent)] bg-[var(--forge-danger-muted)] text-[var(--forge-danger)] hover:bg-[color-mix(in_srgb,var(--forge-danger)_22%,transparent)]",
   warning:
-    "border border-amber-400/30 bg-amber-400/10 text-amber-200 hover:bg-amber-400/20",
-  ghost: "border border-transparent text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200",
+    "border border-[color-mix(in_srgb,var(--forge-warning)_35%,transparent)] bg-[var(--forge-warning-muted)] text-[var(--forge-warning)] hover:bg-[color-mix(in_srgb,var(--forge-warning)_22%,transparent)]",
+  info:
+    "border border-[color-mix(in_srgb,var(--forge-info)_35%,transparent)] bg-[var(--forge-info-muted)] text-[var(--forge-info)] hover:bg-[color-mix(in_srgb,var(--forge-info)_22%,transparent)]",
+  ghost:
+    "border border-transparent text-[var(--forge-muted)] hover:bg-[rgba(255,255,255,0.04)] hover:text-[var(--forge-bright)]",
 };
 
 const SIZE: Record<ButtonSize, string> = {
-  sm: "min-h-9 px-2.5 py-1.5 text-xs",
-  md: "min-h-11 px-4 py-2.5 text-sm",
+  sm: "min-h-9 px-2.5 py-1.5 text-xs rounded-[9px]",
+  md: "min-h-11 px-4 py-2.5 text-sm rounded-[10px]",
+  lg: "min-h-12 px-5 py-3 text-sm rounded-[12px]",
 };
 
 export function Button({
@@ -25,6 +35,7 @@ export function Button({
   size = "md",
   className = "",
   children,
+  type,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
@@ -33,8 +44,8 @@ export function Button({
 }) {
   return (
     <button
-      type="button"
-      className={`inline-flex items-center justify-center rounded-lg font-medium transition-colors disabled:opacity-50 ${VARIANT[variant]} ${SIZE[size]} ${className}`}
+      type={type ?? "button"}
+      className={`inline-flex items-center justify-center gap-1.5 font-semibold transition-colors disabled:opacity-45 ${VARIANT[variant]} ${SIZE[size]} ${className}`}
       {...props}
     >
       {children}

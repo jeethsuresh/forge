@@ -14,7 +14,7 @@ export function StatusDot({
   return (
     <span
       title={title}
-      className={`inline-block h-2 w-2 shrink-0 rounded-full ${toneDotClass(tone)} ${pulse ? "animate-pulse" : ""} ${className}`}
+      className={`inline-block h-2.5 w-2.5 shrink-0 rounded-full shadow-[0_0_10px_currentColor] ${toneDotClass(tone)} ${pulse ? "animate-pulse" : ""} ${className}`}
     />
   );
 }

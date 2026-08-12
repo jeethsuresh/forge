@@ -9,30 +9,30 @@ export type SemanticTone =
   | "accent";
 
 const TONE_BADGE: Record<SemanticTone, string> = {
-  success: "text-emerald-400 bg-emerald-400/10 border-emerald-400/20",
-  warning: "text-amber-400 bg-amber-400/10 border-amber-400/20",
-  danger: "text-red-400 bg-red-400/10 border-red-400/20",
-  info: "text-cyan-400 bg-cyan-400/10 border-cyan-400/20",
-  neutral: "text-zinc-400 bg-zinc-400/10 border-zinc-400/20",
-  accent: "text-orange-300 bg-orange-500/15 border-orange-500/30",
+  success: "forge-status-pill forge-tone-success",
+  warning: "forge-status-pill forge-tone-warning",
+  danger: "forge-status-pill forge-tone-danger",
+  info: "forge-status-pill forge-tone-info",
+  neutral: "forge-status-pill forge-tone-neutral",
+  accent: "forge-status-pill forge-tone-accent",
 };
 
 const TONE_DOT: Record<SemanticTone, string> = {
-  success: "bg-emerald-400",
-  warning: "bg-amber-400",
-  danger: "bg-red-400",
-  info: "bg-cyan-400",
-  neutral: "bg-zinc-500",
-  accent: "bg-orange-500",
+  success: "bg-[var(--forge-success)] text-[var(--forge-success)]",
+  warning: "bg-[var(--forge-warning)] text-[var(--forge-warning)]",
+  danger: "bg-[var(--forge-danger)] text-[var(--forge-danger)]",
+  info: "bg-[var(--forge-info)] text-[var(--forge-info)]",
+  neutral: "bg-[var(--forge-neutral)] text-[var(--forge-neutral)]",
+  accent: "bg-[var(--forge-accent)] text-[var(--forge-accent)]",
 };
 
 const TONE_TEXT: Record<SemanticTone, string> = {
-  success: "text-emerald-400",
-  warning: "text-amber-400",
-  danger: "text-red-400",
-  info: "text-cyan-400",
-  neutral: "text-zinc-400",
-  accent: "text-orange-400",
+  success: "text-[var(--forge-success)]",
+  warning: "text-[var(--forge-warning)]",
+  danger: "text-[var(--forge-danger)]",
+  info: "text-[var(--forge-info)]",
+  neutral: "text-[var(--forge-muted)]",
+  accent: "text-[var(--forge-accent)]",
 };
 
 export function toneBadgeClass(tone: SemanticTone): string {

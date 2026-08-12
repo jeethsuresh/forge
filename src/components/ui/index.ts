@@ -5,3 +5,5 @@ export { ProjectSwatch } from "./ProjectSwatch";
 export { Panel } from "./Panel";
 export { Kbd } from "./Kbd";
 export { TabButton, TabList } from "./Tabs";
+export { Input, TextArea } from "./Input";
+export { PageHeader, SectionLabel, ActionLink } from "./PageHeader";

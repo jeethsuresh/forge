@@ -987,17 +987,17 @@ export function AgentWorkspace({
 
   const branchSidebar = (
     <aside
-      className={`flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-zinc-800 bg-zinc-950 md:w-64 md:border-r ${
+      className={`flex h-full min-h-0 w-full shrink-0 flex-col overflow-hidden border-[var(--forge-line)] bg-[var(--forge-app)] md:w-64 md:border-r ${
         mobileShowChat ? "hidden md:flex" : "flex"
       }`}
     >
-      <div className="border-b border-zinc-800 px-4 py-3">
+      <div className="border-b border-[var(--forge-line)] px-4 py-3">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+            <p className="text-xs font-medium uppercase tracking-wider text-[var(--forge-faint)]">
               Agents
             </p>
-            <p className="mt-0.5 text-xs text-zinc-600">
+            <p className="mt-0.5 text-xs text-[var(--forge-faint)]">
               Queue agents on different branches
             </p>
           </div>
@@ -1013,7 +1013,7 @@ export function AgentWorkspace({
               setMessages([]);
             }}
             disabled={loading}
-            className="min-h-8 shrink-0 rounded-lg border border-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
+            className="min-h-8 shrink-0 rounded-lg border border-[var(--forge-line-strong)] px-2.5 py-1 text-xs font-medium text-[var(--forge-muted)] hover:bg-[rgba(255,255,255,0.04)] disabled:opacity-50"
             title="Create a new branch and agent"
           >
             + New
@@ -1037,8 +1037,8 @@ export function AgentWorkspace({
                   setShowRecreateForm(false);
                   selectBranch(b);
                 }}
-                className={`flex w-full flex-col gap-1 border-b border-zinc-800/60 px-4 py-3 text-left transition-colors hover:bg-zinc-900 ${
-                  isSelected ? "bg-zinc-900" : ""
+                className={`flex w-full flex-col gap-1 border-b border-[var(--forge-line)] px-4 py-3 text-left transition-colors hover:bg-[rgba(255,255,255,0.04)] ${
+                  isSelected ? "bg-[rgba(255,255,255,0.04)]" : ""
                 }`}
               >
                 <div className="flex items-center gap-2">
@@ -1047,24 +1047,24 @@ export function AgentWorkspace({
                       isRunning
                         ? "animate-pulse bg-amber-400"
                         : b.hasAgent
-                          ? "bg-zinc-600"
-                          : "bg-zinc-700"
+                          ? "bg-[var(--forge-muted)]"
+                          : "bg-[var(--forge-elevated)]"
                     }`}
                   />
-                  <span className="min-w-0 flex-1 truncate font-mono text-sm text-zinc-200">
+                  <span className="min-w-0 flex-1 truncate font-mono text-sm text-[var(--forge-bright)]">
                     {b.name}
                   </span>
                 </div>
                 {session ? (
-                  <p className="line-clamp-2 pl-4 text-xs text-zinc-500">
+                  <p className="line-clamp-2 pl-4 text-xs text-[var(--forge-faint)]">
                     {session.initialPrompt}
                   </p>
                 ) : (
-                  <p className="pl-4 text-xs text-zinc-600">No agent yet</p>
+                  <p className="pl-4 text-xs text-[var(--forge-faint)]">No agent yet</p>
                 )}
                 <div className="flex flex-wrap items-center gap-1.5 pl-4">
                   {b.isDeployBranch && (
-                    <span className="text-[10px] uppercase text-zinc-600">
+                    <span className="text-[10px] uppercase text-[var(--forge-faint)]">
                       deploy
                     </span>
                   )}
@@ -1088,13 +1088,13 @@ export function AgentWorkspace({
           );
         })}
         {branches.length === 0 && (
-          <li className="px-4 py-8 text-center text-sm text-zinc-600">
+          <li className="px-4 py-8 text-center text-sm text-[var(--forge-faint)]">
             No local branches. Clone the repo first.
           </li>
         )}
       </ul>
 
-      <div className="shrink-0 border-t border-zinc-800">
+      <div className="shrink-0 border-t border-[var(--forge-line)]">
         <button
           type="button"
           onClick={() => {
@@ -1112,25 +1112,25 @@ export function AgentWorkspace({
             });
           }}
           aria-expanded={archiveExpanded}
-          className="flex min-h-10 w-full items-center gap-2 px-4 py-2 text-left hover:bg-zinc-900"
+          className="flex min-h-10 w-full items-center gap-2 px-4 py-2 text-left hover:bg-[rgba(255,255,255,0.04)]"
         >
           <span
-            className={`text-zinc-500 transition-transform ${archiveExpanded ? "rotate-90" : ""}`}
+            className={`text-[var(--forge-faint)] transition-transform ${archiveExpanded ? "rotate-90" : ""}`}
             aria-hidden
           >
             ›
           </span>
-          <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+          <span className="text-xs font-medium uppercase tracking-wider text-[var(--forge-faint)]">
             Archived sessions
           </span>
-          <span className="ml-auto text-[10px] text-zinc-600">
+          <span className="ml-auto text-[10px] text-[var(--forge-faint)]">
             {archivedSessions.length}
           </span>
         </button>
         {archiveExpanded && (
-          <ul className="max-h-48 overflow-y-auto overscroll-contain border-t border-zinc-800/60">
+          <ul className="max-h-48 overflow-y-auto overscroll-contain border-t border-[var(--forge-line)]">
             {archivedSessions.length === 0 ? (
-              <li className="px-4 py-3 text-xs text-zinc-600">
+              <li className="px-4 py-3 text-xs text-[var(--forge-faint)]">
                 No archived sessions yet.
               </li>
             ) : (
@@ -1150,12 +1150,12 @@ export function AgentWorkspace({
                         setMessages([]);
                         setMobileShowChat(true);
                       }}
-                      className={`flex w-full flex-col gap-1 border-b border-zinc-800/60 px-4 py-2.5 text-left hover:bg-zinc-900 ${
-                        isSelected ? "bg-zinc-900" : ""
+                      className={`flex w-full flex-col gap-1 border-b border-[var(--forge-line)] px-4 py-2.5 text-left hover:bg-[rgba(255,255,255,0.04)] ${
+                        isSelected ? "bg-[rgba(255,255,255,0.04)]" : ""
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <span className="min-w-0 flex-1 truncate font-mono text-xs text-zinc-300">
+                        <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--forge-muted)]">
                           {session.branch}
                         </span>
                         <span
@@ -1164,10 +1164,10 @@ export function AgentWorkspace({
                           {session.status}
                         </span>
                       </div>
-                      <p className="line-clamp-2 text-[11px] text-zinc-500">
+                      <p className="line-clamp-2 text-[11px] text-[var(--forge-faint)]">
                         {session.initialPrompt}
                       </p>
-                      <p className="text-[10px] text-zinc-600">
+                      <p className="text-[10px] text-[var(--forge-faint)]">
                         {session.archivedAt
                           ? formatRelativeTime(session.archivedAt)
                           : formatRelativeTime(session.startedAt)}
@@ -1185,12 +1185,12 @@ export function AgentWorkspace({
 
   const chatArea = (
     <div
-      className={`flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-zinc-900 ${
+      className={`flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--forge-panel)] ${
         !mobileShowChat ? "hidden md:flex" : "flex"
       }`}
     >
       {!selectedBranch && !showNewBranchForm ? (
-        <div className="flex flex-1 items-center justify-center p-8 text-sm text-zinc-600">
+        <div className="flex flex-1 items-center justify-center p-8 text-sm text-[var(--forge-faint)]">
           Select a branch to start or open an agent
         </div>
       ) : showNewBranchForm ? (
@@ -1204,8 +1204,8 @@ export function AgentWorkspace({
               >
                 ← Agents
               </button>
-              <h3 className="text-sm font-medium text-zinc-100">New branch &amp; agent</h3>
-              <p className="mt-1 text-xs text-zinc-500">
+              <h3 className="text-sm font-medium text-[var(--forge-bright)]">New branch &amp; agent</h3>
+              <p className="mt-1 text-xs text-[var(--forge-faint)]">
                 Creates a branch from{" "}
                 <span className="font-mono text-orange-400/90">
                   {deployBranchName ?? "deploy branch"}
@@ -1220,7 +1220,7 @@ export function AgentWorkspace({
                 setNewBranchName("");
                 setPrompt("");
               }}
-              className="min-h-8 rounded-lg px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300"
+              className="min-h-8 rounded-lg px-2 py-1 text-xs text-[var(--forge-faint)] hover:bg-[var(--forge-elevated)] hover:text-[var(--forge-muted)]"
             >
               Cancel
             </button>
@@ -1228,7 +1228,7 @@ export function AgentWorkspace({
 
           <form onSubmit={createNewBranchAndAgent} className="flex flex-1 flex-col">
             <label className="mb-3 block">
-              <span className="mb-1.5 block text-xs font-medium text-zinc-500">
+              <span className="mb-1.5 block text-xs font-medium text-[var(--forge-faint)]">
                 Branch name
               </span>
               <input
@@ -1237,11 +1237,11 @@ export function AgentWorkspace({
                 onChange={(e) => setNewBranchName(e.target.value)}
                 placeholder="agent/my-feature"
                 autoFocus
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-orange-500 focus:outline-none"
+                className="w-full rounded-lg border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.35)] px-3 py-2.5 font-mono text-sm text-[var(--forge-bright)] placeholder:text-[var(--forge-faint)] focus:border-orange-500 focus:outline-none"
               />
             </label>
             <label className="mb-3 block flex-1">
-              <span className="mb-1.5 block text-xs font-medium text-zinc-500">
+              <span className="mb-1.5 block text-xs font-medium text-[var(--forge-faint)]">
                 Initial instruction
               </span>
               <textarea
@@ -1249,7 +1249,7 @@ export function AgentWorkspace({
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder="Describe what you want the agent to change…"
                 rows={4}
-                className="h-full min-h-32 w-full resize-none rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-base text-zinc-200 placeholder:text-zinc-600 focus:border-orange-500 focus:outline-none sm:text-sm"
+                className="h-full min-h-32 w-full resize-none rounded-lg border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.35)] px-3 py-2.5 text-base text-[var(--forge-bright)] placeholder:text-[var(--forge-faint)] focus:border-orange-500 focus:outline-none sm:text-sm"
               />
             </label>
             <button
@@ -1267,7 +1267,7 @@ export function AgentWorkspace({
         </div>
       ) : (
         <>
-          <div className="flex shrink-0 items-start justify-between gap-2 border-b border-zinc-800 px-4 py-3">
+          <div className="flex shrink-0 items-start justify-between gap-2 border-b border-[var(--forge-line)] px-4 py-3">
             <div className="min-w-0">
               <button
                 type="button"
@@ -1276,7 +1276,7 @@ export function AgentWorkspace({
               >
                 ← Agents
               </button>
-              <h3 className="truncate font-mono text-sm font-medium text-zinc-100">
+              <h3 className="truncate font-mono text-sm font-medium text-[var(--forge-bright)]">
                 {selectedBranch}
               </h3>
               {sessionDetail?.sessionSourceLabel && (
@@ -1287,12 +1287,12 @@ export function AgentWorkspace({
                 </span>
               )}
               {sessionDetail?.commitSha && (
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-[var(--forge-faint)]">
                   Commit {shortSha(sessionDetail.commitSha)}
                 </p>
               )}
               {sessionDetail?.deploymentId && (
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-[var(--forge-faint)]">
                   Deploy {shortSha(sessionDetail.deploymentId)}
                 </p>
               )}
@@ -1329,14 +1329,14 @@ export function AgentWorkspace({
                 </button>
               )}
               {selectedId && (
-                <div className="flex rounded-lg border border-zinc-700 p-0.5">
+                <div className="flex rounded-lg border border-[var(--forge-line-strong)] p-0.5">
                   <button
                     type="button"
                     onClick={() => setShowLogs(false)}
                     className={`min-h-8 rounded-md px-2.5 text-xs ${
                       !showLogs
-                        ? "bg-zinc-800 text-zinc-100"
-                        : "text-zinc-500 hover:text-zinc-300"
+                        ? "bg-[var(--forge-elevated)] text-[var(--forge-bright)]"
+                        : "text-[var(--forge-faint)] hover:text-[var(--forge-muted)]"
                     }`}
                   >
                     Chat
@@ -1346,8 +1346,8 @@ export function AgentWorkspace({
                     onClick={() => setShowLogs(true)}
                     className={`min-h-8 rounded-md px-2.5 text-xs ${
                       showLogs
-                        ? "bg-zinc-800 text-zinc-100"
-                        : "text-zinc-500 hover:text-zinc-300"
+                        ? "bg-[var(--forge-elevated)] text-[var(--forge-bright)]"
+                        : "text-[var(--forge-faint)] hover:text-[var(--forge-muted)]"
                     }`}
                   >
                     Logs
@@ -1355,10 +1355,10 @@ export function AgentWorkspace({
                 </div>
               )}
               <details className="relative">
-                <summary className="flex min-h-9 cursor-pointer list-none items-center rounded-lg border border-zinc-600 px-2.5 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800 [&::-webkit-details-marker]:hidden">
+                <summary className="flex min-h-9 cursor-pointer list-none items-center rounded-lg border border-[var(--forge-line-strong)] px-2.5 py-1.5 text-xs text-[var(--forge-bright)] hover:bg-[var(--forge-elevated)] [&::-webkit-details-marker]:hidden">
                   Session
                 </summary>
-                <div className="absolute right-0 z-30 mt-1 max-h-[70vh] w-52 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 py-1 shadow-xl">
+                <div className="absolute right-0 z-30 mt-1 max-h-[70vh] w-52 overflow-y-auto rounded-lg border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.35)] py-1 shadow-xl">
                   {showRecreateButton && (
                     <button
                       type="button"
@@ -1367,7 +1367,7 @@ export function AgentWorkspace({
                         setRecreatePrompt("");
                       }}
                       disabled={loading}
-                      className="flex w-full px-3 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                      className="flex w-full px-3 py-2 text-left text-xs text-[var(--forge-bright)] hover:bg-[var(--forge-elevated)] disabled:opacity-50"
                     >
                       Recreate
                     </button>
@@ -1377,7 +1377,7 @@ export function AgentWorkspace({
                       type="button"
                       onClick={() => void archiveSession()}
                       disabled={loading}
-                      className="flex w-full px-3 py-2 text-left text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                      className="flex w-full px-3 py-2 text-left text-xs text-[var(--forge-muted)] hover:bg-[var(--forge-elevated)] disabled:opacity-50"
                     >
                       Archive
                     </button>
@@ -1409,7 +1409,7 @@ export function AgentWorkspace({
                         type="button"
                         onClick={commitSession}
                         disabled={loading}
-                        className="flex w-full px-3 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                        className="flex w-full px-3 py-2 text-left text-xs text-[var(--forge-bright)] hover:bg-[var(--forge-elevated)] disabled:opacity-50"
                       >
                         Commit
                       </button>
@@ -1459,7 +1459,7 @@ export function AgentWorkspace({
                         type="button"
                         onClick={commitSession}
                         disabled={loading}
-                        className="flex w-full px-3 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                        className="flex w-full px-3 py-2 text-left text-xs text-[var(--forge-bright)] hover:bg-[var(--forge-elevated)] disabled:opacity-50"
                       >
                         Commit
                       </button>
@@ -1480,7 +1480,7 @@ export function AgentWorkspace({
                           projectId,
                           selectedId,
                         )}
-                        className="flex w-full px-3 py-2 text-left text-xs text-zinc-300 hover:bg-zinc-800"
+                        className="flex w-full px-3 py-2 text-left text-xs text-[var(--forge-muted)] hover:bg-[var(--forge-elevated)]"
                       >
                         View changes
                       </Link>
@@ -1490,7 +1490,7 @@ export function AgentWorkspace({
                             projectId,
                             selectedBranch,
                           )}
-                          className="flex w-full px-3 py-2 text-left text-xs text-zinc-400 hover:bg-zinc-800"
+                          className="flex w-full px-3 py-2 text-left text-xs text-[var(--forge-muted)] hover:bg-[var(--forge-elevated)]"
                         >
                           vs {watchBranch}
                         </Link>
@@ -1504,7 +1504,7 @@ export function AgentWorkspace({
                       disabled={
                         loading || hasActiveProcess || !sessionDetail?.logs
                       }
-                      className="flex w-full px-3 py-2 text-left text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
+                      className="flex w-full px-3 py-2 text-left text-xs text-[var(--forge-muted)] hover:bg-[var(--forge-elevated)] disabled:opacity-50"
                     >
                       Clear logs
                     </button>
@@ -1515,7 +1515,7 @@ export function AgentWorkspace({
           </div>
 
           {isArchivedSession && (
-            <div className="border-b border-zinc-800 bg-zinc-950/80 px-4 py-2 text-xs text-zinc-400">
+            <div className="border-b border-[var(--forge-line)] bg-[rgba(0,0,0,0.35)] px-4 py-2 text-xs text-[var(--forge-muted)]">
               Archived session — read-only. Recreate a live agent from the branch
               list when you want a fresh run.
             </div>
@@ -1524,16 +1524,16 @@ export function AgentWorkspace({
           {showRecreateForm && selectedBranch && (
             <form
               onSubmit={recreateAgent}
-              className="space-y-3 border-b border-zinc-800 bg-zinc-950/60 px-4 py-3"
+              className="space-y-3 border-b border-[var(--forge-line)] bg-[rgba(0,0,0,0.28)] px-4 py-3"
             >
               <div>
-                <p className="text-sm font-medium text-zinc-100">
+                <p className="text-sm font-medium text-[var(--forge-bright)]">
                   Recreate agent on{" "}
                   <span className="font-mono text-orange-300">
                     {selectedBranch}
                   </span>
                 </p>
-                <p className="mt-1 text-xs text-zinc-500">
+                <p className="mt-1 text-xs text-[var(--forge-faint)]">
                   Archives the current session and starts a brand-new agent with
                   a new initial prompt.
                 </p>
@@ -1545,7 +1545,7 @@ export function AgentWorkspace({
                 required
                 placeholder="New initial prompt…"
                 disabled={loading}
-                className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-orange-500/50 disabled:opacity-50"
+                className="w-full rounded-lg border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.35)] px-3 py-2 text-sm text-[var(--forge-bright)] outline-none focus:border-orange-500/50 disabled:opacity-50"
               />
               <div className="flex flex-wrap gap-2">
                 <button
@@ -1562,7 +1562,7 @@ export function AgentWorkspace({
                     setShowRecreateForm(false);
                     setRecreatePrompt("");
                   }}
-                  className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800 disabled:opacity-50"
+                  className="rounded-lg border border-[var(--forge-line-strong)] px-3 py-1.5 text-xs text-[var(--forge-muted)] hover:bg-[var(--forge-elevated)] disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -1578,7 +1578,7 @@ export function AgentWorkspace({
           )}
 
           {isQueuedSession && (
-            <p className="border-b border-zinc-800 bg-amber-400/5 px-4 py-2 text-xs text-amber-400">
+            <p className="border-b border-[var(--forge-line)] bg-amber-400/5 px-4 py-2 text-xs text-amber-400">
               Queued behind the active agent
               {activeBranch ? (
                 <>
@@ -1594,8 +1594,8 @@ export function AgentWorkspace({
             isTerminalSession &&
             sessionDetail.status === "completed" &&
             !sessionDetail.deploymentId && (
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-orange-400/5 px-4 py-3">
-                <p className="text-sm text-zinc-300">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--forge-line)] bg-orange-400/5 px-4 py-3">
+                <p className="text-sm text-[var(--forge-muted)]">
                   Session finished
                   {sessionDetail.commitSha
                     ? ` and changes were pushed (${shortSha(sessionDetail.commitSha)})`
@@ -1630,7 +1630,7 @@ export function AgentWorkspace({
             sessionDetail.hasFileEdits === false &&
             sessionDetail.status === "completed" &&
             !sessionDetail.commitSha && (
-              <p className="border-b border-zinc-800 bg-zinc-800/40 px-4 py-2 text-xs text-zinc-400">
+              <p className="border-b border-[var(--forge-line)] bg-[rgba(255,255,255,0.04)] px-4 py-2 text-xs text-[var(--forge-muted)]">
                 Session finished with no file changes.
               </p>
             )}
@@ -1639,8 +1639,8 @@ export function AgentWorkspace({
             !isTerminalSession &&
             sessionDetail.hasFileEdits === true &&
             showFinishAndDeploy && (
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 bg-orange-400/5 px-4 py-3">
-                <p className="text-sm text-zinc-300">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--forge-line)] bg-orange-400/5 px-4 py-3">
+                <p className="text-sm text-[var(--forge-muted)]">
                   Agent finished with file changes ready to ship.
                 </p>
                 <button
@@ -1658,14 +1658,14 @@ export function AgentWorkspace({
             !isTerminalSession &&
             sessionDetail.hasFileEdits === true &&
             !showFinishAndDeploy && (
-              <p className="border-b border-zinc-800 bg-zinc-800/40 px-4 py-2 text-xs text-zinc-400">
+              <p className="border-b border-[var(--forge-line)] bg-[rgba(255,255,255,0.04)] px-4 py-2 text-xs text-[var(--forge-muted)]">
                 Agent edited files on this branch.
               </p>
             )}
 
           {showNewAgentForm ? (
             <div className="flex flex-1 flex-col p-4">
-              <p className="mb-4 text-sm text-zinc-400">
+              <p className="mb-4 text-sm text-[var(--forge-muted)]">
                 {selectedSessionMeta
                   ? "Continue the agent on this branch with a new instruction."
                   : "Start a new agent on this branch."}
@@ -1676,7 +1676,7 @@ export function AgentWorkspace({
                   onChange={(e) => setPrompt(e.target.value)}
                   placeholder="Describe what you want the agent to change…"
                   rows={4}
-                  className="mb-3 w-full flex-1 resize-none rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-base text-zinc-200 placeholder:text-zinc-600 focus:border-orange-500 focus:outline-none sm:text-sm"
+                  className="mb-3 w-full flex-1 resize-none rounded-lg border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.35)] px-3 py-2.5 text-base text-[var(--forge-bright)] placeholder:text-[var(--forge-faint)] focus:border-orange-500 focus:outline-none sm:text-sm"
                 />
                 <button
                   type="submit"
@@ -1688,7 +1688,7 @@ export function AgentWorkspace({
               </form>
             </div>
           ) : showLogs && sessionDetail ? (
-            <pre className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 font-mono text-xs leading-relaxed text-zinc-400">
+            <pre className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 font-mono text-xs leading-relaxed text-[var(--forge-muted)]">
               {sessionDetail.logs || "No logs yet."}
               {sessionDetail.errorMessage && (
                 <span className="mt-2 block text-red-400">
@@ -1722,7 +1722,7 @@ export function AgentWorkspace({
                   </div>
                 )}
                 {messages.length === 0 && !statusBanner && (
-                  <p className="py-8 text-center text-sm text-zinc-600">
+                  <p className="py-8 text-center text-sm text-[var(--forge-faint)]">
                     Waiting for agent output…
                   </p>
                 )}
@@ -1761,7 +1761,7 @@ export function AgentWorkspace({
               {showFollowUp && !showLogs && (
                 <form
                   onSubmit={sendMessage}
-                  className="shrink-0 border-t border-zinc-800 bg-zinc-900/95 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+                  className="shrink-0 border-t border-[var(--forge-line)] bg-[color-mix(in_srgb,var(--forge-panel)_95%,transparent)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
                 >
                   <div className="flex gap-2">
                     <input
@@ -1770,12 +1770,12 @@ export function AgentWorkspace({
                       onChange={(e) => setPrompt(e.target.value)}
                       placeholder="Send a follow-up instruction…"
                       enterKeyHint="send"
-                      className="min-h-11 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-base text-zinc-200 placeholder:text-zinc-600 focus:border-orange-500 focus:outline-none sm:text-sm"
+                      className="min-h-11 flex-1 rounded-lg border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.35)] px-3 py-2 text-base text-[var(--forge-bright)] placeholder:text-[var(--forge-faint)] focus:border-orange-500 focus:outline-none sm:text-sm"
                     />
                     <button
                       type="submit"
                       disabled={loading || hasActiveProcess || !prompt.trim()}
-                      className="min-h-11 shrink-0 rounded-lg bg-zinc-700 px-4 py-2 text-sm font-medium text-zinc-200 hover:bg-zinc-600 disabled:opacity-50"
+                      className="min-h-11 shrink-0 rounded-lg bg-[var(--forge-elevated)] px-4 py-2 text-sm font-medium text-[var(--forge-bright)] hover:bg-[var(--forge-muted)] disabled:opacity-50"
                     >
                       Send
                     </button>
@@ -1786,7 +1786,7 @@ export function AgentWorkspace({
               {showContinueForm && !showLogs && (
                 <form
                   onSubmit={startOrContinueSession}
-                  className="shrink-0 border-t border-zinc-800 bg-zinc-900/95 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+                  className="shrink-0 border-t border-[var(--forge-line)] bg-[color-mix(in_srgb,var(--forge-panel)_95%,transparent)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
                 >
                   <div className="flex gap-2">
                     <input
@@ -1795,7 +1795,7 @@ export function AgentWorkspace({
                       onChange={(e) => setPrompt(e.target.value)}
                       placeholder="Continue with a new instruction…"
                       enterKeyHint="send"
-                      className="min-h-11 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-base text-zinc-200 placeholder:text-zinc-600 focus:border-orange-500 focus:outline-none sm:text-sm"
+                      className="min-h-11 flex-1 rounded-lg border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.35)] px-3 py-2 text-base text-[var(--forge-bright)] placeholder:text-[var(--forge-faint)] focus:border-orange-500 focus:outline-none sm:text-sm"
                     />
                     <button
                       type="submit"
@@ -1809,7 +1809,7 @@ export function AgentWorkspace({
               )}
             </>
           ) : (
-            <div className="flex flex-1 items-center justify-center p-8 text-sm text-zinc-600">
+            <div className="flex flex-1 items-center justify-center p-8 text-sm text-[var(--forge-faint)]">
               Select a branch from the list.
             </div>
           )}
@@ -1820,7 +1820,7 @@ export function AgentWorkspace({
 
   return (
     <div
-      className={`flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-zinc-800 ${className}`}
+      className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-[var(--forge-line)] ${className}`}
     >
       <div className="flex h-full min-h-0 flex-1 overflow-hidden">
         {branchSidebar}

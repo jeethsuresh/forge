@@ -74,8 +74,5 @@ export function runtimeStatusColor(status: RuntimeStatus): string {
 }
 
 export function runtimeStatusBadgeColor(status: RuntimeStatus): string {
-  if (status === "not_deployed" || status === "unknown") {
-    return "text-zinc-500 bg-zinc-500/10 border-zinc-500/20";
-  }
   return toneBadgeClass(runtimeTone(status));
 }

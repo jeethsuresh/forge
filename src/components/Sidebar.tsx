@@ -48,33 +48,28 @@ function ProjectNavLink({
     <Link
       href={`/projects/${project.id}?tab=overview`}
       onClick={onNavigate}
-      className={`flex min-h-11 items-center gap-2 rounded-lg px-2 py-2.5 text-sm transition-colors ${
+      className={`group relative flex min-h-10 items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13px] transition-colors ${
         active
-          ? variant === "forge"
-            ? "bg-orange-500/15 text-orange-100 ring-1 ring-orange-500/30"
-            : "bg-zinc-800 text-zinc-100"
-          : variant === "forge"
-            ? "text-orange-200/80 hover:bg-orange-500/10 hover:text-orange-100"
-            : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+          ? "bg-[color-mix(in_srgb,var(--forge-accent)_14%,transparent)] text-[var(--forge-bright)]"
+          : "text-[var(--forge-muted)] hover:bg-[rgba(255,255,255,0.04)] hover:text-[var(--forge-bright)]"
       }`}
-      style={active ? { boxShadow: `inset 3px 0 0 0 ${swatch.hex}` } : undefined}
     >
       <span
-        className="h-2.5 w-1 shrink-0 rounded-full"
+        className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full opacity-90"
         style={swatch.stripeStyle}
         aria-hidden
       />
       <StatusDot
         tone={tone}
         pulse={project.isDeploying}
-        className="ml-0.5"
+        className="ml-1.5"
       />
       <span className="min-w-0 flex-1 truncate font-medium">{project.name}</span>
-      {variant === "forge" && (
-        <span className="shrink-0 rounded border border-orange-500/30 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-orange-300/90">
+      {variant === "forge" ? (
+        <span className="forge-status-pill forge-tone-accent !px-1.5 !py-0 text-[9px]">
           Self
         </span>
-      )}
+      ) : null}
     </Link>
   );
 }
@@ -120,20 +115,20 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
 
   return (
     <aside
-      className={`flex h-full min-h-0 w-64 shrink-0 flex-col overflow-hidden border-r border-zinc-800 bg-zinc-950 ${className}`}
+      className={`forge-sidebar flex h-full min-h-0 w-[15.5rem] shrink-0 flex-col overflow-hidden ${className}`}
     >
-      <div className="border-b border-zinc-800 px-5 py-4">
-        <Link
-          href="/"
-          onClick={onNavigate}
-          className="flex items-center gap-2"
-        >
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/20 text-sm font-bold text-orange-400">
+      <div className="border-b border-[var(--forge-line)] px-4 py-4">
+        <Link href="/" onClick={onNavigate} className="flex items-center gap-2.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--forge-accent-muted)] text-sm font-bold text-[var(--forge-accent-hot)] ring-1 ring-[color-mix(in_srgb,var(--forge-accent)_35%,transparent)]">
             {appDisplayInitial()}
           </span>
-          <div>
-            <div className="font-semibold text-zinc-100">{APP_DISPLAY_NAME}</div>
-            <div className="text-xs text-zinc-500">Deploy orchestrator</div>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold tracking-tight text-[var(--forge-bright)]">
+              {APP_DISPLAY_NAME}
+            </div>
+            <div className="text-[11px] text-[var(--forge-faint)]">
+              Deploy orchestrator
+            </div>
           </div>
         </Link>
         <button
@@ -141,9 +136,9 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
           onClick={() => {
             window.dispatchEvent(new Event("forge:open-palette"));
           }}
-          className="mt-3 flex w-full items-center justify-between rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2 text-xs text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
+          className="mt-3 flex w-full items-center justify-between rounded-[10px] border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.35)] px-3 py-2 text-xs text-[var(--forge-muted)] transition-colors hover:border-[color-mix(in_srgb,var(--forge-accent)_40%,transparent)] hover:text-[var(--forge-bright)]"
         >
-          <span>Search…</span>
+          <span>Search commands…</span>
           <span className="flex gap-1">
             <Kbd>⌘</Kbd>
             <Kbd>K</Kbd>
@@ -151,61 +146,57 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
         </button>
       </div>
 
-      <div className="border-b border-zinc-800 px-3 py-2">
+      <nav className="flex-1 overflow-y-auto px-2.5 py-3">
         <Link
           href="/"
           onClick={onNavigate}
-          className={`flex min-h-10 items-center rounded-lg px-3 text-sm transition-colors ${
+          className={`mb-3 flex min-h-9 items-center rounded-[10px] px-3 text-[13px] font-medium transition-colors ${
             pathname === "/"
-              ? "bg-zinc-800 text-zinc-100"
-              : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+              ? "bg-[color-mix(in_srgb,var(--forge-accent)_14%,transparent)] text-[var(--forge-bright)]"
+              : "text-[var(--forge-muted)] hover:bg-[rgba(255,255,255,0.04)] hover:text-[var(--forge-bright)]"
           }`}
         >
-          Home
+          Command center
         </Link>
-      </div>
 
-      {forgeProject && (
-        <div className="border-b border-zinc-800 px-3 py-3">
-          <div className="mb-2 px-2 text-xs font-medium uppercase tracking-wider text-orange-400/80">
-            {APP_DISPLAY_NAME} instance
+        {forgeProject ? (
+          <div className="mb-4">
+            <div className="forge-section-label mb-1.5 px-2">
+              {APP_DISPLAY_NAME}
+            </div>
+            <ProjectNavLink
+              project={forgeProject}
+              active={pathname === `/projects/${forgeProject.id}`}
+              onNavigate={onNavigate}
+              variant="forge"
+            />
           </div>
-          <ProjectNavLink
-            project={forgeProject}
-            active={pathname === `/projects/${forgeProject.id}`}
-            onNavigate={onNavigate}
-            variant="forge"
-          />
+        ) : null}
+
+        <div className="mb-1.5 flex items-center justify-between px-2">
+          <span className="forge-section-label mb-0">Projects</span>
+          <Link
+            href="/projects/new"
+            onClick={onNavigate}
+            className="rounded-md px-1.5 py-0.5 text-[11px] font-semibold text-[var(--forge-accent)] hover:bg-[var(--forge-accent-muted)]"
+          >
+            + Add
+          </Link>
         </div>
-      )}
 
-      <div className="flex items-center justify-between px-5 py-3">
-        <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-          Projects
-        </span>
-        <Link
-          href="/projects/new"
-          onClick={onNavigate}
-          className="rounded-md px-2 py-1 text-xs font-medium text-orange-400 hover:bg-orange-400/10"
-        >
-          + Add
-        </Link>
-      </div>
-
-      <nav className="flex-1 overflow-y-auto px-3 pb-4">
         {!loaded ? (
-          <div className="space-y-2 px-2 py-1">
+          <div className="space-y-2 px-1 py-1">
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="h-11 animate-pulse rounded-lg bg-zinc-800/60"
+                className="h-10 animate-pulse rounded-[10px] bg-[rgba(255,255,255,0.04)]"
               />
             ))}
           </div>
         ) : projects.length === 0 ? (
-          <p className="px-2 text-sm text-zinc-600">No projects yet</p>
+          <p className="px-2 text-xs text-[var(--forge-faint)]">No projects yet</p>
         ) : (
-          <ul className="space-y-1">
+          <ul className="space-y-0.5">
             {projects.map((project) => (
               <li key={project.id}>
                 <ProjectNavLink
@@ -219,21 +210,22 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
         )}
       </nav>
 
-      <div className="space-y-1 border-t border-zinc-800 p-4">
+      <div className="space-y-0.5 border-t border-[var(--forge-line)] p-2.5">
         <Link
           href="/settings"
           onClick={onNavigate}
-          className={`flex min-h-11 items-center rounded-lg px-3 py-2 text-sm transition-colors ${
+          className={`flex min-h-10 items-center rounded-[10px] px-3 text-[13px] transition-colors ${
             pathname === "/settings"
-              ? "bg-zinc-800 text-zinc-100"
-              : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"
+              ? "bg-[rgba(255,255,255,0.06)] text-[var(--forge-bright)]"
+              : "text-[var(--forge-muted)] hover:bg-[rgba(255,255,255,0.04)] hover:text-[var(--forge-bright)]"
           }`}
         >
           Global settings
         </Link>
         <button
+          type="button"
           onClick={logout}
-          className="min-h-11 w-full rounded-lg px-3 py-2 text-left text-sm text-zinc-400 transition-colors hover:bg-zinc-900 hover:text-zinc-200"
+          className="flex min-h-10 w-full items-center rounded-[10px] px-3 text-left text-[13px] text-[var(--forge-muted)] transition-colors hover:bg-[rgba(255,255,255,0.04)] hover:text-[var(--forge-bright)]"
         >
           Sign out
         </button>

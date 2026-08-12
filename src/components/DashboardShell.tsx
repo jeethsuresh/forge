@@ -15,13 +15,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-forge-app">
-      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-zinc-800 bg-zinc-950/95 px-4 backdrop-blur md:hidden">
+    <div className="forge-app-bg flex h-full min-h-0 flex-1 overflow-hidden">
+      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-[var(--forge-line)] bg-[color-mix(in_srgb,var(--forge-app)_92%,transparent)] px-4 backdrop-blur-md md:hidden">
         <button
           type="button"
           onClick={() => setMenuOpen(true)}
           aria-label="Open menu"
-          className="flex h-10 w-10 items-center justify-center rounded-lg text-zinc-300 hover:bg-zinc-800"
+          className="flex h-10 w-10 items-center justify-center rounded-[10px] text-[var(--forge-muted)] hover:bg-[rgba(255,255,255,0.05)]"
         >
           <svg
             className="h-5 w-5"
@@ -38,22 +38,28 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </svg>
         </button>
         <Link href="/" className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-md bg-orange-500/20 text-xs font-bold text-orange-400">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--forge-accent-muted)] text-xs font-bold text-[var(--forge-accent-hot)]">
             {appDisplayInitial()}
           </span>
-          <span className="font-semibold text-zinc-100">{APP_DISPLAY_NAME}</span>
+          <span className="font-semibold tracking-tight text-[var(--forge-bright)]">
+            {APP_DISPLAY_NAME}
+          </span>
         </Link>
-        <span className="ml-auto text-zinc-500">
+        <button
+          type="button"
+          className="ml-auto text-[var(--forge-faint)]"
+          onClick={() => window.dispatchEvent(new Event("forge:open-palette"))}
+        >
           <Kbd>⌘K</Kbd>
-        </span>
+        </button>
       </header>
 
-      {menuOpen && (
+      {menuOpen ? (
         <div className="fixed inset-0 z-50 md:hidden">
           <button
             type="button"
             aria-label="Close menu"
-            className="absolute inset-0 bg-black/60"
+            className="absolute inset-0 bg-[var(--forge-overlay)]"
             onClick={closeMenu}
           />
           <Sidebar
@@ -61,7 +67,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             onNavigate={closeMenu}
           />
         </div>
-      )}
+      ) : null}
 
       <Sidebar className="hidden h-full md:flex" />
 

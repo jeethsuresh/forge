@@ -4,48 +4,22 @@ import { useState } from "react";
 import { ProjectRoutingOverview } from "@/components/ProjectRoutingOverview";
 import { CaddyLogsViewer } from "@/components/CaddyLogsViewer";
 import { CaddySettingsEditor } from "@/components/CaddySettingsEditor";
+import { PageHeader, TabButton, TabList } from "@/components/ui";
 
 type SettingsTab = "routing" | "routes" | "logs";
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`min-h-10 flex-1 rounded-md px-4 text-sm font-medium transition-colors ${
-        active
-          ? "bg-zinc-800 text-zinc-100"
-          : "text-zinc-500 hover:text-zinc-300"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
 
 export function GlobalSettings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("routing");
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 sm:py-6 lg:p-8">
+    <div className="forge-app-bg min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 sm:px-7 sm:py-8 lg:px-10">
       <div className="mx-auto max-w-4xl">
-        <h1 className="mb-1 text-2xl font-semibold text-zinc-100">
-          Global settings
-        </h1>
-        <p className="mb-6 text-sm text-zinc-500">
-          Manage per-project host ports and Caddy route associations, edit the
-          full live Caddy config, and browse access logs
-        </p>
+        <PageHeader
+          title="Global settings"
+          subtitle="Routing, live Caddy config, and access logs"
+        />
 
-        <div className="mb-6 flex rounded-lg border border-zinc-800 bg-zinc-900/50 p-1">
+        <TabList className="mb-6">
           <TabButton
             active={activeTab === "routing"}
             onClick={() => setActiveTab("routing")}
@@ -64,7 +38,7 @@ export function GlobalSettings() {
           >
             Access logs
           </TabButton>
-        </div>
+        </TabList>
 
         {activeTab === "routing" ? (
           <ProjectRoutingOverview />

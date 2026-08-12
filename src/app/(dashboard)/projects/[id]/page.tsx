@@ -587,33 +587,34 @@ export default function ProjectDetailPage() {
   );
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-6 lg:p-8">
-      <div className="mb-4 flex shrink-0 flex-col gap-4 sm:mb-5">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <span
-              className="h-6 w-1.5 rounded-full"
-              style={projectSwatch(project.id).stripeStyle}
-              aria-hidden
-            />
-            <h1 className="text-xl font-semibold text-zinc-100 sm:text-2xl">
-              {project.name}
-            </h1>
-            <span
-              className={`inline-flex rounded border px-2.5 py-0.5 text-xs font-medium ${runtimeStatusBadgeColor(runtimeStatus)}`}
-            >
-              {runtimeStatusLabel(runtimeStatus)}
-            </span>
-          </div>
-          <p className="mt-1 break-all font-mono text-xs text-zinc-500 sm:text-sm">
-            {project.githubRepo} · watch branch{" "}
-            <span className="text-orange-400">{project.branch}</span>
-            {isForge && (
-              <span className="ml-2 text-orange-400/80">
-                · self-update via sidecar
+    <div className="forge-app-bg flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-7 sm:py-6 lg:px-10">
+      <div className="mb-5 flex shrink-0 flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
+              <span
+                className="h-8 w-1.5 rounded-full shadow-[0_0_18px_currentColor]"
+                style={{
+                  ...projectSwatch(project.id).stripeStyle,
+                  color: projectSwatch(project.id).hex,
+                }}
+                aria-hidden
+              />
+              <h1 className="forge-page-title">{project.name}</h1>
+              <span className={runtimeStatusBadgeColor(runtimeStatus)}>
+                {runtimeStatusLabel(runtimeStatus)}
               </span>
-            )}
-          </p>
+              {isForge ? (
+                <span className="forge-status-pill forge-tone-accent">Self</span>
+              ) : null}
+            </div>
+            <p className="mt-2 break-all font-mono text-xs text-[var(--forge-faint)] sm:text-[13px]">
+              {project.githubRepo}
+              <span className="mx-2 text-[var(--forge-line-strong)]">·</span>
+              watch{" "}
+              <span className="text-[var(--forge-accent-hot)]">{project.branch}</span>
+            </p>
+          </div>
         </div>
 
         <TabList>
@@ -651,32 +652,48 @@ export default function ProjectDetailPage() {
       </div>
 
       {activeTab === "overview" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-6">
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-            <StatCard label="Watch branch" value={project.branch} />
-            <StatCard
-              label="Deployed commit"
-              value={shortSha(currentDeployment?.commitSha ?? project.lastSeenCommit)}
-              mono
-            />
-            <StatCard
-              label="Last deployed"
-              value={deployedAt ? formatRelativeTime(deployedAt) : "Never"}
-            />
-            <StatCard
-              label="Status"
-              value={runtimeStatusLabel(runtimeStatus)}
-              valueClassName={runtimeStatusColor(runtimeStatus)}
-            />
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-5">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="forge-surface p-4">
+              <div className="forge-section-label mb-2">Watch branch</div>
+              <div className="font-mono text-lg font-semibold text-[var(--forge-bright)]">
+                {project.branch}
+              </div>
+            </div>
+            <div className="forge-surface p-4">
+              <div className="forge-section-label mb-2">Deployed</div>
+              <div className="font-mono text-lg font-semibold text-[var(--forge-bright)]">
+                {shortSha(currentDeployment?.commitSha ?? project.lastSeenCommit)}
+              </div>
+            </div>
+            <div className="forge-surface p-4">
+              <div className="forge-section-label mb-2">Last deploy</div>
+              <div className="text-lg font-semibold text-[var(--forge-bright)]">
+                {deployedAt ? formatRelativeTime(deployedAt) : "Never"}
+              </div>
+            </div>
+            <div className="forge-surface p-4">
+              <div className="forge-section-label mb-2">Runtime</div>
+              <div
+                className={`text-lg font-semibold ${runtimeStatusColor(runtimeStatus)}`}
+              >
+                {runtimeStatusLabel(runtimeStatus)}
+              </div>
+            </div>
           </div>
 
-          {blockingAgentSession && (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3">
-              <p className="text-sm text-amber-200">
-                Agent on{" "}
-                <span className="font-mono">{blockingAgentSession.branch}</span>{" "}
-                is blocking deploys ({blockingAgentSession.status}).
-              </p>
+          {blockingAgentSession ? (
+            <div className="forge-attention-row justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-[var(--forge-bright)]">
+                  Agent on{" "}
+                  <span className="font-mono">{blockingAgentSession.branch}</span>{" "}
+                  is blocking deploys
+                </p>
+                <p className="text-xs capitalize text-[var(--forge-warning)]">
+                  {blockingAgentSession.status}
+                </p>
+              </div>
               <Button
                 size="sm"
                 variant="warning"
@@ -685,52 +702,57 @@ export default function ProjectDetailPage() {
                 Open agent
               </Button>
             </div>
-          )}
+          ) : null}
 
-          {currentDeployment && (
-            <div className="rounded-xl border border-zinc-800 bg-forge-panel px-4 py-4">
-              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Latest deploy
-              </div>
+          {currentDeployment ? (
+            <div className="forge-surface p-4">
+              <div className="forge-section-label mb-3">Latest deploy</div>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={statusTone(currentDeployment.status)} className="capitalize">
+                <Badge tone={statusTone(currentDeployment.status)}>
                   {currentDeployment.status}
                 </Badge>
-                <span className="font-mono text-sm text-zinc-300">
+                <span className="font-mono text-sm text-[var(--forge-bright)]">
                   {shortSha(currentDeployment.commitSha)}
                 </span>
-                <span className="text-xs text-zinc-500">
+                <span className="text-xs text-[var(--forge-muted)]">
                   {formatRelativeTime(currentDeployment.startedAt)}
                 </span>
               </div>
             </div>
-          )}
+          ) : null}
 
-          {containers.length > 0 && (
-            <div className="rounded-xl border border-zinc-800 bg-forge-panel px-4 py-4">
-              <div className="mb-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Containers
-              </div>
-              <ul className="space-y-1 text-sm text-zinc-300">
-                {containers.slice(0, 6).map((c) => (
-                  <li key={`${c.service}-${c.name}`} className="flex justify-between gap-2">
-                    <span>{c.service}</span>
-                    <span className="capitalize text-zinc-500">{c.state}</span>
+          {containers.length > 0 ? (
+            <div className="forge-surface p-4">
+              <div className="forge-section-label mb-3">Containers</div>
+              <ul className="divide-y divide-[var(--forge-line)]">
+                {containers.slice(0, 8).map((c) => (
+                  <li
+                    key={`${c.service}-${c.name}`}
+                    className="flex items-center justify-between gap-2 py-2 text-sm"
+                  >
+                    <span className="font-medium text-[var(--forge-bright)]">
+                      {c.service}
+                    </span>
+                    <span
+                      className={
+                        c.state === "running"
+                          ? "forge-status-pill forge-tone-success"
+                          : "forge-status-pill forge-tone-neutral"
+                      }
+                    >
+                      {c.state}
+                    </span>
                   </li>
                 ))}
               </ul>
             </div>
-          )}
+          ) : null}
 
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 pt-1">
             <Button variant="primary" onClick={() => selectTab("deploy")}>
               Deploy
             </Button>
-            <Button
-              variant="secondary"
-              className="border-cyan-400/30 bg-cyan-400/10 text-cyan-200 hover:bg-cyan-400/20"
-              onClick={() => selectTab("agents")}
-            >
+            <Button variant="info" onClick={() => selectTab("agents")}>
               Agents
             </Button>
             <Button variant="secondary" onClick={() => selectTab("diff")}>
@@ -744,9 +766,9 @@ export default function ProjectDetailPage() {
       ) : activeTab === "deploy" ? (
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           {blockingAgentSession && (
-            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-400/20 bg-amber-400/5 px-4 py-3">
+            <div className="forge-attention-row mb-6 justify-between">
               <div className="min-w-0 space-y-1">
-                <p className="text-sm text-amber-200">
+                <p className="text-sm text-[var(--forge-bright)]">
                   Deploy is blocked by a{" "}
                   <span
                     className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${agentSessionSourceBadgeClass(blockingAgentSession.sessionSource)}`}
@@ -754,31 +776,31 @@ export default function ProjectDetailPage() {
                     {agentSessionSourceLabel(blockingAgentSession.sessionSource)}
                   </span>{" "}
                   agent on{" "}
-                  <span className="font-mono text-amber-100">
+                  <span className="font-mono">
                     {blockingAgentSession.branch}
                   </span>{" "}
-                  <span className="capitalize text-amber-300/80">
+                  <span className="capitalize text-[var(--forge-warning)]">
                     ({blockingAgentSession.status})
                   </span>
                   .
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
-                <button
-                  type="button"
+                <Button
+                  size="sm"
+                  variant="warning"
                   onClick={() => void endBlockingAgentSession()}
                   disabled={actionLoading || deployBusy}
-                  className="min-h-9 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-400/20 disabled:opacity-50"
                 >
                   End session
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  size="sm"
+                  variant="warning"
                   onClick={() => openAgentSession(blockingAgentSession.id)}
-                  className="min-h-9 shrink-0 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-400/20"
                 >
-                  Open agent session
-                </button>
+                  Open agent
+                </Button>
               </div>
             </div>
           )}
@@ -792,16 +814,17 @@ export default function ProjectDetailPage() {
             />
           )}
 
-          <div className="mb-6 flex flex-wrap items-end gap-2">
-            <label className="flex min-w-[12rem] flex-col gap-1.5">
-              <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+          <div className="mb-6 forge-surface-elevated p-4">
+            <div className="flex flex-wrap items-end gap-2">
+            <label className="flex min-w-[12rem] flex-1 flex-col gap-1.5">
+              <span className="forge-section-label mb-0">
                 {isForge ? "Redeploy branch" : "Deploy branch"}
               </span>
               <select
                 value={selectedDeployBranch}
                 onChange={(e) => setDeployBranch(e.target.value)}
                 disabled={actionLoading || deployBusy}
-                className="min-h-11 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2.5 font-mono text-sm text-zinc-200 disabled:opacity-50"
+                className="forge-input font-mono text-sm disabled:opacity-50"
               >
                 {branches.map((branch) => (
                   <option key={branch} value={branch}>
@@ -896,6 +919,7 @@ export default function ProjectDetailPage() {
                 </div>
               )}
             </div>
+            </div>
           </div>
 
           <div className="mb-6 grid grid-cols-2 gap-3 sm:mb-8 sm:gap-4 lg:grid-cols-4">
@@ -986,10 +1010,12 @@ export default function ProjectDetailPage() {
             <button
               type="button"
               onClick={() => setGitTreeOpen((v) => !v)}
-              className="flex w-full items-center justify-between rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-left text-sm text-zinc-300 hover:bg-zinc-900"
+              className="forge-surface flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-[var(--forge-hover)]"
             >
-              <span className="font-medium">Git tree</span>
-              <span className="text-xs text-zinc-500">
+              <span className="text-sm font-semibold text-[var(--forge-bright)]">
+                Git tree
+              </span>
+              <span className="text-xs text-[var(--forge-muted)]">
                 {gitTreeOpen ? "Hide" : "Show"} branch graph
               </span>
             </button>
@@ -1007,10 +1033,8 @@ export default function ProjectDetailPage() {
       ) : activeTab === "settings" ? (
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <section className="mb-8">
-            <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
-              Project
-            </h2>
-            <div className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-4">
+            <h2 className="forge-section-label mb-3">Project</h2>
+            <div className="forge-surface px-4 py-4">
               <ProjectRenameEditor
                 projectId={id}
                 name={project.name}
@@ -1253,17 +1277,15 @@ function StatCard({
   valueClassName?: string;
 }) {
   return (
-    <div className="rounded-xl border border-zinc-800 bg-forge-panel px-4 py-3">
-      <div className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-        {label}
-      </div>
+    <div className="forge-surface px-4 py-3">
+      <div className="forge-section-label mb-1">{label}</div>
       <div
-        className={`mt-1 text-lg font-semibold text-zinc-100 ${mono ? "font-mono text-base" : ""} ${valueClassName ?? ""}`}
+        className={`mt-1 text-lg font-semibold text-[var(--forge-bright)] ${mono ? "font-mono text-base" : ""} ${valueClassName ?? ""}`}
       >
         {value}
       </div>
       {subtitle && (
-        <div className="mt-0.5 text-xs text-zinc-500">{subtitle}</div>
+        <div className="mt-0.5 text-xs text-[var(--forge-muted)]">{subtitle}</div>
       )}
     </div>
   );

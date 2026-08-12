@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { composeProjectName } from "@/lib/compose-project-name";
+import { Button, Input, PageHeader } from "@/components/ui";
 
 export default function NewProjectPage() {
   const router = useRouter();
@@ -40,95 +41,83 @@ export default function NewProjectPage() {
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-8">
+    <div className="forge-app-bg min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 sm:px-7 sm:py-8 lg:px-10">
       <div className="mx-auto max-w-lg">
-        <h1 className="mb-1 text-2xl font-semibold text-zinc-100">
-          Add project
-        </h1>
-        <p className="mb-8 text-sm text-zinc-500">
-          Watch a GitHub repository and auto-deploy on changes
-        </p>
+        <PageHeader
+          title="Add project"
+          subtitle="Watch a GitHub repository and auto-deploy on changes"
+        />
 
-        <form
-          onSubmit={handleSubmit}
-          className="space-y-5 rounded-xl border border-zinc-800 bg-zinc-900 p-6"
-        >
-          {error && (
-            <div className="rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2 text-sm text-red-400">
+        <form onSubmit={handleSubmit} className="forge-surface-elevated space-y-5 p-6">
+          {error ? (
+            <div className="rounded-[10px] border border-[color-mix(in_srgb,var(--forge-danger)_30%,transparent)] bg-[var(--forge-danger-muted)] px-3 py-2 text-sm text-[var(--forge-danger)]">
               {error}
             </div>
-          )}
+          ) : null}
 
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-zinc-400">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
               Display name
             </span>
-            <input
+            <Input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="My App"
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none focus:border-orange-500/50"
               required
             />
-            {name.trim() && (
-              <p className="mt-1.5 font-mono text-xs text-zinc-500">
+            {name.trim() ? (
+              <p className="mt-1.5 font-mono text-xs text-[var(--forge-faint)]">
                 Compose project name:{" "}
-                <span className="text-orange-400">
+                <span className="text-[var(--forge-accent-hot)]">
                   {composeProjectName(name)}
                 </span>
               </p>
-            )}
+            ) : null}
           </label>
 
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-zinc-400">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
               GitHub repository
             </span>
-            <input
+            <Input
               type="text"
               value={githubRepo}
               onChange={(e) => setGithubRepo(e.target.value)}
               placeholder="owner/repo or https://github.com/owner/repo"
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:border-orange-500/50"
+              className="font-mono text-sm"
               required
             />
           </label>
 
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-zinc-400">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
               Branch
             </span>
-            <input
+            <Input
               type="text"
               value={branch}
               onChange={(e) => setBranch(e.target.value)}
               placeholder="main"
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-100 outline-none focus:border-orange-500/50"
+              className="font-mono text-sm"
               required
             />
           </label>
 
-          <p className="text-xs text-zinc-600">
-            The repository must have <code className="text-zinc-500">build.sh</code>{" "}
-            and <code className="text-zinc-500">deploy.sh</code> in its root.
+          <p className="text-xs text-[var(--forge-faint)]">
+            The repository must have{" "}
+            <code className="text-[var(--forge-muted)]">build.sh</code> and{" "}
+            <code className="text-[var(--forge-muted)]">deploy.sh</code> in its
+            root.
           </p>
 
           <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => router.back()}
-              className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-400 hover:bg-zinc-800"
-            >
+            <Button type="button" variant="secondary" onClick={() => router.back()}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-400 disabled:opacity-50"
-            >
+            </Button>
+            <Button type="submit" variant="primary" disabled={loading}>
               {loading ? "Creating…" : "Create project"}
-            </button>
+            </Button>
           </div>
         </form>
       </div>

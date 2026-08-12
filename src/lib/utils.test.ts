@@ -33,10 +33,10 @@ describe("formatDuration", () => {
 
 describe("statusColor", () => {
   it("maps known deployment statuses", () => {
-    expect(statusColor("success")).toContain("emerald");
-    expect(statusColor("duplicate")).toContain("zinc");
-    expect(statusColor("failed")).toContain("red");
-    expect(statusColor("building")).toContain("amber");
+    expect(statusColor("success")).toContain("forge-tone-success");
+    expect(statusColor("duplicate")).toContain("forge-tone-neutral");
+    expect(statusColor("failed")).toContain("forge-tone-danger");
+    expect(statusColor("building")).toContain("forge-tone-warning");
   });
 });
 

@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, Suspense, useState } from "react";
 import { APP_DISPLAY_NAME, appDisplayInitial } from "@/lib/app-name";
+import { Button, Input } from "@/components/ui";
 
 function LoginForm() {
   const router = useRouter();
@@ -41,63 +42,64 @@ function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-full flex-1 items-center justify-center bg-zinc-950 px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-500/20 text-2xl font-bold text-orange-400">
+    <div className="forge-app-bg flex min-h-full flex-1 items-center justify-center px-4">
+      <div className="w-full max-w-md">
+        <div className="mb-10 text-center">
+          <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--forge-accent-muted)] text-3xl font-bold text-[var(--forge-accent-hot)] ring-1 ring-[color-mix(in_srgb,var(--forge-accent)_40%,transparent)]">
             {appDisplayInitial()}
           </div>
-          <h1 className="text-2xl font-semibold text-zinc-100">{APP_DISPLAY_NAME}</h1>
-          <p className="mt-1 text-sm text-zinc-500">
-            Local Docker deployment orchestrator
+          <h1 className="forge-page-title justify-center text-center">
+            {APP_DISPLAY_NAME}
+          </h1>
+          <p className="forge-page-sub">
+            Deploy, agents, and fleet health — one console
           </p>
         </div>
 
         <form
           onSubmit={handleSubmit}
-          className="rounded-xl border border-zinc-800 bg-zinc-900 p-6 shadow-xl"
+          className="forge-surface-elevated p-6 shadow-[0_24px_80px_rgba(0,0,0,0.45)]"
         >
-          {error && (
-            <div className="mb-4 rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2 text-sm text-red-400">
+          {error ? (
+            <div className="mb-4 rounded-[10px] border border-[color-mix(in_srgb,var(--forge-danger)_30%,transparent)] bg-[var(--forge-danger-muted)] px-3 py-2 text-sm text-[var(--forge-danger)]">
               {error}
             </div>
-          )}
+          ) : null}
 
           <label className="mb-4 block">
-            <span className="mb-1.5 block text-sm font-medium text-zinc-400">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
               Username
             </span>
-            <input
+            <Input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/30"
               autoComplete="username"
               required
             />
           </label>
 
           <label className="mb-6 block">
-            <span className="mb-1.5 block text-sm font-medium text-zinc-400">
+            <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
               Password
             </span>
-            <input
+            <Input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100 outline-none focus:border-orange-500/50 focus:ring-1 focus:ring-orange-500/30"
               autoComplete="current-password"
               required
             />
           </label>
 
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            className="w-full"
             disabled={loading}
-            className="w-full rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-orange-400 disabled:opacity-50"
           >
             {loading ? "Signing in…" : "Sign in"}
-          </button>
+          </Button>
         </form>
       </div>
     </div>

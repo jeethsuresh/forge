@@ -2,14 +2,16 @@ import type { ReactNode } from "react";
 
 export function Panel({
   className = "",
+  elevated = false,
   children,
 }: {
   className?: string;
+  elevated?: boolean;
   children: ReactNode;
 }) {
   return (
     <div
-      className={`rounded-xl border border-zinc-800 bg-forge-panel ${className}`}
+      className={`${elevated ? "forge-surface-elevated" : "forge-surface"} ${className}`}
     >
       {children}
     </div>
