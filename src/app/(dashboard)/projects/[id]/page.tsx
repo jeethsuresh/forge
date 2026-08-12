@@ -31,6 +31,7 @@ import { ProjectCaddyLogsSection } from "@/components/ProjectCaddyLogsSection";
 import { ProjectLocalBranchesEditor } from "@/components/ProjectLocalBranchesEditor";
 import { ForgefileStatusBanner } from "@/components/ForgefileStatusBanner";
 import { DeployTargetPorts } from "@/components/DeployTargetPorts";
+import { ProjectArtifacts } from "@/components/ProjectArtifacts";
 import {
   agentSessionSourceBadgeClass,
   agentSessionSourceLabel,
@@ -780,6 +781,8 @@ export default function ProjectDetailPage() {
             title="Deploy target ports"
           />
 
+          <ProjectArtifacts projectId={project.id} className="mt-6" />
+
           <div className="flex flex-wrap gap-2 pt-1">
             <Button variant="primary" onClick={() => selectTab("deploy")}>
               Deploy
@@ -862,6 +865,8 @@ export default function ProjectDetailPage() {
             projectId={project.id}
             title="Deploy target ports"
           />
+
+          <ProjectArtifacts projectId={project.id} className="mb-6" />
 
           <div className="mb-6 forge-surface-elevated p-4">
             <div className="flex flex-wrap items-end gap-2">

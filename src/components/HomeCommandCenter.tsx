@@ -235,6 +235,11 @@ export function HomeCommandCenter() {
       </section>
 
       <DeployTargetPorts className="mt-9" title="Services" />
+
+      <p className="mt-4 text-sm text-[var(--forge-muted)]">
+        File artifacts are built from each project&apos;s Forgefile — open a
+        project Overview to build or download.
+      </p>
     </div>
   );
 }

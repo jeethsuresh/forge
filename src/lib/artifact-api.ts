@@ -10,6 +10,12 @@ import {
 import { listArtifacts } from "@/lib/forgefile-project";
 import { resolveArtifactsRoot } from "@/lib/paths";
 import type { Artifact, ArtifactBuild } from "@/lib/db/schema";
+import type {
+  ArtifactApi,
+  ArtifactBuildApi,
+} from "@/lib/artifact-types";
+
+export type { ArtifactApi, ArtifactBuildApi } from "@/lib/artifact-types";
 
 function toIso(value: Date | number | null | undefined): string | null {
   if (value == null) return null;
@@ -17,32 +23,6 @@ function toIso(value: Date | number | null | undefined): string | null {
   const asDate = new Date(value);
   return Number.isNaN(asDate.getTime()) ? null : asDate.toISOString();
 }
-
-export type ArtifactBuildApi = {
-  id: string;
-  artifactId: string;
-  projectId: string;
-  status: ArtifactBuild["status"];
-  commitSha: string | null;
-  branch: string | null;
-  storageKey: string | null;
-  sizeBytes: number | null;
-  errorMessage: string | null;
-  startedAt: string;
-  completedAt: string | null;
-};
-
-export type ArtifactApi = {
-  id: string;
-  projectId: string;
-  name: string;
-  description: string | null;
-  buildCommand: string;
-  outputPath: string;
-  contentType: string | null;
-  updatedAt: string;
-  builds: ArtifactBuildApi[];
-};
 
 export function serializeArtifactBuild(row: ArtifactBuild): ArtifactBuildApi {
   return {

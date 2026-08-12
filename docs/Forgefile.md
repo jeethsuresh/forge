@@ -121,7 +121,7 @@ When running bound scripts, Forge sets:
 
 ## `artifacts`
 
-Declare buildable artifacts for the registry/download surface (build + download land in Plan 3). Declaring them in Forgefile is valid today so repos can adopt early:
+Declare buildable file artifacts. Forge runs the build as a privileged job in the project checkout, stores the output on disk, and offers authenticated download from the UI and Ops API.
 
 ```yaml
 artifacts:
@@ -132,6 +132,22 @@ artifacts:
     content_type: application/octet-stream
 ```
 
+| Field | Required | Notes |
+|-------|----------|-------|
+| `build` | yes | Inline command or `scripts.*` reference |
+| `path` | yes | Output path relative to repo root (must exist after build) |
+| `description` | no | Shown in UI |
+| `content_type` | no | Defaults to `application/octet-stream` |
+
+### Build + download
+
+- **UI:** Project Overview / Deploy → Artifacts panel (Build / Download)
+- **Dashboard API:** `GET /api/projects/{id}/artifacts`, `POST …/artifacts/{name}/build`, `GET …/artifacts/{name}/builds/{buildId}/download`
+- **Ops API:** same paths under `/api/ops/…` (POST requires `actionDescription`)
+- Failed builds keep an error row; Download is only available on `success`
+- Retention keeps the last 10 successful builds per artifact name (older success builds are deleted from disk + DB)
+
+Artifacts are **file** downloads. Image release pins under `releases/*.json` remain a separate deploy-rollback mechanism.
 ## `agent`
 
 Non-secret bootstrap hints for future agent containers:
@@ -151,7 +167,7 @@ Forge validates on load:
 - Port numbers unique across deployments
 - Defaults: `auto_deploy: false`, `ports: []`, `artifacts: {}`, `agent.packages: []`
 
-**Pickup:** after every pull/checkout (and before script/deploy), Forge reloads the Forgefile, re-validates, and reconciles SQLite (`project_forgefiles` + `deploy_targets`). Stale projections are replaced when the content hash changes.
+**Pickup:** after every pull/checkout (and before script/deploy/artifact build), Forge reloads the Forgefile, re-validates, and reconciles SQLite (`project_forgefiles`, `deploy_targets`, `artifacts`, service directory). Stale projections are replaced when the content hash changes.
 
 ## Running scripts from UI/Ops
 
