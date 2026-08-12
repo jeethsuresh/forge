@@ -155,6 +155,8 @@ export function projectForgefile(
     return { status, errors };
   }
 
+  const forgefile = loaded.parsed.value;
+
   db.transaction(() => {
     upsertProjectForgefile({
       projectId,
@@ -163,9 +165,9 @@ export function projectForgefile(
       sourcePath: loaded.path,
       commitSha: sha,
       errorMessage: null,
-      parsedJson: JSON.stringify(loaded.parsed.value),
+      parsedJson: JSON.stringify(forgefile),
     });
-    replaceDeployTargets(projectId, loaded.parsed.value);
+    replaceDeployTargets(projectId, forgefile);
   });
 
   return { status: "valid" };
