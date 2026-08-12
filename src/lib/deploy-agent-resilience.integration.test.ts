@@ -106,7 +106,8 @@ describe("deploy-agent-resilience integration (Layer A)", () => {
     const gitDir = join(sourceDir, ".git");
     mkdirSync(gitDir, { recursive: true });
     writeFileSync(join(gitDir, "HEAD"), "ref: refs/heads/main\n");
-    // Make .git unwritable for the current process (probe + post-repair check).
+    // Make .git unwritable for non-root. Root bypasses mode bits, so also mock
+    // the write probe (compose `test` image runs as root).
     const { chmodSync } = await import("fs");
     chmodSync(gitDir, 0o555);
 
@@ -130,6 +131,19 @@ describe("deploy-agent-resilience integration (Layer A)", () => {
         ) => {
           cb?.(null, "", "");
           return {} as never;
+        },
+      };
+    });
+    vi.doMock("fs/promises", async () => {
+      const actual = await vi.importActual<typeof import("fs/promises")>(
+        "fs/promises",
+      );
+      return {
+        ...actual,
+        writeFile: async () => {
+          throw Object.assign(new Error("EACCES: permission denied"), {
+            code: "EACCES",
+          });
         },
       };
     });
