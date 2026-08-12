@@ -1,0 +1,64 @@
+# Annotated Forgefile template — copy to repo root as `Forgefile`
+# Docs: docs/Forgefile.md
+#
+# Unused options are commented with a one-line explanation.
+# Quoted args in `run` strings are not supported yet (simple whitespace split).
+
+version: 1
+
+project:
+  name: my-app
+  # compose_slug: my-app          # optional override for Docker Compose project name
+
+scripts:
+  build:
+    run: ./build.sh
+    description: Compile and image-build
+  test:
+    run: ./test.sh
+    # description: Run unit tests
+  # migrate:
+  #   run: ./scripts/migrate.sh
+  #   description: Maintenance script runnable from UI/Ops
+
+deployments:
+  web:
+    description: Public web app
+    auto_deploy: false            # default false; true = watcher deploys this target on new commits
+    # subdomain: web              # web.<forge-domain> when Caddy/service directory is configured
+    # compose_slug: my-app-web    # optional per-target compose project name
+    scripts:
+      build: build                # reference scripts.* or use an inline run string
+      test: test
+      deploy: ./deploy.sh
+      # teardown: ./teardown.sh   # optional stop/cleanup binding
+    ports:
+      - name: http
+        port: 8080
+        public: true
+        # health:                 # basic monitoring (service directory plan)
+        #   path: /api/health
+        #   interval_seconds: 30
+  # worker:
+  #   description: Background worker (no public HTTP)
+  #   auto_deploy: false
+  #   scripts:
+  #     deploy: ./deploy.sh --target worker
+  #     teardown: ./teardown.sh --target worker
+  #   ports:
+  #     - name: metrics
+  #       port: 9090
+  #       public: false
+
+# artifacts:                      # declare now; build/download UI lands in a later plan
+#   linux-amd64:
+#     description: CLI binary
+#     build: ./scripts/build-artifact.sh linux-amd64
+#     path: dist/my-app-linux-amd64
+#     content_type: application/octet-stream
+
+agent:
+  packages: []                    # optional install hints for agent containers
+  # packages:
+  #   - ripgrep
+  #   - jq

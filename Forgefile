@@ -1,0 +1,41 @@
+version: 1
+
+project:
+  name: forge
+  compose_slug: forge
+
+scripts:
+  build:
+    run: ./build.sh
+    description: Build Forge image and static assets
+  test:
+    run: ./test.sh
+    description: Run Forge unit tests
+  deploy:
+    run: ./deploy.sh
+    description: Deploy Forge via compose (use Ops/UI for self-update, not agents)
+  teardown:
+    run: ./teardown.sh
+    description: Stop Forge compose stack
+
+deployments:
+  app:
+    description: Forge control plane
+    auto_deploy: false
+    scripts:
+      build: build
+      test: test
+      deploy: deploy
+      teardown: teardown
+    ports:
+      - name: http
+        port: 3000
+        public: true
+        health:
+          path: /api/forge/health
+          interval_seconds: 30
+
+artifacts: {}
+
+agent:
+  packages: []

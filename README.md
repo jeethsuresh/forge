@@ -5,7 +5,7 @@ A local Docker deployment orchestrator with a web dashboard. Forge watches GitHu
 ## Features
 
 - **GitHub monitoring** — polls remote branches every 60 seconds for new commits
-- **Automated pipeline** — clones/pulls, runs `build.sh`, `test.sh`, then `deploy.sh`
+- **Automated pipeline** — clones/pulls, validates `Forgefile`, then runs each deploy target’s bound build/test/deploy scripts
 - **Web dashboard** — login-protected UI with project sidebar, deployment history, container status, and live logs
 - **SQLite tracking** — persists projects, deployments, and state locally
 - **Manual controls** — trigger deploys, pause/resume watching, remove projects
@@ -76,9 +76,20 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) and sign in with your configured credentials (default: `admin` / `admin`).
 
+## Forgefile (required)
+
+Every watched repository must provide a root **`Forgefile`** (YAML; alias `forgefile.yml`). Forge fails closed without a valid manifest — no silent fallback to bare scripts.
+
+See:
+
+- [`docs/Forgefile.md`](docs/Forgefile.md) — author guide
+- [`docs/forgefile.template.yml`](docs/forgefile.template.yml) — full annotated template
+
+Scripts are **declared** in the Forgefile (often still `./build.sh`, `./test.sh`, `./deploy.sh`, `./teardown.sh`). Missing/invalid Forgefiles block deploy; the UI offers **Create Forgefile with agent**.
+
 ## Repository Scripts
 
-Forge and every watched repository should provide executable root scripts with CLI flags:
+Forge and every watched repository should provide executable root scripts with CLI flags (referenced from Forgefile):
 
 | Script | Purpose |
 |--------|---------|
@@ -158,11 +169,9 @@ Make all four scripts executable (`chmod +x build.sh test.sh deploy.sh teardown.
 
 Each repository you add must have these files in its root:
 
-- `build.sh` — builds Docker image(s) or app artifacts
-- `test.sh` — runs unit tests (pipeline fails if tests fail)
-- `deploy.sh` — runs `docker compose up` (or equivalent) to deploy
-- `teardown.sh` — stops containers and removes resources
-- `docker-compose.yml` — required for `deploy.sh` / `teardown.sh`
+- `Forgefile` (or `forgefile.yml`) — required contract declaring scripts and deployments
+- Scripts referenced by that Forgefile — commonly `build.sh`, `test.sh`, `deploy.sh`, `teardown.sh`
+- `docker-compose.yml` — required when deploy/teardown use Compose
 
 ## Adding a Project
 

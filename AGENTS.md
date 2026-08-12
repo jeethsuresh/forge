@@ -4,6 +4,12 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+## Forgefile (required)
+
+- Every project (including Forge itself) must have a valid root **`Forgefile`**. See `docs/Forgefile.md` and `docs/forgefile.template.yml`.
+- Deploy and named script runs fail closed when the Forgefile is missing or invalid. Prefer Ops/UI script run and deploy endpoints over inventing ad-hoc script invocations.
+- Agents may be asked to author a Forgefile via the bootstrap CTA; do not deploy until validation passes.
+
 ## Agent workflow (mandatory)
 
 - **Run `./test.sh` before finishing any task** that touches code or config. Do not end the turn with failing or unrun tests.
