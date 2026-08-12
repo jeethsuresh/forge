@@ -5,13 +5,19 @@ import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { db } from "@/lib/db";
-import { deployTargets, projectForgefiles, projects } from "@/lib/db/schema";
+import {
+  deployTargets,
+  projectForgefiles,
+  projects,
+  serviceDirectory,
+} from "@/lib/db/schema";
 import {
   getProjectForgefile,
   listDeployTargets,
   projectForgefile,
   requireValidForgefile,
 } from "@/lib/forgefile-project";
+import { listServiceDirectory } from "@/lib/service-directory";
 
 const VALID_BODY = `version: 1
 project:
@@ -68,6 +74,9 @@ describe("forgefile-project", () => {
   });
 
   afterEach(() => {
+    db.delete(serviceDirectory)
+      .where(eq(serviceDirectory.projectId, projectId))
+      .run();
     db.delete(deployTargets).where(eq(deployTargets.projectId, projectId)).run();
     db.delete(projectForgefiles)
       .where(eq(projectForgefiles.projectId, projectId))
@@ -197,5 +206,134 @@ deployments:
     writeFileSync(join(tempDir, "Forgefile"), VALID_BODY);
     projectForgefile(projectId, tempDir);
     expect(() => requireValidForgefile(projectId)).not.toThrow();
+  });
+
+  it("projects ports into the service directory and drops stale ports", () => {
+    writeFileSync(join(tempDir, "Forgefile"), VALID_BODY);
+    expect(projectForgefile(projectId, tempDir, "sha1").status).toBe("valid");
+
+    let services = listServiceDirectory({ projectId });
+    expect(services).toHaveLength(1);
+    expect(services[0]).toMatchObject({
+      deployTarget: "web",
+      portName: "http",
+      port: 8080,
+      public: true,
+      subdomain: "demo",
+    });
+
+    const twoPorts = `version: 1
+project:
+  name: demo
+scripts:
+  build:
+    run: ./build.sh
+deployments:
+  web:
+    auto_deploy: true
+    subdomain: demo
+    scripts:
+      build: build
+      deploy: ./deploy.sh --target web
+    ports:
+      - name: http
+        port: 8080
+        public: true
+      - name: metrics
+        port: 9091
+        public: false
+  api:
+    scripts:
+      deploy: ./deploy.sh --target api
+    ports:
+      - name: http
+        port: 8082
+        public: false
+`;
+    writeFileSync(join(tempDir, "Forgefile"), twoPorts);
+    expect(projectForgefile(projectId, tempDir, "sha2").status).toBe("valid");
+    services = listServiceDirectory({ projectId });
+    expect(services).toHaveLength(3);
+
+    const dropMetrics = `version: 1
+project:
+  name: demo
+scripts:
+  build:
+    run: ./build.sh
+deployments:
+  web:
+    auto_deploy: true
+    subdomain: demo
+    scripts:
+      build: build
+      deploy: ./deploy.sh --target web
+    ports:
+      - name: http
+        port: 8080
+        public: true
+`;
+    writeFileSync(join(tempDir, "Forgefile"), dropMetrics);
+    expect(projectForgefile(projectId, tempDir, "sha3").status).toBe("valid");
+    services = listServiceDirectory({ projectId });
+    expect(services).toHaveLength(1);
+    expect(services[0]).toMatchObject({
+      deployTarget: "web",
+      portName: "http",
+      port: 8080,
+    });
+  });
+
+  it("clears service directory when Forgefile is missing or invalid", () => {
+    writeFileSync(join(tempDir, "Forgefile"), VALID_BODY);
+    projectForgefile(projectId, tempDir);
+    expect(listServiceDirectory({ projectId })).toHaveLength(1);
+
+    writeFileSync(join(tempDir, "Forgefile"), INVALID_BODY);
+    expect(projectForgefile(projectId, tempDir).status).toBe("invalid");
+    expect(listServiceDirectory({ projectId })).toHaveLength(0);
+  });
+
+  it("rejects projection when host port conflicts with another project", () => {
+    writeFileSync(join(tempDir, "Forgefile"), VALID_BODY);
+    expect(projectForgefile(projectId, tempDir).status).toBe("valid");
+
+    const otherId = randomUUID();
+    const otherDir = mkdtempSync(join(tmpdir(), "ff-project-other-"));
+    const now = new Date();
+    db.insert(projects)
+      .values({
+        id: otherId,
+        name: "Other FF",
+        githubRepo: "owner/other-ff",
+        branch: "main",
+        clonePath: otherDir,
+        enabled: true,
+        deployEnvJson: "[]",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    try {
+      writeFileSync(join(otherDir, "Forgefile"), VALID_BODY);
+      const result = projectForgefile(otherId, otherDir);
+      expect(result.status).toBe("invalid");
+      expect(result.errors?.some((e) => /port 8080/i.test(e))).toBe(true);
+      expect(listServiceDirectory({ projectId: otherId })).toHaveLength(0);
+      expect(listDeployTargets(otherId)).toHaveLength(0);
+    } finally {
+      db.delete(serviceDirectory)
+        .where(eq(serviceDirectory.projectId, otherId))
+        .run();
+      db.delete(deployTargets)
+        .where(eq(deployTargets.projectId, otherId))
+        .run();
+      db.delete(projectForgefiles)
+        .where(eq(projectForgefiles.projectId, otherId))
+        .run();
+      db.delete(projects).where(eq(projects.id, otherId)).run();
+      rmSync(otherDir, { recursive: true, force: true });
+    }
   });
 });

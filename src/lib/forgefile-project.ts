@@ -9,7 +9,15 @@ import {
   type ProjectForgefileStatus,
 } from "@/lib/db/schema";
 import { loadForgefile } from "@/lib/forgefile-load";
-import type { Forgefile } from "@/lib/forgefile-types";
+import type { Forgefile, ForgefilePort } from "@/lib/forgefile-types";
+import { hostPortConflict } from "@/lib/project-routing";
+import {
+  clearServiceDirectoryForProject,
+  removeStaleDeclaredServices,
+  serviceDirectoryPortConflict,
+  upsertDeclaredService,
+  type ServiceDirectoryKey,
+} from "@/lib/service-directory";
 
 export type ProjectForgefileResult = {
   status: ProjectForgefileStatus;
@@ -72,6 +80,70 @@ function clearDeployTargets(projectId: string): void {
   db.delete(deployTargets).where(eq(deployTargets.projectId, projectId)).run();
 }
 
+function clearProjectedState(projectId: string): void {
+  clearDeployTargets(projectId);
+  clearServiceDirectoryForProject(projectId);
+}
+
+function parsePortsJson(portsJson: string): ForgefilePort[] {
+  try {
+    const parsed = JSON.parse(portsJson) as unknown;
+    return Array.isArray(parsed) ? (parsed as ForgefilePort[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Cross-project host port uniqueness before upserting directory rows. */
+export function findServiceDirectoryPortConflictMessage(
+  projectId: string,
+  forgefile: Forgefile,
+): string | null {
+  for (const [deployTarget, deployment] of Object.entries(forgefile.deployments)) {
+    for (const portEntry of deployment.ports) {
+      const directoryConflict = serviceDirectoryPortConflict(portEntry.port, {
+        projectId,
+        deployTarget,
+        portName: portEntry.name,
+      });
+      if (directoryConflict) {
+        return `Host port ${portEntry.port} is already claimed by another project's service directory (${directoryConflict.deployTarget}/${directoryConflict.portName})`;
+      }
+
+      const projectConflict = hostPortConflict(portEntry.port, projectId);
+      if (projectConflict) {
+        return projectConflict;
+      }
+    }
+  }
+  return null;
+}
+
+export function reconcileServiceDirectory(projectId: string): void {
+  const targets = listDeployTargets(projectId);
+  const keepKeys: ServiceDirectoryKey[] = [];
+
+  for (const target of targets) {
+    const ports = parsePortsJson(target.portsJson);
+    for (const portEntry of ports) {
+      upsertDeclaredService({
+        projectId,
+        deployTarget: target.name,
+        portName: portEntry.name,
+        port: portEntry.port,
+        public: Boolean(portEntry.public),
+        subdomain: target.subdomain,
+      });
+      keepKeys.push({
+        deployTarget: target.name,
+        portName: portEntry.name,
+      });
+    }
+  }
+
+  removeStaleDeclaredServices(projectId, keepKeys);
+}
+
 function replaceDeployTargets(projectId: string, forgefile: Forgefile): void {
   const now = new Date();
   clearDeployTargets(projectId);
@@ -125,7 +197,7 @@ export function projectForgefile(
         errorMessage: message,
         parsedJson: "{}",
       });
-      clearDeployTargets(projectId);
+      clearProjectedState(projectId);
     });
     return { status: "invalid", errors };
   }
@@ -149,13 +221,32 @@ export function projectForgefile(
         errorMessage: errors.join("; "),
         parsedJson: "{}",
       });
-      clearDeployTargets(projectId);
+      clearProjectedState(projectId);
     });
 
     return { status, errors };
   }
 
   const forgefile = loaded.parsed.value;
+  const portConflict = findServiceDirectoryPortConflictMessage(
+    projectId,
+    forgefile,
+  );
+  if (portConflict) {
+    db.transaction(() => {
+      upsertProjectForgefile({
+        projectId,
+        status: "invalid",
+        contentHash: loaded.contentHash,
+        sourcePath: loaded.path,
+        commitSha: sha,
+        errorMessage: portConflict,
+        parsedJson: "{}",
+      });
+      clearProjectedState(projectId);
+    });
+    return { status: "invalid", errors: [portConflict] };
+  }
 
   db.transaction(() => {
     upsertProjectForgefile({
@@ -168,6 +259,7 @@ export function projectForgefile(
       parsedJson: JSON.stringify(forgefile),
     });
     replaceDeployTargets(projectId, forgefile);
+    reconcileServiceDirectory(projectId);
   });
 
   return { status: "valid" };
