@@ -36,6 +36,17 @@ export function projectRouteStorageKey(projectId: string): string {
   return `${PROJECT_ROUTE_KEY_PREFIX}${projectId}`;
 }
 
+/** Stable identity for per-deploy-target service directory Caddy routes. */
+export const SERVICE_ROUTE_KEY_PREFIX = "forge-service:";
+
+export function serviceRouteStorageKey(
+  projectId: string,
+  deployTarget: string,
+  portName: string,
+): string {
+  return `${SERVICE_ROUTE_KEY_PREFIX}${projectId}:${deployTarget}:${portName}`;
+}
+
 export function defaultUpstreamDial(hostPort: number | null): string {
   return `127.0.0.1:${hostPort ?? 3000}`;
 }

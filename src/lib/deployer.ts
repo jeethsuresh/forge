@@ -37,6 +37,7 @@ import {
 import type { Forgefile } from "@/lib/forgefile-types";
 import { resolveClonePath } from "@/lib/paths";
 import { observeDeployTargetPorts } from "@/lib/service-observe";
+import { syncDeployTargetCaddyRoutes } from "@/lib/service-caddy";
 import {
   buildProjectScriptEnv,
   projectScriptArgs,
@@ -503,6 +504,7 @@ async function executeDeployment(
           deploymentId,
           commitSha,
         });
+        await syncDeployTargetCaddyRoutes(projectId, deployTargetName);
         return;
       }
 
@@ -570,6 +572,7 @@ async function executeDeployment(
       deploymentId,
       commitSha,
     });
+    await syncDeployTargetCaddyRoutes(projectId, deployTargetName);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log(`ERROR: ${message}`);
