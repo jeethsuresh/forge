@@ -30,6 +30,7 @@ import { ProjectDiffPanel } from "@/components/ProjectDiffPanel";
 import { ProjectCaddyLogsSection } from "@/components/ProjectCaddyLogsSection";
 import { ProjectLocalBranchesEditor } from "@/components/ProjectLocalBranchesEditor";
 import { ForgefileStatusBanner } from "@/components/ForgefileStatusBanner";
+import { DeployTargetPorts } from "@/components/DeployTargetPorts";
 import {
   agentSessionSourceBadgeClass,
   agentSessionSourceLabel,
@@ -774,6 +775,11 @@ export default function ProjectDetailPage() {
             </div>
           ) : null}
 
+          <DeployTargetPorts
+            projectId={project.id}
+            title="Deploy target ports"
+          />
+
           <div className="flex flex-wrap gap-2 pt-1">
             <Button variant="primary" onClick={() => selectTab("deploy")}>
               Deploy
@@ -850,6 +856,12 @@ export default function ProjectDetailPage() {
               hideActiveLogs={Boolean(activeDeployLogs)}
             />
           )}
+
+          <DeployTargetPorts
+            className="mb-6"
+            projectId={project.id}
+            title="Deploy target ports"
+          />
 
           <div className="mb-6 forge-surface-elevated p-4">
             <div className="flex flex-wrap items-end gap-2">

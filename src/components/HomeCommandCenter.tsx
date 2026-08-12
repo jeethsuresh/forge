@@ -17,6 +17,7 @@ import {
   SectionLabel,
   StatusDot,
 } from "@/components/ui";
+import { DeployTargetPorts } from "@/components/DeployTargetPorts";
 
 type ProjectsResponse = {
   forgeProject: FleetProject | null;
@@ -232,6 +233,8 @@ export function HomeCommandCenter() {
           </div>
         )}
       </section>
+
+      <DeployTargetPorts className="mt-9" title="Services" />
     </div>
   );
 }
