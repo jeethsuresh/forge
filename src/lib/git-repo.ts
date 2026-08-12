@@ -1,7 +1,7 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
 import { tmpdir } from "os";
 import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
@@ -17,6 +17,12 @@ import {
 import { opsApiBaseUrl } from "@/lib/ops-api-auth";
 import { composeNameConflict, validateProjectName } from "@/lib/projects";
 import { resolveClonePath } from "@/lib/paths";
+import {
+  formatGitError,
+  githubCloneUrl,
+  parseGithubRepo,
+  prepareGithubGitAuth,
+} from "@/lib/github";
 
 const execFileAsync = promisify(execFile);
 
@@ -44,7 +50,9 @@ export function normalizeGitSlug(input: string): string {
   const slug = composeProjectName(input.replace(/\.git$/i, ""));
   if (!slug || slug === "forge-project") {
     const fallback = composeProjectName(input.trim() || "project");
-    return fallback === "forge-project" ? `project-${randomUUID().slice(0, 8)}` : fallback;
+    return fallback === "forge-project"
+      ? `project-${randomUUID().slice(0, 8)}`
+      : fallback;
   }
   return slug;
 }
@@ -183,5 +191,139 @@ export async function createForgeGitRepository(
     barePath,
     httpsUrl: forgeGitHttpsUrl(slug),
     sshUrl: forgeGitSshUrl(slug),
+  };
+}
+
+export type ImportGithubToForgeOpts = {
+  githubRepo: string;
+  name?: string;
+  slug?: string;
+  branch?: string;
+  /** Override clone source (local bare stand-in for tests). */
+  sourceUrl?: string;
+};
+
+export type ImportGithubToForgeResult = CreateForgeGitRepositoryResult & {
+  importedFrom: string;
+};
+
+export async function importGithubToForge(
+  opts: ImportGithubToForgeOpts,
+): Promise<ImportGithubToForgeResult> {
+  const githubRepo = parseGithubRepo(opts.githubRepo);
+  const trimmedName = (
+    opts.name?.trim() ||
+    githubRepo.split("/")[1] ||
+    githubRepo
+  ).trim();
+  const nameError = validateProjectName(trimmedName);
+  if (nameError) throw new Error(nameError);
+
+  const conflict = composeNameConflict(trimmedName);
+  if (conflict) throw new Error(conflict);
+
+  const slug = normalizeGitSlug(
+    opts.slug?.trim() || githubRepo.replace("/", "-") || trimmedName,
+  );
+  const defaultBranch = (opts.branch?.trim() || "main").replace(
+    /^refs\/heads\//,
+    "",
+  );
+
+  const existing = db
+    .select()
+    .from(gitRepositories)
+    .where(eq(gitRepositories.slug, slug))
+    .get();
+  if (existing) {
+    throw new Error(`Git repository slug "${slug}" already exists`);
+  }
+
+  mkdirSync(resolveGitBareRoot(), { recursive: true });
+  const barePath = barePathForSlug(slug);
+  if (existsSync(barePath)) {
+    throw new Error(`Bare path already exists: ${barePath}`);
+  }
+
+  const sourceUrl = opts.sourceUrl?.trim() || githubCloneUrl(githubRepo);
+  if (!opts.sourceUrl) {
+    await prepareGithubGitAuth();
+  }
+
+  try {
+    await execGit(["clone", "--mirror", sourceUrl, barePath]);
+  } catch (err) {
+    throw new Error(`Failed to import ${githubRepo}: ${formatGitError(err)}`);
+  }
+
+  await execGit(["config", "http.receivepack", "true"], { cwd: barePath });
+  try {
+    await execGit(["symbolic-ref", "HEAD", `refs/heads/${defaultBranch}`], {
+      cwd: barePath,
+    });
+  } catch {
+    // Keep whatever HEAD the mirror had if the requested branch is missing.
+  }
+  installPostReceiveHook(barePath, slug);
+
+  try {
+    await execGit(["remote", "remove", "origin"], { cwd: barePath });
+  } catch {
+    // mirrors may not expose origin the same way; ignore
+  }
+
+  const repositoryId = randomUUID();
+  const projectId = randomUUID();
+  const now = new Date();
+  const clonePath = workingClonePathForSlug(slug, defaultBranch);
+  if (existsSync(clonePath)) {
+    rmSync(clonePath, { recursive: true, force: true });
+  }
+  mkdirSync(dirname(clonePath), { recursive: true });
+
+  try {
+    await execGit(["clone", "--branch", defaultBranch, barePath, clonePath]);
+  } catch {
+    await execGit(["clone", barePath, clonePath]);
+    try {
+      await execGit(["checkout", "-B", defaultBranch], { cwd: clonePath });
+    } catch {
+      // leave default checkout
+    }
+  }
+
+  db.insert(gitRepositories)
+    .values({
+      id: repositoryId,
+      slug,
+      barePath,
+      defaultBranch,
+      importedFrom: githubRepo,
+      createdAt: now,
+    })
+    .run();
+
+  db.insert(projects)
+    .values({
+      id: projectId,
+      name: trimmedName,
+      githubRepo,
+      branch: defaultBranch,
+      clonePath,
+      enabled: true,
+      gitRepositoryId: repositoryId,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+
+  return {
+    repositoryId,
+    projectId,
+    slug,
+    barePath,
+    httpsUrl: forgeGitHttpsUrl(slug),
+    sshUrl: forgeGitSshUrl(slug),
+    importedFrom: githubRepo,
   };
 }

@@ -1,23 +1,26 @@
 import { NextResponse } from "next/server";
 import { desc, eq } from "drizzle-orm";
-import { randomUUID } from "crypto";
-import { mkdirSync } from "fs";
-import { join, resolve } from "path";
 import { db } from "@/lib/db";
 import { deployments, projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
-import { parseGithubRepo } from "@/lib/github";
 import { isDeploymentActive } from "@/lib/deployer";
 import { getComposeContainerStatus, projectHasComposeFile } from "@/lib/docker";
 import { deriveRuntimeStatus } from "@/lib/project-status";
 import { composeProjectName } from "@/lib/compose-project-name";
-import { composeNameConflict, projectComposeSlug, validateProjectName } from "@/lib/projects";
+import { projectComposeSlug } from "@/lib/projects";
 import {
   findForgeProject,
   isForgeProject,
   isForgeSelfUpdateConfigured,
 } from "@/lib/forge-project";
 import { isForgeUpdateInProgress } from "@/lib/self-update";
+import {
+  createForgeGitRepository,
+  forgeGitHttpsUrl,
+  forgeGitSshUrl,
+  importGithubToForge,
+} from "@/lib/git-repo";
+import { gitRepositories } from "@/lib/db/schema";
 
 async function requireLogin() {
   const session = await getSession();
@@ -69,6 +72,14 @@ export async function GET() {
         hasComposeFile: projectHasComposeFile(project.clonePath),
       });
 
+      const gitRepo = project.gitRepositoryId
+        ? db
+            .select()
+            .from(gitRepositories)
+            .where(eq(gitRepositories.id, project.gitRepositoryId))
+            .get()
+        : null;
+
       return {
         id: project.id,
         name: project.name,
@@ -84,6 +95,11 @@ export async function GET() {
         isDeploying,
         runtimeStatus,
         isForge: isForgeProject(project),
+        gitRepositoryId: project.gitRepositoryId,
+        gitSlug: gitRepo?.slug ?? null,
+        httpsCloneUrl: gitRepo ? forgeGitHttpsUrl(gitRepo.slug) : null,
+        sshCloneUrl: gitRepo ? forgeGitSshUrl(gitRepo.slug) : null,
+        importedFrom: gitRepo?.importedFrom ?? null,
       };
   };
 
@@ -111,59 +127,85 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json()) as {
+    mode?: "create" | "import";
     name?: string;
+    slug?: string;
     githubRepo?: string;
     branch?: string;
   };
 
-  if (!body.name?.trim() || !body.githubRepo?.trim()) {
+  const mode =
+    body.mode ??
+    (body.githubRepo?.trim() ? "import" : body.name?.trim() ? "create" : null);
+
+  if (!mode) {
     return NextResponse.json(
-      { error: "Name and GitHub repository are required" },
+      { error: "Provide mode=create or mode=import" },
       { status: 400 },
     );
   }
 
-  const trimmedName = body.name.trim();
-  const nameError = validateProjectName(trimmedName);
-  if (nameError) {
-    return NextResponse.json({ error: nameError }, { status: 400 });
-  }
-
-  const conflict = composeNameConflict(trimmedName);
-  if (conflict) {
-    return NextResponse.json({ error: conflict }, { status: 409 });
-  }
-
-  let githubRepo: string;
   try {
-    githubRepo = parseGithubRepo(body.githubRepo);
+    if (mode === "create") {
+      if (!body.name?.trim()) {
+        return NextResponse.json(
+          { error: "Name is required to create a project" },
+          { status: 400 },
+        );
+      }
+      const created = await createForgeGitRepository({
+        name: body.name,
+        slug: body.slug,
+        defaultBranch: body.branch,
+      });
+      const project = db
+        .select()
+        .from(projects)
+        .where(eq(projects.id, created.projectId))
+        .get();
+      return NextResponse.json(
+        {
+          ...project,
+          httpsCloneUrl: created.httpsUrl,
+          sshCloneUrl: created.sshUrl,
+          gitSlug: created.slug,
+        },
+        { status: 201 },
+      );
+    }
+
+    if (!body.githubRepo?.trim()) {
+      return NextResponse.json(
+        { error: "GitHub repository is required to import" },
+        { status: 400 },
+      );
+    }
+
+    const imported = await importGithubToForge({
+      githubRepo: body.githubRepo,
+      name: body.name,
+      slug: body.slug,
+      branch: body.branch,
+    });
+    const project = db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, imported.projectId))
+      .get();
+    return NextResponse.json(
+      {
+        ...project,
+        httpsCloneUrl: imported.httpsUrl,
+        sshCloneUrl: imported.sshUrl,
+        gitSlug: imported.slug,
+        importedFrom: imported.importedFrom,
+      },
+      { status: 201 },
+    );
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Invalid repository";
-    return NextResponse.json({ error: message }, { status: 400 });
+    const message = err instanceof Error ? err.message : "Failed to create project";
+    const status =
+      /already exists|conflict|Another project/i.test(message) ? 409 : 400;
+    return NextResponse.json({ error: message }, { status });
   }
-
-  const branch = body.branch?.trim() || "main";
-  const reposDir = resolve(process.env.FORGE_REPOS_DIR ?? "./data/repos");
-  mkdirSync(reposDir, { recursive: true });
-  const slug = githubRepo.replace("/", "-");
-  const clonePath = join(reposDir, `${slug}-${branch}`);
-
-  const id = randomUUID();
-  const now = new Date();
-
-  db.insert(projects)
-    .values({
-      id,
-      name: trimmedName,
-      githubRepo,
-      branch,
-      clonePath,
-      enabled: true,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .run();
-
-  const project = db.select().from(projects).where(eq(projects.id, id)).get();
-  return NextResponse.json(project, { status: 201 });
 }

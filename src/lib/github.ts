@@ -465,6 +465,10 @@ export function gitHubCredentials(): { username: string; password: string } | nu
   return { username, password };
 }
 
+export async function prepareGithubGitAuth(): Promise<void> {
+  await ensureGitCredentialStore();
+}
+
 async function ensureGitCredentialStore(): Promise<void> {
   if (gitCredentialsConfigured) return;
 

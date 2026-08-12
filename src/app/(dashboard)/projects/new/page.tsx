@@ -5,9 +5,13 @@ import { FormEvent, useState } from "react";
 import { composeProjectName } from "@/lib/compose-project-name";
 import { Button, Input, PageHeader } from "@/components/ui";
 
+type Mode = "create" | "import";
+
 export default function NewProjectPage() {
   const router = useRouter();
+  const [mode, setMode] = useState<Mode>("create");
   const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
   const [githubRepo, setGithubRepo] = useState("");
   const [branch, setBranch] = useState("main");
   const [error, setError] = useState("");
@@ -22,7 +26,13 @@ export default function NewProjectPage() {
       const res = await fetch("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, githubRepo, branch }),
+        body: JSON.stringify({
+          mode,
+          name: name.trim() || undefined,
+          slug: slug.trim() || undefined,
+          githubRepo: mode === "import" ? githubRepo : undefined,
+          branch,
+        }),
       });
 
       const data = await res.json();
@@ -45,8 +55,25 @@ export default function NewProjectPage() {
       <div className="mx-auto max-w-lg">
         <PageHeader
           title="Add project"
-          subtitle="Watch a GitHub repository and auto-deploy on changes"
+          subtitle="Create a Forge-hosted repo or import once from GitHub"
         />
+
+        <div className="mb-4 flex gap-2">
+          <Button
+            type="button"
+            variant={mode === "create" ? "primary" : "secondary"}
+            onClick={() => setMode("create")}
+          >
+            Create empty
+          </Button>
+          <Button
+            type="button"
+            variant={mode === "import" ? "primary" : "secondary"}
+            onClick={() => setMode("import")}
+          >
+            Import GitHub
+          </Button>
+        </div>
 
         <form onSubmit={handleSubmit} className="forge-surface-elevated space-y-5 p-6">
           {error ? (
@@ -63,8 +90,8 @@ export default function NewProjectPage() {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="My App"
-              required
+              placeholder={mode === "import" ? "Optional (defaults from repo)" : "My App"}
+              required={mode === "create"}
             />
             {name.trim() ? (
               <p className="mt-1.5 font-mono text-xs text-[var(--forge-faint)]">
@@ -78,21 +105,45 @@ export default function NewProjectPage() {
 
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
-              GitHub repository
+              Git slug (optional)
             </span>
             <Input
               type="text"
-              value={githubRepo}
-              onChange={(e) => setGithubRepo(e.target.value)}
-              placeholder="owner/repo or https://github.com/owner/repo"
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              placeholder="my-app"
               className="font-mono text-sm"
-              required
             />
           </label>
 
+          {mode === "import" ? (
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
+                GitHub repository
+              </span>
+              <Input
+                type="text"
+                value={githubRepo}
+                onChange={(e) => setGithubRepo(e.target.value)}
+                placeholder="owner/repo or https://github.com/owner/repo"
+                className="font-mono text-sm"
+                required
+              />
+              <p className="mt-1.5 text-xs text-[var(--forge-faint)]">
+                One-shot import into Forge. GitHub is not kept as a dual remote.
+              </p>
+            </label>
+          ) : (
+            <p className="text-xs text-[var(--forge-faint)]">
+              Seeds a README and a minimal{" "}
+              <code className="text-[var(--forge-muted)]">Forgefile</code>. Clone
+              URLs appear on the project Settings tab.
+            </p>
+          )}
+
           <label className="block">
             <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
-              Branch
+              Default branch
             </span>
             <Input
               type="text"
@@ -104,19 +155,18 @@ export default function NewProjectPage() {
             />
           </label>
 
-          <p className="text-xs text-[var(--forge-faint)]">
-            The repository must have{" "}
-            <code className="text-[var(--forge-muted)]">build.sh</code> and{" "}
-            <code className="text-[var(--forge-muted)]">deploy.sh</code> in its
-            root.
-          </p>
-
           <div className="flex gap-3 pt-2">
             <Button type="button" variant="secondary" onClick={() => router.back()}>
               Cancel
             </Button>
             <Button type="submit" variant="primary" disabled={loading}>
-              {loading ? "Creating…" : "Create project"}
+              {loading
+                ? mode === "import"
+                  ? "Importing…"
+                  : "Creating…"
+                : mode === "import"
+                  ? "Import project"
+                  : "Create project"}
             </Button>
           </div>
         </form>

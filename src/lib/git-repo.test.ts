@@ -1,12 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "fs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { eq } from "drizzle-orm";
 import { execFileSync } from "child_process";
 import { db } from "@/lib/db";
 import { gitRepositories, projects } from "@/lib/db/schema";
-import { createForgeGitRepository } from "@/lib/git-repo";
+import {
+  createForgeGitRepository,
+  importGithubToForge,
+} from "@/lib/git-repo";
 import { buildSeedForgefile, assertSeedForgefileValid } from "@/lib/git-seed-forgefile";
 import { parseForgefileYaml } from "@/lib/forgefile-parse";
 
@@ -100,6 +103,74 @@ describe("createForgeGitRepository", () => {
       assertSeedForgefileValid(forgefile);
     } finally {
       rmSync(work, { recursive: true, force: true });
+    }
+  });
+
+  it("imports from a local bare GitHub stand-in", async () => {
+    const standIn = mkdtempSync(join(tmpdir(), "gh-standin-"));
+    const seed = mkdtempSync(join(tmpdir(), "gh-seed-"));
+    try {
+      execFileSync("git", ["init", "--bare", standIn], {
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      });
+      execFileSync("git", ["clone", standIn, seed], {
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      });
+      writeFileSync(join(seed, "README.md"), "# imported\n");
+      execFileSync("git", ["add", "README.md"], {
+        cwd: seed,
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_AUTHOR_NAME: "t",
+          GIT_AUTHOR_EMAIL: "t@t",
+          GIT_COMMITTER_NAME: "t",
+          GIT_COMMITTER_EMAIL: "t@t",
+        },
+      });
+      execFileSync("git", ["commit", "-m", "init"], {
+        cwd: seed,
+        env: {
+          ...process.env,
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_AUTHOR_NAME: "t",
+          GIT_AUTHOR_EMAIL: "t@t",
+          GIT_COMMITTER_NAME: "t",
+          GIT_COMMITTER_EMAIL: "t@t",
+        },
+      });
+      execFileSync("git", ["push", "origin", "HEAD:main"], {
+        cwd: seed,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      });
+
+      const unique = `import-${Date.now()}`;
+      const result = await importGithubToForge({
+        githubRepo: `acme/${unique}`,
+        name: unique,
+        slug: unique,
+        branch: "main",
+        sourceUrl: standIn,
+      });
+      createdProjectId = result.projectId;
+      createdRepoId = result.repositoryId;
+
+      expect(result.importedFrom).toBe(`acme/${unique}`);
+      const repo = db
+        .select()
+        .from(gitRepositories)
+        .where(eq(gitRepositories.id, result.repositoryId))
+        .get();
+      expect(repo?.importedFrom).toBe(`acme/${unique}`);
+      expect(existsSync(join(result.barePath, "hooks", "post-receive"))).toBe(
+        true,
+      );
+      expect(existsSync(join(reposRoot, `${unique}-main`, "README.md"))).toBe(
+        true,
+      );
+    } finally {
+      rmSync(standIn, { recursive: true, force: true });
+      rmSync(seed, { recursive: true, force: true });
     }
   });
 });
