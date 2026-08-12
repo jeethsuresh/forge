@@ -4,9 +4,10 @@ import { useState } from "react";
 import { ProjectRoutingOverview } from "@/components/ProjectRoutingOverview";
 import { CaddyLogsViewer } from "@/components/CaddyLogsViewer";
 import { CaddySettingsEditor } from "@/components/CaddySettingsEditor";
+import { GitSshKeysSettings } from "@/components/GitSshKeysSettings";
 import { PageHeader, TabButton, TabList } from "@/components/ui";
 
-type SettingsTab = "routing" | "routes" | "logs";
+type SettingsTab = "routing" | "routes" | "logs" | "git-ssh";
 
 export function GlobalSettings() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("routing");
@@ -16,7 +17,7 @@ export function GlobalSettings() {
       <div className="mx-auto max-w-4xl">
         <PageHeader
           title="Global settings"
-          subtitle="Routing, live Caddy config, and access logs"
+          subtitle="Routing, live Caddy config, access logs, and git SSH keys"
         />
 
         <TabList className="mb-6">
@@ -38,14 +39,22 @@ export function GlobalSettings() {
           >
             Access logs
           </TabButton>
+          <TabButton
+            active={activeTab === "git-ssh"}
+            onClick={() => setActiveTab("git-ssh")}
+          >
+            Git SSH
+          </TabButton>
         </TabList>
 
         {activeTab === "routing" ? (
           <ProjectRoutingOverview />
         ) : activeTab === "routes" ? (
           <CaddySettingsEditor />
-        ) : (
+        ) : activeTab === "logs" ? (
           <CaddyLogsViewer />
+        ) : (
+          <GitSshKeysSettings />
         )}
       </div>
     </div>

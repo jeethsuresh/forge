@@ -66,5 +66,27 @@ services:
     environment:
       FORGE_DB_PATH: ":memory:"
 
+  # Optional SSH transport for Forge bare repos. Keys are managed in
+  # Global settings → Git SSH (synced to /data/git-ssh/authorized_keys).
+  # Enable with: docker compose -p forge --profile git-ssh up -d git-ssh
+  # See docs/git-server.md
+  git-ssh:
+    profiles:
+      - git-ssh
+    image: linuxserver/openssh-server:latest
+    environment:
+      PUID: "1000"
+      PGID: "1000"
+      USER_NAME: git
+      PUBLIC_KEY_FILE: /git-ssh/authorized_keys
+    volumes:
+      - forge-data:/data
+      - forge-data:/git-ssh:ro
+    # Mount note: place authorized_keys at /data/git-ssh/authorized_keys (Forge default).
+    # Bind the git-ssh subdir if your volume layout differs.
+    ports:
+      - "${FORGE_GIT_SSH_PORT:-2222}:2222"
+    restart: unless-stopped
+
 volumes:
   forge-data:

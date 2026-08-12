@@ -23,6 +23,18 @@ export const gitRepositories = sqliteTable("git_repositories", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+export type GitSshKeyScope = "user" | "deploy";
+
+/** Public SSH keys authorized for Forge git (sidecar sshd reads synced file). */
+export const gitSshKeys = sqliteTable("git_ssh_keys", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  publicKey: text("public_key").notNull(),
+  fingerprint: text("fingerprint").notNull().unique(),
+  scope: text("scope").$type<GitSshKeyScope>().notNull().default("user"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+});
+
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -357,6 +369,7 @@ export const opsApiActions = sqliteTable("ops_api_actions", {
 
 export type User = typeof users.$inferSelect;
 export type GitRepository = typeof gitRepositories.$inferSelect;
+export type GitSshKey = typeof gitSshKeys.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type ProjectForgefile = typeof projectForgefiles.$inferSelect;
 export type DeployTarget = typeof deployTargets.$inferSelect;

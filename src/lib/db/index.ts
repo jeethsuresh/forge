@@ -31,6 +31,15 @@ CREATE TABLE IF NOT EXISTS git_repositories (
   created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS git_ssh_keys (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  public_key TEXT NOT NULL,
+  fingerprint TEXT NOT NULL UNIQUE,
+  scope TEXT NOT NULL DEFAULT 'user',
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -294,6 +303,15 @@ CREATE TABLE IF NOT EXISTS git_repositories (
   bare_path TEXT NOT NULL,
   default_branch TEXT NOT NULL DEFAULT 'main',
   imported_from TEXT,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS git_ssh_keys (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  public_key TEXT NOT NULL,
+  fingerprint TEXT NOT NULL UNIQUE,
+  scope TEXT NOT NULL DEFAULT 'user',
   created_at INTEGER NOT NULL
 );
 `);
