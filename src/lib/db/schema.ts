@@ -112,6 +112,44 @@ export const deployTargets = sqliteTable(
   ],
 );
 
+export type ServiceDirectoryStatus = "unknown" | "up" | "down";
+export type ServiceDirectoryRouteStatus = "none" | "synced" | "error";
+
+export const serviceDirectory = sqliteTable(
+  "service_directory",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    deployTarget: text("deploy_target").notNull(),
+    portName: text("port_name").notNull(),
+    port: integer("port").notNull(),
+    public: integer("public", { mode: "boolean" }).notNull(),
+    subdomain: text("subdomain"),
+    url: text("url"),
+    status: text("status").$type<ServiceDirectoryStatus>().notNull(),
+    routeStatus: text("route_status")
+      .$type<ServiceDirectoryRouteStatus>()
+      .notNull(),
+    routeError: text("route_error"),
+    boundPort: integer("bound_port"),
+    lastCheckedAt: integer("last_checked_at", { mode: "timestamp" }),
+    lastLatencyMs: integer("last_latency_ms"),
+    lastError: text("last_error"),
+    deploymentId: text("deployment_id"),
+    commitSha: text("commit_sha"),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_service_directory_project_target_port").on(
+      table.projectId,
+      table.deployTarget,
+      table.portName,
+    ),
+  ],
+);
+
 export const deployments = sqliteTable("deployments", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
@@ -192,6 +230,7 @@ export type User = typeof users.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type ProjectForgefile = typeof projectForgefiles.$inferSelect;
 export type DeployTarget = typeof deployTargets.$inferSelect;
+export type ServiceDirectoryRow = typeof serviceDirectory.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
 export type AgentSession = typeof agentSessions.$inferSelect;
 export type AgentEvent = typeof agentEvents.$inferSelect;

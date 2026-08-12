@@ -139,6 +139,32 @@ CREATE TABLE IF NOT EXISTS deploy_targets (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_deploy_targets_project_name
   ON deploy_targets(project_id, name);
 CREATE INDEX IF NOT EXISTS idx_deploy_targets_project_id ON deploy_targets(project_id);
+
+CREATE TABLE IF NOT EXISTS service_directory (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  deploy_target TEXT NOT NULL,
+  port_name TEXT NOT NULL,
+  port INTEGER NOT NULL,
+  public INTEGER NOT NULL,
+  subdomain TEXT,
+  url TEXT,
+  status TEXT NOT NULL,
+  route_status TEXT NOT NULL,
+  route_error TEXT,
+  bound_port INTEGER,
+  last_checked_at INTEGER,
+  last_latency_ms INTEGER,
+  last_error TEXT,
+  deployment_id TEXT,
+  commit_sha TEXT,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_service_directory_project_target_port
+  ON service_directory(project_id, deploy_target, port_name);
+CREATE INDEX IF NOT EXISTS idx_service_directory_project_id
+  ON service_directory(project_id);
 `;
 
 sqlite.exec(INIT_SQL);
