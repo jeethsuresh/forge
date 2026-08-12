@@ -1,6 +1,7 @@
 "use client";
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -1152,9 +1153,12 @@ export default function ProjectDetailPage() {
                 This project still uses GitHub (
                 <code className="text-xs">{project.githubRepo}</code>
                 ). Import into Forge from{" "}
-                <a href="/projects/new" className="text-[var(--forge-accent-hot)]">
+                <Link
+                  href="/projects/new"
+                  className="text-[var(--forge-accent-hot)]"
+                >
                   Add project → Import GitHub
-                </a>{" "}
+                </Link>{" "}
                 to make Forge the primary origin.
               </div>
             </section>

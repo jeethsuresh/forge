@@ -65,8 +65,9 @@ function presentedBearerOrBasic(request: Request): string | null {
 export async function authorizeGitHttpAccess(
   request: Request,
   slug: string,
-  _write: boolean,
+  write: boolean,
 ): Promise<GitHttpAccess> {
+  void write;
   const cleanSlug = normalizeGitHttpSlug(slug);
   const repo = db
     .select()
@@ -276,7 +277,6 @@ export async function handleGitSmartHttp(
   // Prefer explicit trailing path from the route; fall back to URL after slug.git
   let resolvedPathInfo = pathInfo;
   const marker = `/${slug}.git`;
-  const markerAlt = `/${slug}`;
   const pathname = url.pathname;
   const idx = pathname.indexOf(marker);
   if (idx >= 0) {

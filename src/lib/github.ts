@@ -82,6 +82,33 @@ function prepareCloneTarget(resolvedPath: string): void {
   );
 }
 
+/**
+ * Point origin at `url` when missing or when migrating to a Forge bare/HTTP remote.
+ * Do not overwrite a working local/test origin just because the caller passed owner/repo.
+ */
+async function ensureOriginUrl(cwd: string, url: string): Promise<void> {
+  const isGithubHosted = url.includes("github.com");
+  try {
+    const { stdout } = await execGit(["remote", "get-url", "origin"], { cwd });
+    const current = stdout.trim();
+    if (!current) {
+      await execGit(["remote", "add", "origin", url], { cwd });
+      return;
+    }
+    if (current === url) return;
+    if (isGithubHosted && !current.includes("github.com")) {
+      return;
+    }
+    await execGit(["remote", "set-url", "origin", url], { cwd });
+  } catch {
+    try {
+      await execGit(["remote", "add", "origin", url], { cwd });
+    } catch {
+      // keep existing remotes
+    }
+  }
+}
+
 export async function getRemoteCommitSha(
   repoOrUrl: string,
   branch: string,
@@ -156,15 +183,7 @@ export async function cloneOrPull(
     onLog("Clone complete.");
   } else {
     onLog("Fetching latest changes...");
-    try {
-      await execGit(["remote", "set-url", "origin", url], { cwd: resolvedPath });
-    } catch {
-      try {
-        await execGit(["remote", "add", "origin", url], { cwd: resolvedPath });
-      } catch {
-        // keep existing remotes if both fail
-      }
-    }
+    await ensureOriginUrl(resolvedPath, url);
     await execGit(["fetch", "origin", branch], { cwd: resolvedPath });
     onLog(`Checking out ${branch}...`);
     try {
@@ -236,15 +255,7 @@ export async function ensureRepoCloned(
   }
 
   onLog("Fetching latest changes...");
-  try {
-    await execGit(["remote", "set-url", "origin", url], { cwd: resolvedPath });
-  } catch {
-    try {
-      await execGit(["remote", "add", "origin", url], { cwd: resolvedPath });
-    } catch {
-      // keep existing remotes
-    }
-  }
+  await ensureOriginUrl(resolvedPath, url);
   await execGit(["fetch", "origin"], { cwd: resolvedPath });
 }
 
