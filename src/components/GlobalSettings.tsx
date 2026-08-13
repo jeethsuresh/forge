@@ -5,22 +5,29 @@ import { ProjectRoutingOverview } from "@/components/ProjectRoutingOverview";
 import { CaddyLogsViewer } from "@/components/CaddyLogsViewer";
 import { CaddySettingsEditor } from "@/components/CaddySettingsEditor";
 import { GitSshKeysSettings } from "@/components/GitSshKeysSettings";
+import { ThemeAppearance } from "@/components/ThemeAppearance";
 import { PageHeader, TabButton, TabList } from "@/components/ui";
 
-type SettingsTab = "routing" | "routes" | "logs" | "git-ssh";
+type SettingsTab = "appearance" | "routing" | "routes" | "logs" | "git-ssh";
 
 export function GlobalSettings() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("routing");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("appearance");
 
   return (
     <div className="forge-app-bg min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 sm:px-7 sm:py-8 lg:px-10">
       <div className="mx-auto max-w-4xl">
         <PageHeader
           title="Global settings"
-          subtitle="Routing, live Caddy config, access logs, and git SSH keys"
+          subtitle="Appearance, routing, live Caddy config, access logs, and git SSH keys"
         />
 
         <TabList className="mb-6">
+          <TabButton
+            active={activeTab === "appearance"}
+            onClick={() => setActiveTab("appearance")}
+          >
+            Appearance
+          </TabButton>
           <TabButton
             active={activeTab === "routing"}
             onClick={() => setActiveTab("routing")}
@@ -47,7 +54,9 @@ export function GlobalSettings() {
           </TabButton>
         </TabList>
 
-        {activeTab === "routing" ? (
+        {activeTab === "appearance" ? (
+          <ThemeAppearance />
+        ) : activeTab === "routing" ? (
           <ProjectRoutingOverview />
         ) : activeTab === "routes" ? (
           <CaddySettingsEditor />
