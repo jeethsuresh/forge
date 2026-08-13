@@ -3,7 +3,7 @@
 import { Suspense } from "react";
 import { ProjectStudio } from "@/components/ProjectStudio";
 
-export default function ProjectOverviewPage() {
+export default function ProjectDeployPage() {
   return (
     <Suspense
       fallback={
@@ -12,7 +12,7 @@ export default function ProjectOverviewPage() {
         </div>
       }
     >
-      <ProjectStudio mode="overview" />
+      <ProjectStudio mode="deploy" />
     </Suspense>
   );
 }

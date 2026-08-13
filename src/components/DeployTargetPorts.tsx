@@ -108,7 +108,7 @@ export function DeployTargetPorts({
                   {!projectId ? (
                     <td className="px-4 py-2.5">
                       <Link
-                        href={`/projects/${row.projectId}?tab=overview`}
+                        href={`/projects/${row.projectId}`}
                         className="font-medium text-[var(--forge-bright)] hover:text-white"
                       >
                         {row.projectName}

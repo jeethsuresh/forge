@@ -2,12 +2,22 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { APP_DISPLAY_NAME, appDisplayInitial } from "@/lib/app-name";
 import type { RuntimeStatus } from "@/lib/project-status";
-import { runtimeTone } from "@/lib/ui-status";
+import { attentionForProject, type FleetProject } from "@/lib/fleet-attention";
+import { modeStatuses, projectRowTone } from "@/lib/mode-status";
+import {
+  isProjectPathActive,
+  PROJECT_MODE_LABELS,
+  PROJECT_MODES,
+  projectModeHref,
+  resolveProjectModeFromPath,
+  type ProjectMode,
+} from "@/lib/project-routes";
 import { projectSwatch } from "@/lib/project-swatch";
-import { Kbd, StatusDot } from "@/components/ui";
+import { StatusDot } from "@/components/ui";
+import { Kbd } from "@/components/ui";
 
 interface ProjectSummary {
   id: string;
@@ -18,6 +28,8 @@ interface ProjectSummary {
   runtimeStatus: RuntimeStatus;
   isForge?: boolean;
   latestDeployment: { status: string } | null;
+  hasLiveAgent?: boolean;
+  workingTreeDirty?: boolean;
 }
 
 interface ProjectsResponse {
@@ -26,51 +38,118 @@ interface ProjectsResponse {
   forgeConfigured: boolean;
 }
 
-function ProjectNavLink({
+function toFleet(project: ProjectSummary): FleetProject {
+  return {
+    id: project.id,
+    name: project.name,
+    branch: project.branch,
+    enabled: project.enabled,
+    isDeploying: project.isDeploying,
+    runtimeStatus: project.runtimeStatus,
+    isForge: project.isForge,
+    latestDeployment: project.latestDeployment,
+  };
+}
+
+function ProjectNavBlock({
   project,
-  active,
+  pathname,
   onNavigate,
   variant = "default",
 }: {
   project: ProjectSummary;
-  active: boolean;
+  pathname: string;
   onNavigate?: () => void;
   variant?: "default" | "forge";
 }) {
   const swatch = projectSwatch(project.id);
-  const tone = !project.enabled
-    ? "neutral"
-    : project.isDeploying
-      ? "warning"
-      : runtimeTone(project.runtimeStatus);
+  const active = isProjectPathActive(pathname, project.id);
+  const resolved = resolveProjectModeFromPath(pathname);
+  const activeMode =
+    active && resolved?.projectId === project.id ? resolved.mode : null;
+
+  const signals = useMemo(() => {
+    const fleet = toFleet(project);
+    return {
+      runtimeStatus: project.runtimeStatus,
+      isDeploying: project.isDeploying,
+      latestDeployStatus: project.latestDeployment?.status ?? null,
+      hasAttention: attentionForProject(fleet) !== null,
+      agentLive: Boolean(project.hasLiveAgent),
+      workingTreeDirty: Boolean(project.workingTreeDirty),
+    };
+  }, [project]);
+
+  const rowTone = projectRowTone(signals);
+  const tones = modeStatuses(signals);
 
   return (
-    <Link
-      href={`/projects/${project.id}?tab=overview`}
-      onClick={onNavigate}
-      className={`group relative flex min-h-10 items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13px] transition-colors ${
-        active
-          ? "bg-[color-mix(in_srgb,var(--forge-accent)_14%,transparent)] text-[var(--forge-bright)]"
-          : "text-[var(--forge-muted)] hover:bg-[rgba(255,255,255,0.04)] hover:text-[var(--forge-bright)]"
-      }`}
-    >
-      <span
-        className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full opacity-90"
-        style={swatch.stripeStyle}
-        aria-hidden
-      />
-      <StatusDot
-        tone={tone}
-        pulse={project.isDeploying}
-        className="ml-1.5"
-      />
-      <span className="min-w-0 flex-1 truncate font-medium">{project.name}</span>
-      {variant === "forge" ? (
-        <span className="forge-status-pill forge-tone-accent !px-1.5 !py-0 text-[9px]">
-          Self
-        </span>
-      ) : null}
-    </Link>
+    <div className="mb-0.5">
+      <Link
+        href={projectModeHref(project.id, "overview")}
+        onClick={onNavigate}
+        className={`group relative flex min-h-10 items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-[13px] transition-colors ${
+          active
+            ? "bg-[color-mix(in_srgb,var(--forge-accent)_14%,transparent)] text-[var(--forge-bright)]"
+            : "text-[var(--forge-muted)] hover:bg-[var(--forge-wash)] hover:text-[var(--forge-bright)]"
+        }`}
+      >
+        <span
+          className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full opacity-90"
+          style={swatch.stripeStyle}
+          aria-hidden
+        />
+        <StatusDot
+          tone={rowTone}
+          pulse={Boolean(project.isDeploying || project.hasLiveAgent)}
+          className="ml-1.5"
+        />
+        <span className="min-w-0 flex-1 truncate font-medium">{project.name}</span>
+        {variant === "forge" ? (
+          <span className="forge-status-pill forge-tone-accent !px-1.5 !py-0 text-[9px]">
+            Self
+          </span>
+        ) : null}
+      </Link>
+
+      <div className="forge-mode-list" data-open={active ? "true" : "false"}>
+        <div>
+          <ul className="ml-3 space-y-0.5 border-l border-[var(--forge-line)] py-1 pl-2">
+            {PROJECT_MODES.map((mode: ProjectMode) => {
+              const href = projectModeHref(project.id, mode);
+              const modeActive = activeMode === mode;
+              const showDot = mode !== "settings";
+              return (
+                <li key={mode}>
+                  <Link
+                    href={href}
+                    onClick={onNavigate}
+                    className={`flex min-h-8 items-center gap-2 rounded-md px-2 text-[12px] transition-colors ${
+                      modeActive
+                        ? "bg-[var(--forge-wash)] font-medium text-[var(--forge-bright)]"
+                        : "text-[var(--forge-muted)] hover:text-[var(--forge-bright)]"
+                    }`}
+                  >
+                    {showDot ? (
+                      <StatusDot
+                        tone={tones[mode]}
+                        pulse={
+                          (mode === "deploy" && project.isDeploying) ||
+                          (mode === "agents" && Boolean(project.hasLiveAgent))
+                        }
+                      />
+                    ) : (
+                      <span className="inline-block h-1.5 w-1.5" aria-hidden />
+                    )}
+                    <span>{PROJECT_MODE_LABELS[mode]}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -136,7 +215,7 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
           onClick={() => {
             window.dispatchEvent(new Event("forge:open-palette"));
           }}
-          className="mt-3 flex w-full items-center justify-between rounded-[10px] border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.35)] px-3 py-2 text-xs text-[var(--forge-muted)] transition-colors hover:border-[color-mix(in_srgb,var(--forge-accent)_40%,transparent)] hover:text-[var(--forge-bright)]"
+          className="mt-3 flex w-full items-center justify-between rounded-[10px] border border-[var(--forge-line-strong)] bg-[var(--forge-inset)] px-3 py-2 text-xs text-[var(--forge-muted)] transition-colors hover:border-[color-mix(in_srgb,var(--forge-accent)_40%,transparent)] hover:text-[var(--forge-bright)]"
         >
           <span>Search commands…</span>
           <span className="flex gap-1">
@@ -153,7 +232,7 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
           className={`mb-3 flex min-h-9 items-center rounded-[10px] px-3 text-[13px] font-medium transition-colors ${
             pathname === "/"
               ? "bg-[color-mix(in_srgb,var(--forge-accent)_14%,transparent)] text-[var(--forge-bright)]"
-              : "text-[var(--forge-muted)] hover:bg-[rgba(255,255,255,0.04)] hover:text-[var(--forge-bright)]"
+              : "text-[var(--forge-muted)] hover:bg-[var(--forge-wash)] hover:text-[var(--forge-bright)]"
           }`}
         >
           Command center
@@ -164,9 +243,9 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
             <div className="forge-section-label mb-1.5 px-2">
               {APP_DISPLAY_NAME}
             </div>
-            <ProjectNavLink
+            <ProjectNavBlock
               project={forgeProject}
-              active={pathname === `/projects/${forgeProject.id}`}
+              pathname={pathname}
               onNavigate={onNavigate}
               variant="forge"
             />
@@ -189,7 +268,7 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
             {[1, 2, 3].map((i) => (
               <div
                 key={i}
-                className="h-10 animate-pulse rounded-[10px] bg-[rgba(255,255,255,0.04)]"
+                className="h-10 animate-pulse rounded-[10px] bg-[var(--forge-wash)]"
               />
             ))}
           </div>
@@ -199,9 +278,9 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
           <ul className="space-y-0.5">
             {projects.map((project) => (
               <li key={project.id}>
-                <ProjectNavLink
+                <ProjectNavBlock
                   project={project}
-                  active={pathname === `/projects/${project.id}`}
+                  pathname={pathname}
                   onNavigate={onNavigate}
                 />
               </li>
@@ -216,8 +295,8 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
           onClick={onNavigate}
           className={`flex min-h-10 items-center rounded-[10px] px-3 text-[13px] transition-colors ${
             pathname === "/settings"
-              ? "bg-[rgba(255,255,255,0.06)] text-[var(--forge-bright)]"
-              : "text-[var(--forge-muted)] hover:bg-[rgba(255,255,255,0.04)] hover:text-[var(--forge-bright)]"
+              ? "bg-[var(--forge-wash)] text-[var(--forge-bright)]"
+              : "text-[var(--forge-muted)] hover:bg-[var(--forge-wash)] hover:text-[var(--forge-bright)]"
           }`}
         >
           Global settings
@@ -225,7 +304,7 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
         <button
           type="button"
           onClick={logout}
-          className="flex min-h-10 w-full items-center rounded-[10px] px-3 text-left text-[13px] text-[var(--forge-muted)] transition-colors hover:bg-[rgba(255,255,255,0.04)] hover:text-[var(--forge-bright)]"
+          className="flex min-h-10 w-full items-center rounded-[10px] px-3 text-left text-[13px] text-[var(--forge-muted)] transition-colors hover:bg-[var(--forge-wash)] hover:text-[var(--forge-bright)]"
         >
           Sign out
         </button>

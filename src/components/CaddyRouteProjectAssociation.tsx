@@ -55,7 +55,7 @@ export function CaddyRouteProjectAssociation({
         {managed.map((entry) => (
           <Link
             key={`${entry.id}-managed`}
-            href={`/projects/${entry.id}?tab=settings`}
+            href={`/projects/${entry.id}/settings`}
             className="rounded-full border border-orange-400/30 bg-orange-400/10 px-2.5 py-0.5 text-xs text-orange-200 hover:bg-orange-400/20"
           >
             {entry.name} · managed
@@ -64,7 +64,7 @@ export function CaddyRouteProjectAssociation({
         {linked.map((entry) => (
           <Link
             key={`${entry.id}-linked`}
-            href={`/projects/${entry.id}?tab=settings`}
+            href={`/projects/${entry.id}/settings`}
             className="rounded-full border border-zinc-700 bg-zinc-950 px-2.5 py-0.5 text-xs text-zinc-300 hover:border-zinc-600"
           >
             {entry.name}

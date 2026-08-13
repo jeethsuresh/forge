@@ -1,3 +1,5 @@
+import { projectModeHref } from "@/lib/project-routes";
+
 export type PaletteContext = {
   pathname: string;
   projectId?: string | null;
@@ -195,7 +197,6 @@ export function projectPaletteItems(project: {
   branch?: string;
   isForge?: boolean;
 }): PaletteItem[] {
-  const base = `/projects/${project.id}`;
   const label = project.name;
   return [
     {
@@ -204,7 +205,7 @@ export function projectPaletteItems(project: {
       title: `Open ${label}`,
       subtitle: project.githubRepo,
       keywords: [label, project.githubRepo ?? "", project.branch ?? "", "open"],
-      href: `${base}?tab=overview`,
+      href: projectModeHref(project.id, "overview"),
       docs: `Open Overview for ${label}.`,
       projectId: project.id,
     },
@@ -212,9 +213,9 @@ export function projectPaletteItems(project: {
       id: `project:${project.id}:deploy`,
       kind: "action",
       title: `Deploy ${label}`,
-      subtitle: "Open Deploy tab",
+      subtitle: "Open Deploy",
       keywords: [label, "deploy", "redeploy", "rollback"],
-      href: `${base}?tab=deploy`,
+      href: projectModeHref(project.id, "deploy"),
       docs: `Jump to Deploy for ${label}. Confirm deploy/rollback on that screen.`,
       projectId: project.id,
     },
@@ -222,9 +223,9 @@ export function projectPaletteItems(project: {
       id: `project:${project.id}:agents`,
       kind: "action",
       title: `Agents · ${label}`,
-      subtitle: "Open Agents tab",
+      subtitle: "Open Agents",
       keywords: [label, "agent", "session", "chat"],
-      href: `${base}?tab=agents`,
+      href: projectModeHref(project.id, "agents"),
       docs: `Open agent sessions for ${label}.`,
       projectId: project.id,
     },
@@ -233,8 +234,8 @@ export function projectPaletteItems(project: {
       kind: "action",
       title: `Changes · ${label}`,
       keywords: [label, "diff", "changes", "commit"],
-      href: `${base}?tab=diff`,
-      docs: `Open the Changes tab for ${label}.`,
+      href: projectModeHref(project.id, "changes"),
+      docs: `Open Changes for ${label}.`,
       projectId: project.id,
     },
     {
@@ -242,7 +243,7 @@ export function projectPaletteItems(project: {
       kind: "settings",
       title: `Settings · ${label}`,
       keywords: [label, "config", "settings", "env", "routing"],
-      href: `${base}?tab=settings`,
+      href: projectModeHref(project.id, "settings"),
       docs: `Project settings: rename, branches, routing, env, history.`,
       projectId: project.id,
     },

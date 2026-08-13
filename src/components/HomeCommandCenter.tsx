@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  attentionForProject,
   collectAttention,
   type FleetProject,
 } from "@/lib/fleet-attention";
 import { formatRelativeTime, runtimeStatusLabel } from "@/lib/utils";
 import { runtimeTone, statusTone } from "@/lib/ui-status";
 import { projectSwatch } from "@/lib/project-swatch";
+import { projectModeHref } from "@/lib/project-routes";
 import {
   ActionLink,
   Badge,
@@ -25,7 +27,13 @@ type ProjectsResponse = {
   forgeConfigured: boolean;
 };
 
-function FleetTile({ project }: { project: FleetProject }) {
+function FleetTile({
+  project,
+  dense,
+}: {
+  project: FleetProject;
+  dense: boolean;
+}) {
   const swatch = projectSwatch(project.id);
   const latest = project.latestDeployment;
   const tone = project.isDeploying
@@ -33,10 +41,35 @@ function FleetTile({ project }: { project: FleetProject }) {
     : runtimeTone(project.runtimeStatus);
   const latestStartedAt =
     latest && "startedAt" in latest ? latest.startedAt : undefined;
+  const attention = attentionForProject(project);
+  const primaryHref = attention?.href ?? projectModeHref(project.id, "overview");
+  const primaryLabel = attention?.actionLabel ?? "Open";
+
+  if (dense && !attention) {
+    return (
+      <article className="flex items-center gap-3 rounded-[12px] border border-[var(--forge-line)] bg-[var(--forge-panel)] px-4 py-3">
+        <span
+          className="h-8 w-1 shrink-0 rounded-full"
+          style={swatch.stripeStyle}
+          aria-hidden
+        />
+        <StatusDot tone={tone} pulse={Boolean(project.isDeploying)} />
+        <Link
+          href={projectModeHref(project.id, "overview")}
+          className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--forge-muted)] hover:text-[var(--forge-bright)]"
+        >
+          {project.name}
+        </Link>
+        <span className="text-xs text-[var(--forge-faint)]">
+          {runtimeStatusLabel(project.runtimeStatus)}
+        </span>
+      </article>
+    );
+  }
 
   return (
     <article
-      className="forge-hero-tile flex flex-col"
+      className={`forge-hero-tile flex flex-col ${dense ? "min-h-0" : ""}`}
       style={{ ["--tile-accent" as string]: swatch.hex }}
     >
       <div
@@ -44,13 +77,13 @@ function FleetTile({ project }: { project: FleetProject }) {
         style={swatch.stripeStyle}
         aria-hidden
       />
-      <div className="flex flex-1 flex-col gap-4 p-5 pl-6">
+      <div className={`flex flex-1 flex-col gap-4 pl-6 ${dense ? "p-4" : "p-5"}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <Link
-                href={`/projects/${project.id}?tab=overview`}
-                className="truncate text-xl font-semibold tracking-tight text-[var(--forge-bright)] hover:text-white"
+                href={projectModeHref(project.id, "overview")}
+                className="truncate text-xl font-semibold tracking-tight text-[var(--forge-bright)] hover:text-[var(--forge-bright)]"
               >
                 {project.name}
               </Link>
@@ -69,7 +102,9 @@ function FleetTile({ project }: { project: FleetProject }) {
             pulse={Boolean(project.isDeploying)}
             title={runtimeStatusLabel(project.runtimeStatus)}
           />
-          {latest ? (
+          {attention ? (
+            <span className="text-[var(--forge-warning)]">{attention.label}</span>
+          ) : latest ? (
             <>
               <Badge tone={statusTone(latest.status)} className="normal-case">
                 {latest.status}
@@ -84,21 +119,22 @@ function FleetTile({ project }: { project: FleetProject }) {
         </div>
 
         <div className="mt-auto flex flex-wrap gap-2 border-t border-[var(--forge-line)] pt-4">
-          <ActionLink href={`/projects/${project.id}?tab=overview`}>
-            Open
+          <ActionLink href={primaryHref} variant="primary">
+            {primaryLabel}
           </ActionLink>
-          <ActionLink
-            href={`/projects/${project.id}?tab=deploy`}
-            variant="primary"
-          >
-            Deploy
-          </ActionLink>
-          <ActionLink
-            href={`/projects/${project.id}?tab=agents`}
-            variant="info"
-          >
-            Agents
-          </ActionLink>
+          {!dense ? (
+            <>
+              <ActionLink href={projectModeHref(project.id, "deploy")}>
+                Deploy
+              </ActionLink>
+              <ActionLink
+                href={projectModeHref(project.id, "agents")}
+                variant="info"
+              >
+                Agents
+              </ActionLink>
+            </>
+          ) : null}
         </div>
       </div>
     </article>
@@ -139,7 +175,12 @@ export function HomeCommandCenter() {
   }, [forgeProject, projects]);
 
   const attention = useMemo(() => collectAttention(fleet), [fleet]);
+  const busy = attention.length > 0;
   const runningCount = fleet.filter((p) => p.runtimeStatus === "running").length;
+  const attentionIds = useMemo(
+    () => new Set(attention.map((item) => item.project.id)),
+    [attention],
+  );
 
   return (
     <div className="forge-app-bg min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 sm:px-7 sm:py-8 lg:px-10">
@@ -148,7 +189,9 @@ export function HomeCommandCenter() {
         subtitle={
           <>
             {loaded
-              ? `${fleet.length} projects · ${runningCount} running`
+              ? busy
+                ? `${attention.length} need attention · ${fleet.length} projects`
+                : `${fleet.length} projects · all healthy · ${runningCount} running`
               : "Loading fleet…"}{" "}
             · press <Kbd>⌘K</Kbd> to jump anywhere
           </>
@@ -164,16 +207,8 @@ export function HomeCommandCenter() {
         <section className="mb-9">
           <SectionLabel>Needs attention · {attention.length}</SectionLabel>
           <div className="grid gap-2 lg:grid-cols-2">
-            {attention.map(({ project, label, reason }) => {
+            {attention.map(({ project, label, reason, href, actionLabel }) => {
               const swatch = projectSwatch(project.id);
-              const href = `/projects/${project.id}?tab=${
-                reason === "failed_deploy" ||
-                reason === "deploying" ||
-                reason === "stopped" ||
-                reason === "partial"
-                  ? "deploy"
-                  : "overview"
-              }`;
               return (
                 <Link
                   key={`${project.id}-${reason}`}
@@ -195,7 +230,7 @@ export function HomeCommandCenter() {
                     </div>
                   </div>
                   <span className="text-xs font-medium text-[var(--forge-muted)]">
-                    Fix →
+                    {actionLabel} →
                   </span>
                 </Link>
               );
@@ -225,10 +260,20 @@ export function HomeCommandCenter() {
               Add your first project →
             </Link>
           </div>
+        ) : busy ? (
+          <div className="space-y-2">
+            {fleet.map((project) => (
+              <FleetTile
+                key={project.id}
+                project={project}
+                dense={!attentionIds.has(project.id)}
+              />
+            ))}
+          </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {fleet.map((project) => (
-              <FleetTile key={project.id} project={project} />
+              <FleetTile key={project.id} project={project} dense={false} />
             ))}
           </div>
         )}

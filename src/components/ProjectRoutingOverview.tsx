@@ -160,7 +160,7 @@ export function ProjectRoutingOverview() {
                   </div>
                   <div className="flex shrink-0 items-center gap-3">
                     <Link
-                      href={`/projects/${project.id}?tab=settings`}
+                      href={`/projects/${project.id}/settings`}
                       onClick={(e) => e.stopPropagation()}
                       className="text-xs text-orange-400 hover:text-orange-300"
                     >

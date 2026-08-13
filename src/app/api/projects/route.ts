@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { deployments, projects } from "@/lib/db/schema";
+import { agentSessions, deployments, projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
 import { isDeploymentActive } from "@/lib/deployer";
 import { getComposeContainerStatus, projectHasComposeFile } from "@/lib/docker";
@@ -26,6 +26,27 @@ async function requireLogin() {
   const session = await getSession();
   if (!session.isLoggedIn) return null;
   return session;
+}
+
+function projectHasLiveAgent(projectId: string): boolean {
+  const live = db
+    .select({ id: agentSessions.id })
+    .from(agentSessions)
+    .where(
+      and(
+        eq(agentSessions.projectId, projectId),
+        inArray(agentSessions.status, [
+          "running",
+          "deploying",
+          "queued",
+          "pending",
+        ]),
+        isNull(agentSessions.archivedAt),
+      ),
+    )
+    .limit(1)
+    .get();
+  return live !== undefined;
 }
 
 export async function GET() {
@@ -95,6 +116,8 @@ export async function GET() {
         isDeploying,
         runtimeStatus,
         isForge: isForgeProject(project),
+        hasLiveAgent: projectHasLiveAgent(project.id),
+        workingTreeDirty: false,
         gitRepositoryId: project.gitRepositoryId,
         gitSlug: gitRepo?.slug ?? null,
         httpsCloneUrl: gitRepo ? forgeGitHttpsUrl(gitRepo.slug) : null,

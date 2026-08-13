@@ -27,13 +27,22 @@ type ThemeContextValue = {
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
+function initialPreference(): ThemePreference {
+  if (typeof window === "undefined") return "system";
+  return readThemePreference();
+}
+
+function initialSystemDark(): boolean {
+  if (typeof window === "undefined") return true;
+  return systemPrefersDark();
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [preference, setPreferenceState] = useState<ThemePreference>("system");
-  const [systemDark, setSystemDark] = useState(true);
+  const [preference, setPreferenceState] =
+    useState<ThemePreference>(initialPreference);
+  const [systemDark, setSystemDark] = useState(initialSystemDark);
 
   useEffect(() => {
-    setPreferenceState(readThemePreference());
-    setSystemDark(systemPrefersDark());
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => setSystemDark(media.matches);
     media.addEventListener("change", onChange);

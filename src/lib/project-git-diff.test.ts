@@ -39,12 +39,12 @@ describe("project diff URL helpers", () => {
         base: "abc",
         head: "def",
       }),
-    ).toBe("/projects/proj-1?tab=diff&mode=range&base=abc&head=def");
+    ).toBe("/projects/proj-1/changes?mode=range&base=abc&head=def");
   });
 
   it("builds rebase preview links", () => {
     expect(rebasePreviewDiffHref("proj-1", "feature", "main")).toBe(
-      "/projects/proj-1?tab=diff&mode=rebase&source=feature&onto=main",
+      "/projects/proj-1/changes?mode=rebase&source=feature&onto=main",
     );
   });
 });

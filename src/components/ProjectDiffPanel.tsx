@@ -592,7 +592,7 @@ export function ProjectDiffPanel({
             )}
             {sessionId && (
               <Link
-                href={`/projects/${projectId}?tab=agents&session=${sessionId}`}
+                href={`/projects/${projectId}/agents?session=${sessionId}`}
                 className="text-orange-400 hover:text-orange-300"
               >
                 Open agent session

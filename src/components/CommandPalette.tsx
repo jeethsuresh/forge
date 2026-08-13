@@ -17,6 +17,7 @@ import {
   type PaletteItem,
   type RankedPaletteItem,
 } from "@/lib/command-palette/rank";
+import { resolveProjectModeFromPath } from "@/lib/project-routes";
 import { projectSwatch } from "@/lib/project-swatch";
 import { Kbd } from "@/components/ui";
 
@@ -47,7 +48,11 @@ export function CommandPalette() {
 
   const projectIdMatch = pathname.match(/^\/projects\/([^/]+)/);
   const projectId = projectIdMatch?.[1] ?? null;
-  const tab = searchParams.get("tab");
+  const resolvedMode = resolveProjectModeFromPath(pathname)?.mode;
+  const tab =
+    resolvedMode === "changes"
+      ? "diff"
+      : (resolvedMode ?? searchParams.get("tab"));
   const sessionId = searchParams.get("session");
 
   const loadProjects = useCallback(() => {

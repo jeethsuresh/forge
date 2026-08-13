@@ -13,28 +13,36 @@ A local Docker deployment orchestrator with a web dashboard. Forge watches GitHu
 
 ## Dashboard
 
-Intent-first UI: **Home** command center for fleet health, then a project hub with **Overview · Deploy · Agents · Changes · Settings**.
+Hybrid **cockpit → studio**: Home is the fleet lobby; each project expands modes in the sidebar with live status pulses.
 
 ### Home
 
-Fleet tiles (project-as-hero with identity colour), a **Needs attention** lane, and one-click **Open / Deploy / Agents** per project.
+Progressive density — airy when healthy, attention-first when not. Intent CTAs jump straight to Deploy / Agents / Settings.
 
-### Project hub
+### Project studio
 
-| Tab | Purpose |
-|-----|---------|
-| Overview | Health snapshot and primary CTAs |
-| Deploy | Deploy/redeploy, logs, containers; git tree collapsed by default |
-| Agents | Cursor agent sessions (primary actions + Session menu) |
-| Changes | Diff / commit / edit |
-| Settings | Rename, branches, routing, env, history, danger zone |
+Modes live under the active project in the sidebar (and as first-class routes):
+
+| Mode | Path | Purpose |
+|------|------|---------|
+| Overview | `/projects/[id]` | Health / attention narrative |
+| Deploy | `/projects/[id]/deploy` | Deploy/redeploy, live logs as hero when busy |
+| Agents | `/projects/[id]/agents` | Sessions + chat (transcript owns the viewport) |
+| Changes | `/projects/[id]/changes` | Diff / commit / edit (editor owns the viewport) |
+| Settings | `/projects/[id]/settings` | Rename, branches, routing, env, history |
+
+Legacy `?tab=` URLs redirect to these paths.
+
+### Appearance
+
+**Global settings → Appearance**: Light / Dark / System. Semantic status colors share meaning across themes.
 
 ### Command palette (⌘K / Ctrl+K)
 
 Near-fullscreen search + command runner:
 
 - Type to search projects, actions, settings, and help
-- Context-aware ranking from the current page/tab/selection
+- Context-aware ranking from the current page/mode/selection
 - Detail pane documents each command; type `help` or `?` for the catalog
 - ↑↓ navigate, Enter opens, Esc closes
 - Destructive actions navigate to the target screen for confirmation (they do not silent-execute)
@@ -51,12 +59,10 @@ Sidebar **Search…** also opens the palette.
 
 ## Future UI work
 
-- Light mode + theme toggle
-- Rich motion / transition system
-- Dedicated routes per intent (not only `?tab=`)
+- Richer motion system beyond sidebar expand / density shift / status pulse
 - External / heavier design-system package
 - Server-backed full-text search across logs/history
-
+- Working-tree dirty signal on the project list API (Changes pulse)
 ## Prerequisites
 
 - Node.js 20+

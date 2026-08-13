@@ -22,7 +22,6 @@ export function buildProjectDiffHref(
   params: ProjectDiffLinkParams,
 ): string {
   const search = new URLSearchParams();
-  search.set("tab", "diff");
   if (params.mode) search.set("mode", params.mode);
   if (params.base) search.set("base", params.base);
   if (params.head) search.set("head", params.head);
@@ -32,7 +31,10 @@ export function buildProjectDiffHref(
   if (params.target) search.set("target", params.target);
   if (params.session) search.set("session", params.session);
   if (params.file) search.set("file", params.file);
-  return `/projects/${projectId}?${search.toString()}`;
+  const qs = search.toString();
+  return qs
+    ? `/projects/${projectId}/changes?${qs}`
+    : `/projects/${projectId}/changes`;
 }
 
 export function agentSessionUncommittedDiffHref(

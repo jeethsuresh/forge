@@ -18,6 +18,8 @@ describe("attentionForProject", () => {
       latestDeployment: { status: "failed" },
     });
     expect(item?.reason).toBe("failed_deploy");
+    expect(item?.href).toBe("/projects/p1/deploy");
+    expect(item?.actionLabel).toBe("Open Deploy");
   });
 
   it("returns null when healthy", () => {
