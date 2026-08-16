@@ -53,17 +53,19 @@ if has_compose_file; then
     source_sha="$(date -Iseconds)"
   fi
   export FORGE_COMMIT_SHA="${FORGE_COMMIT_SHA:-$source_sha}"
-  # Always rebuild without cache so deploy picks up current sources (avoids stale layers).
-  compose_cmd build --no-cache --build-arg "SOURCE_SHA=${source_sha}"
-  image_id="$(resolve_compose_app_image_id || true)"
-  if [[ -n "$image_id" ]]; then
-    if [[ "$source_sha" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
-      docker tag "$image_id" "forge-app:${source_sha}"
-    fi
-    docker tag "$image_id" forge-app:stable
-    if ! docker image inspect forge-app:rollback >/dev/null 2>&1; then
-      docker tag "$image_id" forge-app:rollback
-    fi
+  local_tag="${FORGE_COMMIT_SHA}"
+  # Podman/BuildKit compose bake rejects `network.host` entitlement; CLI
+  # `compose build --network host` is rejected by podman-compose. Plain
+  # `docker build --network host` is what succeeds on this host.
+  docker build --network host --no-cache \
+    -f Dockerfile \
+    --target runner \
+    --build-arg "SOURCE_SHA=${local_tag}" \
+    -t "forge-app:${local_tag}" \
+    .
+  docker tag "forge-app:${local_tag}" forge-app:stable
+  if ! docker image inspect forge-app:rollback >/dev/null 2>&1; then
+    docker tag "forge-app:${local_tag}" forge-app:rollback
   fi
   exit 0
 fi
