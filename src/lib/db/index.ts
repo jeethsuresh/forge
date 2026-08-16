@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS git_repositories (
   bare_path TEXT NOT NULL,
   default_branch TEXT NOT NULL DEFAULT 'main',
   imported_from TEXT,
+  clone_token TEXT,
   created_at INTEGER NOT NULL
 );
 
@@ -295,6 +296,7 @@ addColumnIfMissing("projects", "host_port", "INTEGER");
 addColumnIfMissing("projects", "caddy_route_json", "TEXT");
 addColumnIfMissing("projects", "git_repository_id", "TEXT");
 addColumnIfMissing("deployments", "deploy_target", "TEXT");
+addColumnIfMissing("git_repositories", "clone_token", "TEXT");
 
 sqlite.exec(`
 CREATE TABLE IF NOT EXISTS git_repositories (
@@ -303,6 +305,7 @@ CREATE TABLE IF NOT EXISTS git_repositories (
   bare_path TEXT NOT NULL,
   default_branch TEXT NOT NULL DEFAULT 'main',
   imported_from TEXT,
+  clone_token TEXT,
   created_at INTEGER NOT NULL
 );
 

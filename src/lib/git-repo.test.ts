@@ -91,6 +91,7 @@ describe("createForgeGitRepository", () => {
 
     expect(repo?.slug).toBe(unique);
     expect(repo?.importedFrom).toBeNull();
+    expect(repo?.cloneToken?.startsWith("fgc.")).toBe(true);
     expect(project?.gitRepositoryId).toBe(result.repositoryId);
     expect(project?.githubRepo).toBe("");
 

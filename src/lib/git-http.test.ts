@@ -155,6 +155,47 @@ describe("authorizeGitHttpAccess", () => {
     db.delete(projects).where(eq(projects.id, otherProject)).run();
   });
 
+  it("allows matching clone token and rejects other repo tokens", async () => {
+    const repo = db
+      .select()
+      .from(gitRepositories)
+      .where(eq(gitRepositories.id, repoId))
+      .get();
+    const token = repo?.cloneToken;
+    expect(token?.startsWith("fgc.")).toBe(true);
+
+    const okReq = new Request(`http://localhost/api/git/${slug}.git/info/refs`, {
+      headers: {
+        Authorization: `Basic ${Buffer.from(`git:${token}`).toString("base64")}`,
+      },
+    });
+    const allowed = await authorizeGitHttpAccess(okReq, slug, true);
+    expect(allowed).toEqual(
+      expect.objectContaining({ ok: true, actor: "git-clone" }),
+    );
+
+    const other = await createForgeGitRepository({
+      name: `other-${Date.now()}`,
+      slug: `other-${Date.now()}`,
+    });
+    const otherToken = db
+      .select()
+      .from(gitRepositories)
+      .where(eq(gitRepositories.id, other.repositoryId))
+      .get()?.cloneToken;
+    const badReq = new Request(`http://localhost/api/git/${slug}.git/info/refs`, {
+      headers: {
+        Authorization: `Basic ${Buffer.from(`git:${otherToken}`).toString("base64")}`,
+      },
+    });
+    const denied = await authorizeGitHttpAccess(badReq, slug, false);
+    expect(denied.ok).toBe(false);
+    if (!denied.ok) expect(denied.status).toBe(401);
+
+    db.delete(projects).where(eq(projects.id, other.projectId)).run();
+    db.delete(gitRepositories).where(eq(gitRepositories.id, other.repositoryId)).run();
+  });
+
   it("serves info/refs through smart HTTP with Ops auth", async () => {
     const req = new Request(
       `http://localhost/api/git/${slug}.git/info/refs?service=git-upload-pack`,

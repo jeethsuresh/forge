@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui";
 import { localPushRecipes } from "@/lib/git-local-push-recipes";
 import { GitHttpsCredentials } from "@/components/GitHttpsCredentials";
+import { forgeHttpsUrlWithToken } from "@/lib/git-https-auth";
 
 function CopyBlock({ label, text }: { label: string; text: string }) {
   const [copied, setCopied] = useState(false);
@@ -35,12 +36,26 @@ export function GitLocalPushRecipes({
   httpsUrl,
   sshUrl,
   defaultBranch,
+  cloneToken,
+  onRegenerate,
+  regenerating,
 }: {
   httpsUrl: string;
   sshUrl?: string | null;
   defaultBranch: string;
+  cloneToken?: string | null;
+  onRegenerate?: () => void | Promise<void>;
+  regenerating?: boolean;
 }) {
-  const recipes = localPushRecipes({ httpsUrl, defaultBranch });
+  const recipes = localPushRecipes({
+    httpsUrl,
+    defaultBranch,
+    cloneToken,
+  });
+  const displayHttps =
+    cloneToken?.trim()
+      ? forgeHttpsUrlWithToken(httpsUrl, cloneToken.trim())
+      : httpsUrl;
 
   return (
     <div className="space-y-5">
@@ -49,10 +64,14 @@ export function GitLocalPushRecipes({
           HTTPS (smart HTTP)
         </div>
         <code className="mt-1 block break-all font-mono text-xs text-[var(--forge-bright)]">
-          {httpsUrl}
+          {displayHttps}
         </code>
       </div>
-      <GitHttpsCredentials />
+      <GitHttpsCredentials
+        cloneToken={cloneToken}
+        onRegenerate={onRegenerate}
+        regenerating={regenerating}
+      />
       {sshUrl ? (
         <div>
           <div className="text-xs font-medium text-[var(--forge-muted)]">

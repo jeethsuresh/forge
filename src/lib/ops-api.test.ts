@@ -86,6 +86,19 @@ describe("ops-api-auth", () => {
     expect(opsApiBaseUrl()).toBe("http://forge.local");
   });
 
+  it("rejects git clone tokens as Ops credentials", () => {
+    delete process.env.FORGE_OPS_API_TOKEN;
+    const auth = authenticateOpsRequest(
+      new Request("http://localhost", {
+        headers: {
+          authorization:
+            "Bearer fgc.abcd1234efgh.this-is-not-an-ops-token-secret",
+        },
+      }),
+    );
+    expect(auth).toBeNull();
+  });
+
   it("mints stable fos tokens and authenticates them for live sessions", () => {
     process.env.FORGE_OPS_SESSION_SECRET = "test-session-secret-value";
     delete process.env.FORGE_OPS_API_TOKEN;

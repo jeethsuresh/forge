@@ -20,6 +20,11 @@ export const gitRepositories = sqliteTable("git_repositories", {
   defaultBranch: text("default_branch").notNull().default("main"),
   /** One-shot GitHub source (`owner/repo`); null for Forge-native repos. */
   importedFrom: text("imported_from"),
+  /**
+   * Human clone/push password for smart HTTP (`fgc.…`).
+   * Authorizes only `/api/git/<slug>.git` for this repo — never Ops.
+   */
+  cloneToken: text("clone_token"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 

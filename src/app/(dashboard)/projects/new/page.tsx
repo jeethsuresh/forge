@@ -14,6 +14,7 @@ type CreatedProject = {
   httpsCloneUrl?: string | null;
   sshCloneUrl?: string | null;
   gitSlug?: string | null;
+  gitCloneToken?: string | null;
 };
 
 export default function NewProjectPage() {
@@ -58,6 +59,7 @@ export default function NewProjectPage() {
           httpsCloneUrl: data.httpsCloneUrl,
           sshCloneUrl: data.sshCloneUrl,
           gitSlug: data.gitSlug,
+          gitCloneToken: data.gitCloneToken,
         });
         setCreatedMode(mode);
         router.refresh();
@@ -116,6 +118,7 @@ export default function NewProjectPage() {
                 httpsUrl={created.httpsCloneUrl}
                 sshUrl={created.sshCloneUrl}
                 defaultBranch={branch.trim() || "main"}
+                cloneToken={created.gitCloneToken}
               />
             ) : null}
             <div className="flex gap-3 pt-2">

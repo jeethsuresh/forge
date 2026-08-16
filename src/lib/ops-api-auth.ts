@@ -89,6 +89,9 @@ export function authenticateOpsRequest(request: Request): OpsAuth | null {
   const presented = presentedOpsToken(request);
   if (!presented) return null;
 
+  // Git clone tokens (fgc.*) must never authorize Ops APIs.
+  if (presented.startsWith("fgc.")) return null;
+
   const global = process.env.FORGE_OPS_API_TOKEN?.trim();
   if (global && presented === global) {
     return { kind: "global" };

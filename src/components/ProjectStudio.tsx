@@ -122,6 +122,8 @@ interface ProjectDetail {
     sshCloneUrl?: string | null;
     importedFrom?: string | null;
     gitEmpty?: boolean;
+    gitCloneUsername?: string | null;
+    gitCloneToken?: string | null;
   };
   deployments: Deployment[];
   currentDeployment: Deployment | null;
@@ -195,6 +197,7 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
   const [routingSaving, setRoutingSaving] = useState(false);
   const [gitTreeOpen, setGitTreeOpen] = useState(false);
   const [deployMoreOpen, setDeployMoreOpen] = useState(false);
+  const [regeneratingCloneToken, setRegeneratingCloneToken] = useState(false);
   const dataRef = useRef<ProjectDetail | null>(null);
 
   const initialAgentSessionId = searchParams.get("session");
@@ -258,6 +261,35 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
       setLoading(false);
     }
   }, [id, deployBranch]);
+
+  async function regenerateCloneToken() {
+    setRegeneratingCloneToken(true);
+    try {
+      const res = await fetch(`/api/projects/${id}/git-clone-token/regenerate`, {
+        method: "POST",
+      });
+      if (!res.ok) return;
+      const json = (await res.json()) as { gitCloneToken?: string };
+      if (json.gitCloneToken) {
+        setData((prev) => {
+          if (!prev) return prev;
+          const next = {
+            ...prev,
+            project: {
+              ...prev.project,
+              gitCloneToken: json.gitCloneToken ?? null,
+            },
+          };
+          dataRef.current = next;
+          return next;
+        });
+      } else {
+        await fetchData();
+      }
+    } finally {
+      setRegeneratingCloneToken(false);
+    }
+  }
 
   function toggleDeployment(deploymentId: string) {
     setExpandedDeploymentId((prev) => (prev === deploymentId ? null : deploymentId));
@@ -1109,6 +1141,9 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
                       httpsUrl={project.httpsCloneUrl}
                       sshUrl={project.sshCloneUrl}
                       defaultBranch={project.branch}
+                      cloneToken={project.gitCloneToken}
+                      regenerating={regeneratingCloneToken}
+                      onRegenerate={regenerateCloneToken}
                     />
                   </>
                 ) : (
@@ -1123,7 +1158,11 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
                         </code>
                       </div>
                     ) : null}
-                    <GitHttpsCredentials />
+                    <GitHttpsCredentials
+                      cloneToken={project.gitCloneToken}
+                      regenerating={regeneratingCloneToken}
+                      onRegenerate={regenerateCloneToken}
+                    />
                     {project.sshCloneUrl ? (
                       <div>
                         <div className="text-xs font-medium text-[var(--forge-muted)]">

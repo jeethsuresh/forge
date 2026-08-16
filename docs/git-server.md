@@ -14,14 +14,22 @@ Forge hosts bare repositories under `/data/git/<slug>.git` (override with `FORGE
 - Dashboard session cookie (browser / cookie-aware clients)
 - `Authorization: Bearer <FORGE_OPS_API_TOKEN>` (global Ops)
 - `Authorization: Bearer fos.<sessionId>.…` (agent session Ops token; project-scoped)
-- Git Basic auth: username **`git`** (any non-empty username is accepted), password = Ops/agent token (`FORGE_OPS_API_TOKEN` or `fos.*`)
+- **Per-repo clone token** (`fgc.…`): Git Basic username `git`, password = the clone token shown on project Settings. Authorizes **only** smart HTTP for that slug — not Ops or other APIs.
+- Git Basic auth with Ops/agent token: username any (prefer `git`), password = Ops/agent token
 
-Example:
+Example with clone token:
+
+```bash
+git clone https://git:<CLONE_TOKEN>@<forge-host>/api/git/my-app.git
+```
+
+Example with Ops token:
 
 ```bash
 git clone https://git:<OPS_OR_SESSION_TOKEN>@<forge-host>/api/git/my-app.git
 ```
 
+Regenerate the clone token from **Settings → Clone URLs** if it leaks; remotes using the old password stop working.
 ### SSH auth
 
 1. Add public keys in **Global settings → Git SSH**.

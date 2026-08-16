@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { agentSessions, deployments, projects } from "@/lib/db/schema";
+import { agentSessions, deployments, gitRepositories, projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
 import { isDeploymentActive } from "@/lib/deployer";
 import { getComposeContainerStatus, projectHasComposeFile } from "@/lib/docker";
@@ -21,7 +21,8 @@ import {
   gitRepositoryIsEmpty,
   importGithubToForge,
 } from "@/lib/git-repo";
-import { gitRepositories } from "@/lib/db/schema";
+import { ensureGitCloneToken } from "@/lib/git-clone-token";
+import { GIT_HTTPS_BASIC_USERNAME } from "@/lib/git-https-auth";
 
 async function requireLogin() {
   const session = await getSession();
@@ -196,6 +197,8 @@ export async function POST(request: Request) {
           sshCloneUrl: created.sshUrl,
           gitSlug: created.slug,
           gitEmpty: mode === "local",
+          gitCloneUsername: GIT_HTTPS_BASIC_USERNAME,
+          gitCloneToken: ensureGitCloneToken(created.repositoryId),
         },
         { status: 201 },
       );
@@ -227,6 +230,8 @@ export async function POST(request: Request) {
         gitSlug: imported.slug,
         importedFrom: imported.importedFrom,
         gitEmpty: false,
+        gitCloneUsername: GIT_HTTPS_BASIC_USERNAME,
+        gitCloneToken: ensureGitCloneToken(imported.repositoryId),
       },
       { status: 201 },
     );

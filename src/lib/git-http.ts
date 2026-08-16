@@ -10,11 +10,16 @@ import {
   authenticateOpsRequest,
   type OpsAuth,
 } from "@/lib/ops-api-auth";
+import { isGitCloneToken } from "@/lib/git-clone-token";
 import { sessionOptions, type SessionData } from "@/lib/auth/session";
 import { barePathForSlug } from "@/lib/git-paths";
 
 export type GitHttpAccess =
-  | { ok: true; actor: "session" | "ops-global" | "ops-session"; projectId?: string }
+  | {
+      ok: true;
+      actor: "session" | "ops-global" | "ops-session" | "git-clone";
+      projectId?: string;
+    }
   | { ok: false; status: 401 | 403; error: string };
 
 export type GitHttpService = "git-upload-pack" | "git-receive-pack";
@@ -100,12 +105,12 @@ export async function authorizeGitHttpAccess(
   // Ops / agent tokens via Authorization header (Bearer or Basic password)
   const tokenOverride = presentedBearerOrBasic(request);
   let ops: OpsAuth | null = null;
-  if (tokenOverride) {
+  if (tokenOverride && !isGitCloneToken(tokenOverride)) {
     const synthetic = new Request(request.url, {
       headers: { Authorization: `Bearer ${tokenOverride}` },
     });
     ops = authenticateOpsRequest(synthetic);
-  } else {
+  } else if (!tokenOverride) {
     ops = authenticateOpsRequest(request);
   }
 
@@ -126,6 +131,15 @@ export async function authorizeGitHttpAccess(
       actor: "ops-session",
       projectId: ops.projectId,
     };
+  }
+
+  if (
+    tokenOverride &&
+    isGitCloneToken(tokenOverride) &&
+    repo.cloneToken &&
+    tokenOverride === repo.cloneToken
+  ) {
+    return { ok: true, actor: "git-clone", projectId: linked?.id };
   }
 
   return { ok: false, status: 401, error: "Authentication required" };

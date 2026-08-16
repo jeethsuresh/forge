@@ -15,6 +15,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Forge hosts bare repos under `/data/git/<slug>.git`. Prefer HTTPS smart HTTP at `/api/git/<slug>.git` (session/Ops/agent token auth). See `docs/git-server.md`.
 - Create empty projects, one-shot **Import GitHub**, or **Add local** (empty Forge repo + copy-paste git commands) from the UI; GitHub is not a dual remote after import.
 - **Add local:** Forge does not seed commits. If the checkout has no `origin`, add `origin` pointing at Forge. If `origin` already exists, add a `forge` remote and `git config remote.pushDefault forge`. Append a **Git remotes (Forge)** note with `cat >> AGENTS.md` (creates the file if missing). Agents must **push to Forge** (`origin` when that is Forge, otherwise `forge`) and must not `git push origin` to GitHub unless a human asked.
+- **Clone tokens (`fgc.*`):** Settings shows a per-repo HTTPS password for humans. It only authorizes git push/pull for that repo. Agents keep using Ops/`fos.*` tokens for git — do not put clone tokens in agent env as Ops credentials.
 - When `gitRepositoryId` is set, deploy jobs and agent containers clone from Forge (not GitHub).
 
 ## Agent workflow (mandatory)

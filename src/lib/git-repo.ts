@@ -17,6 +17,7 @@ import {
 import { opsApiBaseUrl } from "@/lib/ops-api-auth";
 import { composeNameConflict, validateProjectName } from "@/lib/projects";
 import { resolveClonePath } from "@/lib/paths";
+import { mintGitCloneToken } from "@/lib/git-clone-token";
 import {
   formatGitError,
   githubCloneUrl,
@@ -197,6 +198,7 @@ export async function createForgeGitRepository(
       barePath,
       defaultBranch,
       importedFrom: null,
+      cloneToken: mintGitCloneToken(repositoryId),
       createdAt: now,
     })
     .run();
@@ -330,6 +332,7 @@ export async function importGithubToForge(
       barePath,
       defaultBranch,
       importedFrom: githubRepo,
+      cloneToken: mintGitCloneToken(repositoryId),
       createdAt: now,
     })
     .run();

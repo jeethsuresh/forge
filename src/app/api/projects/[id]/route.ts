@@ -39,6 +39,8 @@ import {
 import { getRemoteCommitSha } from "@/lib/github";
 import { projectRemoteUrl, getProjectGitRepository } from "@/lib/project-git-remote";
 import { forgeGitHttpsUrl, forgeGitSshUrl, gitRepositoryIsEmpty } from "@/lib/git-repo";
+import { ensureGitCloneToken } from "@/lib/git-clone-token";
+import { GIT_HTTPS_BASIC_USERNAME } from "@/lib/git-https-auth";
 import {
   buildDeployEnvVarViews,
   fillDeployEnvFromRepo,
@@ -72,6 +74,7 @@ function projectResponse(
       : readRepoEnvFile(project.clonePath);
   const routing = projectRoutingView(project);
   const gitRepo = getProjectGitRepository(project);
+  const gitCloneToken = gitRepo ? ensureGitCloneToken(gitRepo.id) : null;
   return {
     ...rest,
     composeProjectName: composeProjectName(rest.name),
@@ -87,6 +90,8 @@ function projectResponse(
     sshCloneUrl: gitRepo ? forgeGitSshUrl(gitRepo.slug) : null,
     importedFrom: gitRepo?.importedFrom ?? null,
     gitEmpty: gitRepositoryIsEmpty(gitRepo),
+    gitCloneUsername: gitRepo ? GIT_HTTPS_BASIC_USERNAME : null,
+    gitCloneToken,
   };
 }
 

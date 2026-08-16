@@ -1,3 +1,5 @@
+import { forgeHttpsUrlWithToken } from "@/lib/git-https-auth";
+
 export function forgeLocalAgentsNote(): string {
   return `## Git remotes (Forge)
 
@@ -10,8 +12,14 @@ Deploy and agents clone from Forge when this project has a Forge git repository.
 export function localPushRecipes(opts: {
   httpsUrl: string;
   defaultBranch: string;
+  /** Per-repo fgc.* clone token; embeds into remote URLs when set. */
+  cloneToken?: string | null;
 }): { noOrigin: string; existingOrigin: string } {
-  const url = opts.httpsUrl.trim();
+  const rawUrl = opts.httpsUrl.trim();
+  const url =
+    opts.cloneToken?.trim()
+      ? forgeHttpsUrlWithToken(rawUrl, opts.cloneToken.trim())
+      : rawUrl;
   const branch = opts.defaultBranch.trim() || "main";
   const note = forgeLocalAgentsNote();
   const appendAgents = `cat >> AGENTS.md << 'EOF'\n${note}EOF`;
