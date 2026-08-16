@@ -5,8 +5,16 @@ cd "$(dirname "$0")"
 # shellcheck source=scripts/lib/common.sh
 source ./scripts/lib/common.sh
 
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
 # Never lock the production SQLite file during unit tests (including self-update).
-export FORGE_DB_PATH="${FORGE_DB_PATH:-:memory:}"
+# Re-assert after sourcing .env so a host FORGE_DB_PATH cannot leak into vitest.
+export FORGE_DB_PATH=":memory:"
 
 usage() {
   cat <<EOF
@@ -20,12 +28,14 @@ Options:
   --watch               Run vitest in watch mode
   --coverage            Run vitest with coverage (when configured)
   --live-smoke          Enable Layer C live Forge Redeploy / smoke tests
+  --ui-e2e              Run Playwright studio e2e (also auto-runs when Forge health is up)
 EOF
 }
 
 WATCH=0
 COVERAGE=0
 LIVE_SMOKE=0
+UI_E2E=0
 REMAINING_ARGS=()
 if ! parse_common_args "$@"; then
   usage
@@ -44,6 +54,10 @@ while [[ ${#REMAINING_ARGS[@]} -gt 0 ]]; do
       ;;
     --live-smoke)
       LIVE_SMOKE=1
+      REMAINING_ARGS=("${REMAINING_ARGS[@]:1}")
+      ;;
+    --ui-e2e)
+      UI_E2E=1
       REMAINING_ARGS=("${REMAINING_ARGS[@]:1}")
       ;;
     -h|--help)
@@ -86,4 +100,29 @@ elif [[ "$COVERAGE" -eq 1 ]]; then
   npm run test -- --coverage
 else
   npm test
+fi
+
+run_playwright_e2e() {
+  if [[ "${FORGE_UI_E2E:-}" == "0" ]]; then
+    return 0
+  fi
+  if [[ -n "${FORGE_UPDATE_ID:-}" || "${FORGE_UPDATER:-}" == "1" || "${COMPOSE_PROJECT_NAME:-}" == *staging* ]]; then
+    return 0
+  fi
+  local base="http://127.0.0.1:${HOST_PORT:-3000}"
+  if [[ -n "${FORGE_OPS_API_BASE:-}" ]]; then
+    base="${FORGE_OPS_API_BASE%/}"
+  fi
+  if [[ "$UI_E2E" -ne 1 && "${FORGE_UI_E2E:-}" != "1" ]]; then
+    if ! curl -sf --max-time 2 "$base/api/forge/health" 2>/dev/null | grep -q '"ok":true'; then
+      return 0
+    fi
+  fi
+  echo "[test.sh] Running Playwright studio e2e against $base"
+  npx playwright install chromium
+  FORGE_OPS_API_BASE="$base" npx playwright test
+}
+
+if [[ "$WATCH" -eq 0 ]]; then
+  run_playwright_e2e
 fi

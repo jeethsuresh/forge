@@ -1840,6 +1840,7 @@ export function AgentWorkspace({
 
   return (
     <div
+      data-testid="agent-workspace"
       className={`flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-[var(--forge-line)] ${className}`}
     >
       <div className="flex h-full min-h-0 flex-1 overflow-hidden">

@@ -183,7 +183,7 @@ export function HomeCommandCenter() {
   );
 
   return (
-    <div className="forge-app-bg min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 sm:px-7 sm:py-8 lg:px-10">
+    <div className="forge-app-bg min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 sm:px-7 sm:py-8 lg:px-10" data-testid="command-center">
       <PageHeader
         title="Command center"
         subtitle={

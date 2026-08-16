@@ -277,7 +277,7 @@ export function ProjectDiffPanel({
     }>,
   ) {
     const next = new URLSearchParams(searchParams.toString());
-    next.set("tab", "diff");
+    next.delete("tab");
 
     const keys = [
       "mode",
@@ -299,9 +299,13 @@ export function ProjectDiffPanel({
       }
     }
 
-    router.replace(`/projects/${projectId}?${next.toString()}`, {
-      scroll: false,
-    });
+    const qs = next.toString();
+    router.replace(
+      qs
+        ? `/projects/${projectId}/changes?${qs}`
+        : `/projects/${projectId}/changes`,
+      { scroll: false },
+    );
   }
 
   function selectFile(path: string | null) {
@@ -331,7 +335,7 @@ export function ProjectDiffPanel({
   }, [diff, selectedFile]);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4" data-testid="changes-panel">
       <div className="shrink-0 rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>

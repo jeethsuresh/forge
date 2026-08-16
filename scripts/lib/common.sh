@@ -350,6 +350,13 @@ compose_cmd() {
   fi
   export_compose_env
   prune_stale_compose_networks
+  if [[ "${1:-}" == "build" ]]; then
+    shift
+    # Host network: BuildKit isolation ETIMEDOUTs fetching node-gyp headers
+    # and the npm registry on this machine. Host-network builds succeed.
+    docker compose -f "$file" -p "$COMPOSE_PROJECT_NAME" build --network host "$@"
+    return
+  fi
   docker compose -f "$file" -p "$COMPOSE_PROJECT_NAME" "$@"
 }
 

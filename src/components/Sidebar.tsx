@@ -129,6 +129,7 @@ function ProjectNavBlock({
                         ? "bg-[var(--forge-wash)] font-medium text-[var(--forge-bright)]"
                         : "text-[var(--forge-muted)] hover:text-[var(--forge-bright)]"
                     }`}
+                    data-testid={`nav-mode-${mode}`}
                   >
                     {showDot ? (
                       <StatusDot
@@ -194,6 +195,7 @@ export function Sidebar({ className = "", onNavigate }: SidebarProps) {
 
   return (
     <aside
+      data-testid="app-sidebar"
       className={`forge-sidebar flex h-full min-h-0 w-[15.5rem] shrink-0 flex-col overflow-hidden ${className}`}
     >
       <div className="border-b border-[var(--forge-line)] px-4 py-4">

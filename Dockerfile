@@ -8,7 +8,8 @@ WORKDIR /app
 
 FROM base AS deps
 COPY package.json package-lock.json ./
-RUN npm ci
+COPY scripts/lib/npm-ci.sh /tmp/npm-ci.sh
+RUN bash /tmp/npm-ci.sh
 
 FROM base AS builder
 ARG SOURCE_SHA=unknown

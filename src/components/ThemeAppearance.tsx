@@ -13,7 +13,7 @@ export function ThemeAppearance() {
   const { preference, setPreference, effective } = useTheme();
 
   return (
-    <section className="forge-surface mb-8 p-5">
+    <section className="forge-surface mb-8 p-5" data-testid="theme-appearance">
       <h2 className="text-sm font-semibold tracking-tight text-[var(--forge-bright)]">
         Appearance
       </h2>

@@ -28,4 +28,12 @@ describe("shell harness Layer B", () => {
   it("runtime probe fails with clear daemon error not buildx-only", () => {
     runHarness("build-preflight.sh");
   });
+
+  it("compose build uses host network for RUN instructions", () => {
+    runHarness("compose-build-network.sh");
+  });
+
+  it("npm ci retries after node-gyp ETIMEDOUT", () => {
+    runHarness("npm-ci-retry.sh");
+  });
 });

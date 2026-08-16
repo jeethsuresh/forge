@@ -401,13 +401,24 @@ build_test_stage_and_cutover() {
   log "Building new image (no-cache; tag=${release_tag})"
   local build_log
   build_log="$(mktemp)"
-  if ! (
-    cd "$SOURCE_DIR"
-    FORGE_COMMIT_SHA="$release_tag" HOST_PORT="$STAGING_PORT" COMPOSE_PROJECT_NAME="$STAGING_PROJECT" \
-      ./build.sh --host-port "$STAGING_PORT"
-  ) >"$build_log" 2>&1; then
-    log "Build failed. Last output:"
-    log "$(tail -c 6000 "$build_log" | tr -d '\0')"
+  local build_ok=0
+  local build_attempt
+  for build_attempt in 1 2; do
+    if (
+      cd "$SOURCE_DIR"
+      FORGE_COMMIT_SHA="$release_tag" HOST_PORT="$STAGING_PORT" COMPOSE_PROJECT_NAME="$STAGING_PROJECT" \
+        ./build.sh --host-port "$STAGING_PORT"
+    ) >"$build_log" 2>&1; then
+      build_ok=1
+      break
+    fi
+    log "Build attempt ${build_attempt} failed. Last output:"
+    log "$(tail -c 4000 "$build_log" | tr -d '\0')"
+    if [[ "$build_attempt" == "1" ]]; then
+      log "Retrying image build once (transient npm/node-gyp network errors)"
+    fi
+  done
+  if [[ "$build_ok" -ne 1 ]]; then
     rm -f "$build_log"
     LAST_UPGRADE_ERROR="Build failed"
     return 1

@@ -58,6 +58,7 @@ function LoginForm() {
 
         <form
           onSubmit={handleSubmit}
+          data-testid="login-form"
           className="forge-surface-elevated p-6 shadow-[0_24px_80px_rgba(0,0,0,0.45)]"
         >
           {error ? (
@@ -72,6 +73,8 @@ function LoginForm() {
             </span>
             <Input
               type="text"
+              name="username"
+              data-testid="login-username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
@@ -85,6 +88,8 @@ function LoginForm() {
             </span>
             <Input
               type="password"
+              name="password"
+              data-testid="login-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
@@ -96,6 +101,7 @@ function LoginForm() {
             type="submit"
             variant="primary"
             className="w-full"
+            data-testid="login-submit"
             disabled={loading}
           >
             {loading ? "Signing in…" : "Sign in"}
