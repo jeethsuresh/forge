@@ -37,10 +37,14 @@ if ! grep -q 'compose .* build ' <<<"$argv"; then
   echo "$argv" >&2
   exit 1
 fi
-if ! grep -Eq 'build --network host|--network host .*build' <<<"$argv"; then
-  echo "EXPECTED compose build --network host, got:" >&2
+if grep -q -- '--network' <<<"$argv"; then
+  echo "CLI --network breaks podman-compose; use compose build.network: host. Got:" >&2
   echo "$argv" >&2
   exit 1
 fi
+if ! grep -A8 '^    build:' "$REPO_ROOT/docker-compose.yml" | grep -q 'network: host'; then
+  echo "EXPECTED docker-compose.yml app build.network: host" >&2
+  exit 1
+fi
 
-echo "ok: compose build uses host network"
+echo "ok: compose file sets build.network host; CLI has no --network"

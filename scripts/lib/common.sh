@@ -350,13 +350,9 @@ compose_cmd() {
   fi
   export_compose_env
   prune_stale_compose_networks
-  if [[ "${1:-}" == "build" ]]; then
-    shift
-    # Host network: BuildKit isolation ETIMEDOUTs fetching node-gyp headers
-    # and the npm registry on this machine. Host-network builds succeed.
-    docker compose -f "$file" -p "$COMPOSE_PROJECT_NAME" build --network host "$@"
-    return
-  fi
+  # Host network for image builds is declared in docker-compose.yml
+  # (`build.network: host`). Do not pass CLI `--network host` — podman-compose
+  # rejects that flag (`unknown flag: --network`).
   docker compose -f "$file" -p "$COMPOSE_PROJECT_NAME" "$@"
 }
 
