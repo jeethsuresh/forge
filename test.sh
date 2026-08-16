@@ -87,10 +87,23 @@ if [[ "${FORGE_LIVE_SMOKE:-}" != "0" ]]; then
 fi
 
 # Prefer host vitest when node_modules is present (fresh local sources). Use the
-# compose test profile when deps aren't installed or FORGE_COMPOSE_TESTS=1
-# (self-update staging typically lacks host node_modules and rebuilds via Dockerfile).
+# Dockerfile test target when deps aren't installed or FORGE_COMPOSE_TESTS=1
+# (self-update staging typically lacks host node_modules).
 if has_compose_file && { [[ "${FORGE_COMPOSE_TESTS:-}" == "1" ]] || [[ ! -d node_modules ]]; }; then
-  compose_cmd --profile test run --rm test
+  test_tag="forge-test:${FORGE_COMMIT_SHA:-local}"
+  docker build --network host \
+    -f Dockerfile \
+    --target test \
+    -t "$test_tag" \
+    .
+  docker run --rm \
+    -e FORGE_DB_PATH=:memory: \
+    -e FORGE_UPDATE_ID="${FORGE_UPDATE_ID:-}" \
+    -e FORGE_UPDATER="${FORGE_UPDATER:-}" \
+    -e FORGE_LIVE_SMOKE=0 \
+    -e FORGE_UI_E2E=0 \
+    -e COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-}" \
+    "$test_tag"
   exit 0
 fi
 

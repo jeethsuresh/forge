@@ -72,6 +72,9 @@ if [[ -z "$UPDATE_ID" ]]; then
   exit 1
 fi
 
+export FORGE_UPDATE_ID="$UPDATE_ID"
+export FORGE_UPDATER=1
+
 mark_failed_exit() {
   local code="$1"
   if [[ -n "$UPDATE_ID" && -f "$DB_PATH" ]]; then
