@@ -89,8 +89,9 @@ fi
 # Prefer host vitest when node_modules is present (fresh local sources). Use the
 # Dockerfile test target when deps aren't installed or FORGE_COMPOSE_TESTS=1
 # (self-update staging typically lacks host node_modules).
-if has_compose_file && { [[ "${FORGE_COMPOSE_TESTS:-}" == "1" ]] || [[ ! -d node_modules ]]; }; then
+if has_compose_file && { [[ "${FORGE_COMPOSE_TESTS:-}" == "1" ]] || [[ ! -d node_modules ]] || [[ "${COMPOSE_PROJECT_NAME:-}" == *staging* ]] || [[ "${FORGE_UPDATER:-}" == "1" ]]; }; then
   test_tag="forge-test:${FORGE_COMMIT_SHA:-local}"
+  echo "[test.sh] Building Dockerfile test target with host network (${test_tag})"
   docker build --network host \
     -f Dockerfile \
     --target test \
