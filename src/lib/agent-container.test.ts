@@ -112,6 +112,64 @@ describe("agent container lifecycle", () => {
     ).toThrow(/docker\.sock|runtime socket/i);
   });
 
+  it("ensureAgentImage inspects the image and skips build when present", async () => {
+    const seen: string[][] = [];
+    setAgentContainerDockerRunner(async (args) => {
+      seen.push([...args]);
+      if (args[0] === "image" && args[1] === "inspect") {
+        return { stdout: "[]\n", stderr: "" };
+      }
+      throw new Error(`unexpected docker args: ${args.join(" ")}`);
+    });
+
+    const { ensureAgentImage } = await import("@/lib/agent-container");
+    await ensureAgentImage("forge-agent:latest");
+    expect(seen).toEqual([["image", "inspect", "forge-agent:latest"]]);
+  });
+
+  it("ensureAgentImage errors clearly when the image is missing", async () => {
+    setAgentContainerDockerRunner(async (args) => {
+      if (args[0] === "image" && args[1] === "inspect") {
+        throw new Error("No such image");
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    const { ensureAgentImage } = await import("@/lib/agent-container");
+    await expect(ensureAgentImage("forge-agent:latest")).rejects.toThrow(
+      /forge-agent:latest.*build\.sh|Unable to find agent image/i,
+    );
+  });
+
+  it("buildAgentContainerRunArgs mounts the host Cursor agent directory", () => {
+    const prevFile = process.env.FORGE_HOST_MOUNTS_FILE;
+    const prevAgent = process.env.FORGE_CURSOR_AGENT_DIR;
+    process.env.FORGE_CURSOR_AGENT_DIR =
+      "/home/test/.local/share/cursor-agent/versions/x";
+    delete process.env.FORGE_HOST_MOUNTS_FILE;
+    try {
+      const args = buildAgentContainerRunArgs({
+        sessionId: "sess-1",
+        projectId: "proj-1",
+        branch: "main",
+        cloneUrl: "https://github.com/owner/repo.git",
+        opsBaseUrl: "http://127.0.0.1:3456",
+        opsToken: "fos.x",
+      });
+      expect(args).toContain(
+        "/home/test/.local/share/cursor-agent/versions/x:/opt/cursor-agent:ro,z",
+      );
+      expect(
+        args.some((a) => a.includes("FORGE_AGENT_BIN=/opt/cursor-agent/")),
+      ).toBe(true);
+    } finally {
+      if (prevFile === undefined) delete process.env.FORGE_HOST_MOUNTS_FILE;
+      else process.env.FORGE_HOST_MOUNTS_FILE = prevFile;
+      if (prevAgent === undefined) delete process.env.FORGE_CURSOR_AGENT_DIR;
+      else process.env.FORGE_CURSOR_AGENT_DIR = prevAgent;
+    }
+  });
+
   it("startAgentContainer uses runner and records row without sock mount", async () => {
     const { projectId, sessionId } = seedSession();
     const seen: string[][] = [];
@@ -119,6 +177,7 @@ describe("agent container lifecycle", () => {
     setAgentContainerDockerRunner(async (args) => {
       seen.push([...args]);
       assertNoDockerSockMount(args);
+      if (args[0] === "image") return { stdout: "[]\n", stderr: "" };
       return { stdout: "ciddeadbeef\n", stderr: "" };
     });
 
@@ -132,7 +191,8 @@ describe("agent container lifecycle", () => {
     });
 
     expect(result.containerId).toBe("ciddeadbeef");
-    expect(seen).toHaveLength(1);
+    expect(seen.some((a) => a[0] === "image" && a[1] === "inspect")).toBe(true);
+    expect(seen.some((a) => a[0] === "run")).toBe(true);
     expect(seen[0]?.some((a) => a.includes("docker.sock"))).toBe(false);
 
     const row = db
@@ -151,6 +211,7 @@ describe("agent container lifecycle", () => {
 
     setAgentContainerDockerRunner(async (args) => {
       commands.push(args[0] ?? "");
+      if (args[0] === "image") return { stdout: "[]\n", stderr: "" };
       if (args[0] === "run") return { stdout: "cid123\n", stderr: "" };
       return { stdout: "", stderr: "" };
     });
@@ -166,7 +227,7 @@ describe("agent container lifecycle", () => {
     await stopAgentContainer(sessionId);
     await removeAgentContainer(sessionId);
 
-    expect(commands).toEqual(["run", "stop", "rm"]);
+    expect(commands).toEqual(["image", "run", "stop", "rm"]);
     const row = db
       .select()
       .from(agentContainers)

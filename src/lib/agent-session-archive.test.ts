@@ -30,17 +30,21 @@ describe("agent session archive + recreate", () => {
   const ids: string[] = [];
   let rootDir = "";
   let clonePath = "";
+  let bareDir = "";
 
   beforeEach(async () => {
     rootDir = await mkdtemp(join(tmpdir(), "forge-archive-"));
+    bareDir = join(rootDir, "remote.git");
     clonePath = join(rootDir, "work");
-    await runGit(rootDir, ["init", clonePath]);
+    await runGit(rootDir, ["init", "--bare", bareDir]);
+    await runGit(rootDir, ["clone", bareDir, clonePath]);
     await runGit(clonePath, ["checkout", "-b", "main"]);
     await runGit(clonePath, ["config", "user.email", "test@example.com"]);
     await runGit(clonePath, ["config", "user.name", "Test"]);
     await writeFile(join(clonePath, "README"), "hi\n");
     await runGit(clonePath, ["add", "README"]);
     await runGit(clonePath, ["commit", "-m", "init"]);
+    await runGit(clonePath, ["push", "-u", "origin", "main"]);
     await runGit(clonePath, ["checkout", "-b", "feature/a"]);
     await runGit(clonePath, ["checkout", "main"]);
 
@@ -50,7 +54,7 @@ describe("agent session archive + recreate", () => {
       .values({
         id,
         name: `Archive Test ${id.slice(0, 8)}`,
-        githubRepo: "acme/archive-test",
+        githubRepo: bareDir,
         branch: "main",
         clonePath,
         enabled: true,
@@ -83,6 +87,7 @@ describe("agent session archive + recreate", () => {
       await rm(rootDir, { recursive: true, force: true }).catch(() => undefined);
       rootDir = "";
       clonePath = "";
+      bareDir = "";
     }
   });
 
@@ -166,5 +171,73 @@ describe("agent session archive + recreate", () => {
     const archived = listArchivedAgentSessions(projectId);
     expect(archived.some((s) => s.id === sessionId)).toBe(true);
     expect(archived.find((s) => s.id === sessionId)?.logs).toContain("old logs");
+  });
+});
+
+describe("createAgentSession working clone sync", () => {
+  const ids: string[] = [];
+  let rootDir = "";
+
+  afterEach(async () => {
+    for (const id of ids) {
+      const sessions = db
+        .select({ id: agentSessions.id })
+        .from(agentSessions)
+        .where(eq(agentSessions.projectId, id))
+        .all();
+      for (const session of sessions) {
+        try {
+          await endAgentSession(session.id);
+        } catch {
+          // ignore
+        }
+      }
+      db.delete(agentSessions).where(eq(agentSessions.projectId, id)).run();
+      db.delete(projects).where(eq(projects.id, id)).run();
+    }
+    ids.length = 0;
+    if (rootDir) {
+      await rm(rootDir, { recursive: true, force: true }).catch(() => undefined);
+      rootDir = "";
+    }
+  });
+
+  it("clones from the remote when the working tree is missing", async () => {
+    rootDir = await mkdtemp(join(tmpdir(), "forge-agent-sync-"));
+    const bareDir = join(rootDir, "remote.git");
+    const clonePath = join(rootDir, "work");
+    const seed = join(rootDir, "seed");
+
+    await runGit(rootDir, ["init", "--bare", bareDir]);
+    await runGit(rootDir, ["clone", bareDir, seed]);
+    await runGit(seed, ["checkout", "-b", "main"]);
+    await runGit(seed, ["config", "user.email", "test@example.com"]);
+    await runGit(seed, ["config", "user.name", "Test"]);
+    await writeFile(join(seed, "README"), "hi\n");
+    await runGit(seed, ["add", "README"]);
+    await runGit(seed, ["commit", "-m", "init"]);
+    await runGit(seed, ["push", "-u", "origin", "main"]);
+
+    const id = randomUUID();
+    db.insert(projects)
+      .values({
+        id,
+        name: `Sync Test ${id.slice(0, 8)}`,
+        githubRepo: bareDir,
+        branch: "main",
+        clonePath,
+        enabled: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+    ids.push(id);
+
+    const { createAgentSession } = await import("@/lib/agent-runner");
+    const { listLocalBranches } = await import("@/lib/github");
+
+    const result = await createAgentSession(id, "main", "bootstrap forgefile");
+    expect(result.sessionId).toBeTruthy();
+    expect(await listLocalBranches(clonePath)).toContain("main");
   });
 });

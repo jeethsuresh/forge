@@ -67,6 +67,11 @@ if has_compose_file; then
   if ! docker image inspect forge-app:rollback >/dev/null 2>&1; then
     docker tag "forge-app:${local_tag}" forge-app:rollback
   fi
+  # Agent session containers (not published to a registry).
+  docker build --network host \
+    -f docker/agent/Dockerfile \
+    -t "${FORGE_AGENT_IMAGE:-forge-agent:latest}" \
+    docker/agent
   exit 0
 fi
 

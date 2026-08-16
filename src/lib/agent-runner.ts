@@ -34,6 +34,7 @@ import {
 } from "@/lib/agent-session-source";
 import {
   listLocalBranches,
+  ensureLocalBranchForAgent,
   prepareAgentWorkspace,
   commitAllChanges,
   buildAgentCommitMessage,
@@ -1169,12 +1170,13 @@ export async function createAgentSession(
 
   if (!project) throw new Error("Project not found");
 
-  const localBranches = await listLocalBranches(project.clonePath);
-  if (!localBranches.includes(trimmedBranch)) {
-    throw new Error(
-      `Branch "${trimmedBranch}" not found locally. Fetch or create the branch in git first.`,
-    );
-  }
+  await ensureLocalBranchForAgent(
+    projectRemoteUrl(project),
+    project.branch,
+    project.clonePath,
+    trimmedBranch,
+    () => {},
+  );
 
   if (shouldQueueAgentSession(projectId, trimmedBranch)) {
     return queueAgentSession(projectId, trimmedBranch, prompt.trim());
@@ -1254,14 +1256,13 @@ export async function createRecoveryAgentSession(
   if (!trimmedBranch) throw new Error("Branch is required");
   if (!prompt.trim()) throw new Error("Prompt is required");
 
-  const localBranches = await listLocalBranches(
+  await ensureLocalBranchForAgent(
+    projectRemoteUrl(project),
+    project.branch,
     options?.workspacePath ?? project.clonePath,
+    trimmedBranch,
+    () => {},
   );
-  if (!localBranches.includes(trimmedBranch)) {
-    throw new Error(
-      `Branch "${trimmedBranch}" not found locally. Fetch or create the branch in git first.`,
-    );
-  }
 
   assertNoConflictingActiveSession(project.id, trimmedBranch);
 
@@ -1321,12 +1322,13 @@ export async function createRebaseRecoveryAgentSession(
   if (!trimmedBranch) throw new Error("Branch is required");
   if (!prompt.trim()) throw new Error("Prompt is required");
 
-  const localBranches = await listLocalBranches(project.clonePath);
-  if (!localBranches.includes(trimmedBranch)) {
-    throw new Error(
-      `Branch "${trimmedBranch}" not found locally. Fetch or create the branch in git first.`,
-    );
-  }
+  await ensureLocalBranchForAgent(
+    projectRemoteUrl(project),
+    project.branch,
+    project.clonePath,
+    trimmedBranch,
+    () => {},
+  );
 
   assertNoConflictingActiveSession(project.id, trimmedBranch);
 

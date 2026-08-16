@@ -661,6 +661,52 @@ export async function revertAgentSessionCommit(
   log(`Reverted and pushed ${branch}.`);
 }
 
+/**
+ * Ensure the working clone exists and `branch` is a local ref.
+ * Used before starting agents (e.g. Add-local projects whose clone lags the
+ * bare repo, or Forgefile bootstrap on the deploy branch).
+ */
+export async function ensureLocalBranchForAgent(
+  repo: string,
+  defaultBranch: string,
+  clonePath: string,
+  branch: string,
+  onLog: (line: string) => void,
+): Promise<void> {
+  const trimmed = branch.trim();
+  if (!trimmed) throw new Error("Branch is required");
+
+  const resolvedPath = resolveClonePath(clonePath);
+  const cloneBranch =
+    trimmed === defaultBranch.trim() ? trimmed : defaultBranch.trim();
+  await ensureRepoCloned(repo, cloneBranch || trimmed, clonePath, onLog);
+
+  let locals = await listLocalBranches(clonePath);
+  if (locals.includes(trimmed)) return;
+
+  try {
+    await execGit(["rev-parse", "--verify", `origin/${trimmed}`], {
+      cwd: resolvedPath,
+    });
+  } catch {
+    throw new Error(
+      `Branch "${trimmed}" not found locally or on origin. Push the branch to Forge (or create it) first.`,
+    );
+  }
+
+  onLog(`Creating local branch ${trimmed} from origin/${trimmed}...`);
+  await execGit(["checkout", "-B", trimmed, `origin/${trimmed}`], {
+    cwd: resolvedPath,
+  });
+
+  locals = await listLocalBranches(clonePath);
+  if (!locals.includes(trimmed)) {
+    throw new Error(
+      `Branch "${trimmed}" not found locally or on origin. Push the branch to Forge (or create it) first.`,
+    );
+  }
+}
+
 export async function prepareAgentWorkspace(
   repo: string,
   defaultBranch: string,
@@ -669,14 +715,13 @@ export async function prepareAgentWorkspace(
   onLog: (line: string) => void,
 ): Promise<void> {
   const resolvedPath = resolveClonePath(clonePath);
-  await ensureRepoCloned(repo, defaultBranch, clonePath, onLog);
-
-  const branches = await listLocalBranches(clonePath);
-  if (!branches.includes(branch)) {
-    throw new Error(
-      `Branch "${branch}" does not exist locally. Create it with git first.`,
-    );
-  }
+  await ensureLocalBranchForAgent(
+    repo,
+    defaultBranch,
+    clonePath,
+    branch,
+    onLog,
+  );
 
   onLog(`Checking out branch ${branch} (local changes preserved)...`);
   await execGit(["checkout", branch], { cwd: resolvedPath });

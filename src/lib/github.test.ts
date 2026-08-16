@@ -451,6 +451,95 @@ describe("pushBranch", () => {
   });
 });
 
+describe("ensureLocalBranchForAgent", () => {
+  it("clones a missing working tree so the deploy branch exists locally", async () => {
+    const root = await mkdtemp(join(tmpdir(), "forge-ensure-branch-"));
+    const bareDir = join(root, "remote.git");
+    const workDir = join(root, "work");
+    try {
+      await runGit(root, ["init", "--bare", bareDir]);
+      const seed = join(root, "seed");
+      await runGit(root, ["clone", bareDir, seed]);
+      await runGit(seed, ["checkout", "-b", "main"]);
+      await runGit(seed, ["config", "user.email", "test@example.com"]);
+      await runGit(seed, ["config", "user.name", "Test"]);
+      await runGit(seed, ["commit", "--allow-empty", "-m", "init"]);
+      await runGit(seed, ["push", "-u", "origin", "main"]);
+
+      const { ensureLocalBranchForAgent, listLocalBranches } = await import(
+        "@/lib/github"
+      );
+      await ensureLocalBranchForAgent(bareDir, "main", workDir, "main", () => {});
+
+      expect(await listLocalBranches(workDir)).toContain("main");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("creates a local tracking branch when the ref only exists on origin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "forge-ensure-remote-only-"));
+    const bareDir = join(root, "remote.git");
+    const workDir = join(root, "work");
+    try {
+      await runGit(root, ["init", "--bare", bareDir]);
+      await runGit(root, ["clone", bareDir, workDir]);
+      await runGit(workDir, ["checkout", "-b", "main"]);
+      await runGit(workDir, ["config", "user.email", "test@example.com"]);
+      await runGit(workDir, ["config", "user.name", "Test"]);
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "init"]);
+      await runGit(workDir, ["push", "-u", "origin", "main"]);
+      await runGit(bareDir, ["branch", "feature/remote-only", "main"]);
+      await runGit(workDir, ["fetch", "origin"]);
+
+      const { ensureLocalBranchForAgent, listLocalBranches } = await import(
+        "@/lib/github"
+      );
+      expect(await listLocalBranches(workDir)).not.toContain("feature/remote-only");
+
+      await ensureLocalBranchForAgent(
+        bareDir,
+        "main",
+        workDir,
+        "feature/remote-only",
+        () => {},
+      );
+
+      expect(await listLocalBranches(workDir)).toContain("feature/remote-only");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("errors clearly when the branch is missing on the remote too", async () => {
+    const root = await mkdtemp(join(tmpdir(), "forge-ensure-missing-"));
+    const bareDir = join(root, "remote.git");
+    const workDir = join(root, "work");
+    try {
+      await runGit(root, ["init", "--bare", bareDir]);
+      await runGit(root, ["clone", bareDir, workDir]);
+      await runGit(workDir, ["checkout", "-b", "main"]);
+      await runGit(workDir, ["config", "user.email", "test@example.com"]);
+      await runGit(workDir, ["config", "user.name", "Test"]);
+      await runGit(workDir, ["commit", "--allow-empty", "-m", "init"]);
+      await runGit(workDir, ["push", "-u", "origin", "main"]);
+
+      const { ensureLocalBranchForAgent } = await import("@/lib/github");
+      await expect(
+        ensureLocalBranchForAgent(
+          bareDir,
+          "main",
+          workDir,
+          "does-not-exist",
+          () => {},
+        ),
+      ).rejects.toThrow(/not found locally or on origin/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("listAvailableBranches", () => {
   it("includes local and remote branches plus the default branch", async () => {
     const root = await mkdtemp(join(tmpdir(), "forge-git-branches-"));

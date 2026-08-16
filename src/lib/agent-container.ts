@@ -1,5 +1,7 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { existsSync } from "fs";
+import { join } from "path";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
@@ -12,7 +14,7 @@ import {
   AGENT_HEARTBEAT_INTERVAL_SEC,
   AGENT_WALL_CLOCK_MS,
 } from "@/lib/agent-heartbeat";
-
+import { resolveForgeHostMounts } from "@/lib/forge-host-mounts";
 const execFileAsync = promisify(execFile);
 
 const DOCKER_SOCK_PATHS = [
@@ -70,6 +72,36 @@ function runDocker(args: string[]): Promise<DockerRunResult> {
   return (dockerRunner ?? defaultDockerRunner)(args);
 }
 
+function resolveCursorAgentBinInMount(agentDir: string): string {
+  const cursorAgent = join(agentDir, "cursor-agent");
+  if (existsSync(cursorAgent)) return "/opt/cursor-agent/cursor-agent";
+  const agent = join(agentDir, "agent");
+  if (existsSync(agent)) return "/opt/cursor-agent/agent";
+  // Host path may not be visible inside this process (Forge container); prefer
+  // the usual Cursor layout when we cannot probe the bind source.
+  return "/opt/cursor-agent/cursor-agent";
+}
+
+/**
+ * Confirm the agent session image exists locally. Avoids a registry pull of
+ * `forge-agent` (which is not published) when the image was never built.
+ */
+export async function ensureAgentImage(
+  image: string = DEFAULT_AGENT_IMAGE,
+): Promise<void> {
+  const ref = image.trim() || DEFAULT_AGENT_IMAGE;
+  try {
+    await runDocker(["image", "inspect", ref]);
+    return;
+  } catch {
+    // fall through
+  }
+
+  throw new Error(
+    `Unable to find agent image "${ref}" locally. Build it with ./build.sh (builds forge-agent:latest alongside forge-app), or set FORGE_AGENT_IMAGE to an existing local image.`,
+  );
+}
+
 export function agentContainerName(sessionId: string): string {
   const short = sessionId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || "session";
   return `forge-agent-${short}`;
@@ -123,6 +155,7 @@ export function buildAgentContainerRunArgs(
   const heartbeat =
     opts.heartbeatIntervalSec ?? AGENT_HEARTBEAT_INTERVAL_SEC;
   const name = agentContainerName(opts.sessionId);
+  const hostMounts = resolveForgeHostMounts();
 
   const env: Record<string, string> = {
     FORGE_OPS_API_BASE: opts.opsBaseUrl.replace(/\/$/, ""),
@@ -139,6 +172,10 @@ export function buildAgentContainerRunArgs(
   if (opts.agentPrompt) env.FORGE_AGENT_PROMPT = opts.agentPrompt;
   if (opts.cursorApiKey) env.CURSOR_API_KEY = opts.cursorApiKey;
   if (opts.packagesJson) env.FORGE_AGENT_PACKAGES_JSON = opts.packagesJson;
+
+  if (hostMounts.cursorAgentDir) {
+    env.FORGE_AGENT_BIN = resolveCursorAgentBinInMount(hostMounts.cursorAgentDir);
+  }
 
   const args = [
     "run",
@@ -166,6 +203,16 @@ export function buildAgentContainerRunArgs(
       );
     }
     args.push("-v", `${bind}:/workspace/repo:z`);
+  }
+
+  if (hostMounts.cursorAgentDir) {
+    const agentBind = `${hostMounts.cursorAgentDir}:/opt/cursor-agent:ro,z`;
+    if (mountArgTargetsDockerSock(agentBind)) {
+      throw new Error(
+        `Refusing Cursor agent bind that looks like a container socket: ${agentBind}`,
+      );
+    }
+    args.push("-v", agentBind);
   }
 
   // Intentionally no -v docker.sock / podman.sock mounts.
@@ -225,6 +272,9 @@ function upsertContainerRow(input: {
 export async function startAgentContainer(
   opts: StartAgentContainerOpts,
 ): Promise<{ containerId: string }> {
+  const image = opts.image?.trim() || DEFAULT_AGENT_IMAGE;
+  await ensureAgentImage(image);
+
   const args = buildAgentContainerRunArgs(opts);
   assertNoDockerSockMount(args);
 
@@ -232,7 +282,6 @@ export async function startAgentContainer(
   const containerId = stdout.trim().slice(0, 64) || agentContainerName(opts.sessionId);
   const startedAt = new Date();
   const deadlineAt = new Date(startedAt.getTime() + AGENT_WALL_CLOCK_MS);
-  const image = opts.image?.trim() || DEFAULT_AGENT_IMAGE;
 
   upsertContainerRow({
     sessionId: opts.sessionId,

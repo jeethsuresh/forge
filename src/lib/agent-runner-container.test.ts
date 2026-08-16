@@ -59,6 +59,7 @@ describe("agent-runner container runtime", () => {
     setAgentContainerDockerRunner(async (args) => {
       seen.push([...args]);
       assertNoDockerSockMount(args);
+      if (args[0] === "image") return { stdout: "[]\n", stderr: "" };
       if (args[0] === "run") return { stdout: "containercid\n", stderr: "" };
       if (args[0] === "wait") return { stdout: "0\n", stderr: "" };
       return { stdout: "", stderr: "" };
@@ -74,8 +75,9 @@ describe("agent-runner container runtime", () => {
     });
 
     expect(result.containerId).toBe("containercid");
-    expect(seen[0]?.[0]).toBe("run");
-    expect(seen[0]?.some((a) => a.includes("docker.sock"))).toBe(false);
+    const runArgs = seen.find((a) => a[0] === "run");
+    expect(runArgs?.[0]).toBe("run");
+    expect(runArgs?.some((a) => a.includes("docker.sock"))).toBe(false);
 
     const row = db
       .select()
