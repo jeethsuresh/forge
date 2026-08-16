@@ -7,6 +7,7 @@ import { execFileSync } from "child_process";
 import { db } from "@/lib/db";
 import { gitRepositories, projects } from "@/lib/db/schema";
 import {
+  bareRepoHasCommits,
   createForgeGitRepository,
   importGithubToForge,
 } from "@/lib/git-repo";
@@ -104,6 +105,40 @@ describe("createForgeGitRepository", () => {
     } finally {
       rmSync(work, { recursive: true, force: true });
     }
+  });
+
+  it("creates an unseeded bare repo for local add without a working clone", async () => {
+    const unique = `local-${Date.now()}`;
+    const result = await createForgeGitRepository({
+      name: unique,
+      slug: unique,
+      defaultBranch: "main",
+      seed: false,
+    });
+    createdProjectId = result.projectId;
+    createdRepoId = result.repositoryId;
+
+    expect(existsSync(result.barePath)).toBe(true);
+    expect(existsSync(join(result.barePath, "hooks", "post-receive"))).toBe(
+      true,
+    );
+    expect(bareRepoHasCommits(result.barePath)).toBe(false);
+    expect(existsSync(join(reposRoot, `${unique}-main`))).toBe(false);
+
+    const count = execFileSync("git", ["rev-list", "--all", "--count"], {
+      cwd: result.barePath,
+      encoding: "utf8",
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    }).trim();
+    expect(count).toBe("0");
+
+    const project = db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, result.projectId))
+      .get();
+    expect(project?.gitRepositoryId).toBe(result.repositoryId);
+    expect(project?.githubRepo).toBe("");
   });
 
   it("imports from a local bare GitHub stand-in", async () => {

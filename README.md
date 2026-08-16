@@ -4,7 +4,7 @@ A local Docker deployment orchestrator with a web dashboard. Forge watches GitHu
 
 ## Features
 
-- **Forge git host** — smart HTTP (+ optional SSH) bare repos; create empty projects or one-shot import from GitHub ([docs/git-server.md](docs/git-server.md))
+- **Forge git host** — smart HTTP (+ optional SSH) bare repos; create empty projects, import from GitHub, or add a local checkout ([docs/git-server.md](docs/git-server.md))
 - **GitHub monitoring** — polls remotes every 60 seconds for new commits (Forge-origin projects use bare repos / hooks)
 - **Automated pipeline** — clones/pulls, validates `Forgefile`, then runs each deploy target’s bound build/test/deploy scripts
 - **Web dashboard** — login-protected UI with project sidebar, deployment history, container status, and live logs
@@ -36,6 +36,10 @@ Legacy `?tab=` URLs redirect to these paths.
 ### Appearance
 
 **Global settings → Appearance**: Light / Dark / System. Semantic status colors share meaning across themes.
+
+### Studio e2e
+
+Playwright covers login, command center, Deploy / Agents / Changes / Settings (`e2e/*.spec.ts`). `./test.sh` sources `.env` then runs Playwright when `/api/forge/health` is up (skip with `FORGE_UI_E2E=0`; force with `./test.sh --ui-e2e`). Tests never click Redeploy / Deploy now.
 
 ### Command palette (⌘K / Ctrl+K)
 

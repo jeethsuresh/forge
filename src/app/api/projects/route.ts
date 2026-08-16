@@ -18,6 +18,7 @@ import {
   createForgeGitRepository,
   forgeGitHttpsUrl,
   forgeGitSshUrl,
+  gitRepositoryIsEmpty,
   importGithubToForge,
 } from "@/lib/git-repo";
 import { gitRepositories } from "@/lib/db/schema";
@@ -123,6 +124,7 @@ export async function GET() {
         httpsCloneUrl: gitRepo ? forgeGitHttpsUrl(gitRepo.slug) : null,
         sshCloneUrl: gitRepo ? forgeGitSshUrl(gitRepo.slug) : null,
         importedFrom: gitRepo?.importedFrom ?? null,
+        gitEmpty: gitRepositoryIsEmpty(gitRepo),
       };
   };
 
@@ -150,7 +152,7 @@ export async function POST(request: Request) {
   }
 
   const body = (await request.json()) as {
-    mode?: "create" | "import";
+    mode?: "create" | "import" | "local";
     name?: string;
     slug?: string;
     githubRepo?: string;
@@ -163,13 +165,13 @@ export async function POST(request: Request) {
 
   if (!mode) {
     return NextResponse.json(
-      { error: "Provide mode=create or mode=import" },
+      { error: "Provide mode=create, mode=import, or mode=local" },
       { status: 400 },
     );
   }
 
   try {
-    if (mode === "create") {
+    if (mode === "create" || mode === "local") {
       if (!body.name?.trim()) {
         return NextResponse.json(
           { error: "Name is required to create a project" },
@@ -180,6 +182,7 @@ export async function POST(request: Request) {
         name: body.name,
         slug: body.slug,
         defaultBranch: body.branch,
+        seed: mode !== "local",
       });
       const project = db
         .select()
@@ -192,6 +195,7 @@ export async function POST(request: Request) {
           httpsCloneUrl: created.httpsUrl,
           sshCloneUrl: created.sshUrl,
           gitSlug: created.slug,
+          gitEmpty: mode === "local",
         },
         { status: 201 },
       );
@@ -222,6 +226,7 @@ export async function POST(request: Request) {
         sshCloneUrl: imported.sshUrl,
         gitSlug: imported.slug,
         importedFrom: imported.importedFrom,
+        gitEmpty: false,
       },
       { status: 201 },
     );

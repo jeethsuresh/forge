@@ -38,7 +38,7 @@ import {
 } from "@/lib/project-deploy-update";
 import { getRemoteCommitSha } from "@/lib/github";
 import { projectRemoteUrl, getProjectGitRepository } from "@/lib/project-git-remote";
-import { forgeGitHttpsUrl, forgeGitSshUrl } from "@/lib/git-repo";
+import { forgeGitHttpsUrl, forgeGitSshUrl, gitRepositoryIsEmpty } from "@/lib/git-repo";
 import {
   buildDeployEnvVarViews,
   fillDeployEnvFromRepo,
@@ -86,6 +86,7 @@ function projectResponse(
     httpsCloneUrl: gitRepo ? forgeGitHttpsUrl(gitRepo.slug) : null,
     sshCloneUrl: gitRepo ? forgeGitSshUrl(gitRepo.slug) : null,
     importedFrom: gitRepo?.importedFrom ?? null,
+    gitEmpty: gitRepositoryIsEmpty(gitRepo),
   };
 }
 

@@ -20,6 +20,7 @@ import { ActiveDeployLogsPanel } from "@/components/ActiveDeployLogsPanel";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import { resolveActiveDeployLogView } from "@/lib/active-deploy-logs";
 import { ProjectRenameEditor } from "@/components/ProjectRenameEditor";
+import { GitLocalPushRecipes } from "@/components/GitLocalPushRecipes";
 import { ProjectRoutingEditor } from "@/components/ProjectRoutingEditor";
 import type { ProjectCaddySettings } from "@/lib/project-routing-shared";
 import {
@@ -119,6 +120,7 @@ interface ProjectDetail {
     httpsCloneUrl?: string | null;
     sshCloneUrl?: string | null;
     importedFrom?: string | null;
+    gitEmpty?: boolean;
   };
   deployments: Deployment[];
   currentDeployment: Deployment | null;
@@ -601,7 +603,10 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
   );
 
   return (
-    <div className="forge-app-bg flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-7 sm:py-6 lg:px-10">
+    <div
+      data-testid={`project-studio-${mode}`}
+      className="forge-app-bg flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-7 sm:py-6 lg:px-10"
+    >
       <div className="mb-5 flex shrink-0 flex-col gap-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -869,6 +874,7 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
             </label>
             <Button
               variant="primary"
+              data-testid="deploy-primary"
               onClick={deployNow}
               disabled={
                 actionLoading ||
@@ -1092,33 +1098,49 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
             <section className="mb-8">
               <h2 className="forge-section-label mb-3">Clone URLs</h2>
               <div className="forge-surface space-y-3 px-4 py-4">
-                {project.httpsCloneUrl ? (
-                  <div>
-                    <div className="text-xs font-medium text-[var(--forge-muted)]">
-                      HTTPS (smart HTTP)
-                    </div>
-                    <code className="mt-1 block break-all font-mono text-xs text-[var(--forge-bright)]">
-                      {project.httpsCloneUrl}
-                    </code>
-                    <p className="mt-1 text-xs text-[var(--forge-faint)]">
-                      Auth with session cookie, Ops bearer, or Basic password =
-                      Ops/agent token. See docs/git-server.md.
+                {project.gitEmpty && project.httpsCloneUrl ? (
+                  <>
+                    <p className="text-sm text-[var(--forge-muted)]">
+                      This Forge repo has no commits yet. Push from your local
+                      checkout:
                     </p>
-                  </div>
-                ) : null}
-                {project.sshCloneUrl ? (
-                  <div>
-                    <div className="text-xs font-medium text-[var(--forge-muted)]">
-                      SSH
-                    </div>
-                    <code className="mt-1 block break-all font-mono text-xs text-[var(--forge-bright)]">
-                      {project.sshCloneUrl}
-                    </code>
-                    <p className="mt-1 text-xs text-[var(--forge-faint)]">
-                      Register keys under Global settings → Git SSH.
-                    </p>
-                  </div>
-                ) : null}
+                    <GitLocalPushRecipes
+                      httpsUrl={project.httpsCloneUrl}
+                      sshUrl={project.sshCloneUrl}
+                      defaultBranch={project.branch}
+                    />
+                  </>
+                ) : (
+                  <>
+                    {project.httpsCloneUrl ? (
+                      <div>
+                        <div className="text-xs font-medium text-[var(--forge-muted)]">
+                          HTTPS (smart HTTP)
+                        </div>
+                        <code className="mt-1 block break-all font-mono text-xs text-[var(--forge-bright)]">
+                          {project.httpsCloneUrl}
+                        </code>
+                        <p className="mt-1 text-xs text-[var(--forge-faint)]">
+                          Auth with session cookie, Ops bearer, or Basic password =
+                          Ops/agent token. See docs/git-server.md.
+                        </p>
+                      </div>
+                    ) : null}
+                    {project.sshCloneUrl ? (
+                      <div>
+                        <div className="text-xs font-medium text-[var(--forge-muted)]">
+                          SSH
+                        </div>
+                        <code className="mt-1 block break-all font-mono text-xs text-[var(--forge-bright)]">
+                          {project.sshCloneUrl}
+                        </code>
+                        <p className="mt-1 text-xs text-[var(--forge-faint)]">
+                          Register keys under Global settings → Git SSH.
+                        </p>
+                      </div>
+                    ) : null}
+                  </>
+                )}
               </div>
             </section>
           ) : (
@@ -1133,6 +1155,13 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
                   className="text-[var(--forge-accent-hot)]"
                 >
                   Add project → Import GitHub
+                </Link>{" "}
+                or attach an existing checkout via{" "}
+                <Link
+                  href="/projects/new"
+                  className="text-[var(--forge-accent-hot)]"
+                >
+                  Add local
                 </Link>{" "}
                 to make Forge the primary origin.
               </div>

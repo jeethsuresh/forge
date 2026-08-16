@@ -15,7 +15,7 @@ import { isForgeProject } from "@/lib/forge-project";
 import { getForgeStatus } from "@/lib/self-update";
 import { getRemoteCommitSha, listAvailableBranches } from "@/lib/github";
 import { projectRemoteUrl, getProjectGitRepository } from "@/lib/project-git-remote";
-import { forgeGitHttpsUrl, forgeGitSshUrl } from "@/lib/git-repo";
+import { forgeGitHttpsUrl, forgeGitSshUrl, gitRepositoryIsEmpty } from "@/lib/git-repo";
 import { deploymentRowForClient } from "@/lib/project-poll";
 import { projectComposeSlug } from "@/lib/projects";
 import {
@@ -71,6 +71,7 @@ export async function buildOpsProjectSummary(project: typeof projects.$inferSele
       const repo = getProjectGitRepository(project);
       return repo ? forgeGitSshUrl(repo.slug) : null;
     })(),
+    gitEmpty: gitRepositoryIsEmpty(getProjectGitRepository(project)),
     runtimeStatus: deriveRuntimeStatus(containers, {
       isDeploying,
       hasSuccessfulDeploy:

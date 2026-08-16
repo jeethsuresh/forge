@@ -1,4 +1,4 @@
-import { execFile } from "child_process";
+import { execFile, execFileSync } from "child_process";
 import { promisify } from "util";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "fs";
 import { dirname, join } from "path";
@@ -78,10 +78,33 @@ export function workingClonePathForSlug(slug: string, branch: string): string {
   return join(reposDir, `${slug}-${branch}`);
 }
 
+export function bareRepoHasCommits(barePath: string): boolean {
+  if (!existsSync(barePath)) return false;
+  try {
+    const stdout = execFileSync("git", ["rev-list", "-n", "1", "--all"], {
+      cwd: barePath,
+      encoding: "utf8",
+      env: gitEnv(),
+    });
+    return stdout.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+export function gitRepositoryIsEmpty(
+  repo: { barePath: string } | null | undefined,
+): boolean {
+  if (!repo) return false;
+  return !bareRepoHasCommits(repo.barePath);
+}
+
 export type CreateForgeGitRepositoryOpts = {
   name: string;
   slug?: string;
   defaultBranch?: string;
+  /** When false, empty bare repo for Add local (no seed commit, no working clone). */
+  seed?: boolean;
 };
 
 export type CreateForgeGitRepositoryResult = {
@@ -131,26 +154,29 @@ export async function createForgeGitRepository(
   });
   installPostReceiveHook(barePath, slug);
 
-  const seedDir = mkdtempSync(join(tmpdir(), "forge-git-seed-"));
-  try {
-    await execGit(["clone", barePath, seedDir]);
-    await execGit(["checkout", "-B", defaultBranch], { cwd: seedDir });
+  const shouldSeed = opts.seed !== false;
+  if (shouldSeed) {
+    const seedDir = mkdtempSync(join(tmpdir(), "forge-git-seed-"));
+    try {
+      await execGit(["clone", barePath, seedDir]);
+      await execGit(["checkout", "-B", defaultBranch], { cwd: seedDir });
 
-    writeFileSync(
-      join(seedDir, "README.md"),
-      `# ${trimmedName}\n\nHosted by Forge. Clone via HTTPS or SSH from the project Settings page.\n`,
-    );
-    const forgefile = buildSeedForgefile(trimmedName);
-    assertSeedForgefileValid(forgefile);
-    writeFileSync(join(seedDir, "Forgefile"), forgefile);
+      writeFileSync(
+        join(seedDir, "README.md"),
+        `# ${trimmedName}\n\nHosted by Forge. Clone via HTTPS or SSH from the project Settings page.\n`,
+      );
+      const forgefile = buildSeedForgefile(trimmedName);
+      assertSeedForgefileValid(forgefile);
+      writeFileSync(join(seedDir, "Forgefile"), forgefile);
 
-    await execGit(["add", "README.md", "Forgefile"], { cwd: seedDir });
-    await execGit(["commit", "-m", "Initial commit (Forge seed)"], {
-      cwd: seedDir,
-    });
-    await execGit(["push", "-u", "origin", defaultBranch], { cwd: seedDir });
-  } finally {
-    rmSync(seedDir, { recursive: true, force: true });
+      await execGit(["add", "README.md", "Forgefile"], { cwd: seedDir });
+      await execGit(["commit", "-m", "Initial commit (Forge seed)"], {
+        cwd: seedDir,
+      });
+      await execGit(["push", "-u", "origin", defaultBranch], { cwd: seedDir });
+    } finally {
+      rmSync(seedDir, { recursive: true, force: true });
+    }
   }
 
   const repositoryId = randomUUID();
@@ -160,7 +186,9 @@ export async function createForgeGitRepository(
   if (existsSync(clonePath)) {
     rmSync(clonePath, { recursive: true, force: true });
   }
-  await execGit(["clone", "--branch", defaultBranch, barePath, clonePath]);
+  if (shouldSeed) {
+    await execGit(["clone", "--branch", defaultBranch, barePath, clonePath]);
+  }
 
   db.insert(gitRepositories)
     .values({

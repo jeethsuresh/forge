@@ -168,9 +168,9 @@ export function buildStaticPaletteItems(): PaletteItem[] {
       id: "nav:new-project",
       kind: "navigation",
       title: "Add project",
-      keywords: ["new", "add", "create", "project"],
+      keywords: ["new", "add", "create", "project", "local", "import"],
       href: "/projects/new",
-      docs: "Register a new watched repository.",
+      docs: "Create empty, import GitHub, or add a local checkout as a Forge remote.",
     },
     {
       id: "help:shortcuts",

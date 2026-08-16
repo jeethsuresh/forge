@@ -39,9 +39,13 @@ Set `FORGE_GIT_SSH_HOST` (or `FORGE_PUBLIC_HOST`) so the UI shows the correct `g
 
 Smart HTTP is the supported path in unit tests; SSH is optional host infrastructure.
 
-## Create vs import
+## Create vs import vs local
 
 - **Create empty** — seed README + minimal `Forgefile`, Forge is origin.
 - **Import GitHub** — one-shot `git clone --mirror` into Forge bare store; no ongoing dual-remote sync in v1.
+- **Add local** — empty bare repo (no seed commit). The UI shows GitHub-style commands:
+  - no `origin`: `git remote add origin <https-url>` then push
+  - existing `origin`: `git remote add forge <https-url>` and `git config remote.pushDefault forge`
+  - always `cat >> AGENTS.md` to append (or create) a note that agents push to Forge
 
-Existing GitHub-only projects: use Import (or create + push) so agents and deploy jobs clone from Forge.
+Existing GitHub-only projects: use Import (or Add local + push) so agents and deploy jobs clone from Forge.
