@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui";
 import { localPushRecipes } from "@/lib/git-local-push-recipes";
+import { GitHttpsCredentials } from "@/components/GitHttpsCredentials";
 
 function CopyBlock({ label, text }: { label: string; text: string }) {
   const [copied, setCopied] = useState(false);
@@ -50,14 +51,8 @@ export function GitLocalPushRecipes({
         <code className="mt-1 block break-all font-mono text-xs text-[var(--forge-bright)]">
           {httpsUrl}
         </code>
-        <p className="mt-1.5 text-xs text-[var(--forge-faint)]">
-          Auth with session cookie, Ops bearer, or Basic password = Ops/agent
-          token. Example:{" "}
-          <code className="text-[var(--forge-muted)]">
-            git clone https://x:&lt;OPS_OR_SESSION_TOKEN&gt;@host/api/git/&lt;slug&gt;.git
-          </code>
-        </p>
       </div>
+      <GitHttpsCredentials />
       {sshUrl ? (
         <div>
           <div className="text-xs font-medium text-[var(--forge-muted)]">

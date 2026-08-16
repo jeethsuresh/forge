@@ -26,6 +26,7 @@ export default function NewProjectPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [created, setCreated] = useState<CreatedProject | null>(null);
+  const [createdMode, setCreatedMode] = useState<Mode | null>(null);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -51,13 +52,14 @@ export default function NewProjectPage() {
         return;
       }
 
-      if (mode === "local") {
+      if (mode === "local" || mode === "create") {
         setCreated({
           id: data.id,
           httpsCloneUrl: data.httpsCloneUrl,
           sshCloneUrl: data.sshCloneUrl,
           gitSlug: data.gitSlug,
         });
+        setCreatedMode(mode);
         router.refresh();
         return;
       }
@@ -95,14 +97,19 @@ export default function NewProjectPage() {
         {created ? (
           <div className="forge-surface-elevated space-y-5 p-6">
             <p className="text-sm text-[var(--forge-muted)]">
-              Empty Forge repo{" "}
+              Forge repo{" "}
               <code className="text-[var(--forge-bright)]">
                 {created.gitSlug}
               </code>{" "}
-              is ready. Run one of these from your checkout (recipes append to{" "}
+              is ready
+              {createdMode === "local"
+                ? " (empty — push from your checkout)"
+                : ""}
+              . Git HTTPS username and password are listed below. Recipes append
+              to{" "}
               <code className="text-[var(--forge-muted)]">AGENTS.md</code> with{" "}
               <code className="text-[var(--forge-muted)]">cat &gt;&gt;</code>
-              ).
+              .
             </p>
             {created.httpsCloneUrl ? (
               <GitLocalPushRecipes

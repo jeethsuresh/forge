@@ -14,12 +14,12 @@ Forge hosts bare repositories under `/data/git/<slug>.git` (override with `FORGE
 - Dashboard session cookie (browser / cookie-aware clients)
 - `Authorization: Bearer <FORGE_OPS_API_TOKEN>` (global Ops)
 - `Authorization: Bearer fos.<sessionId>.…` (agent session Ops token; project-scoped)
-- Git Basic auth: username any, password = Ops/agent token
+- Git Basic auth: username **`git`** (any non-empty username is accepted), password = Ops/agent token (`FORGE_OPS_API_TOKEN` or `fos.*`)
 
 Example:
 
 ```bash
-git clone https://x:<OPS_OR_SESSION_TOKEN>@<forge-host>/api/git/my-app.git
+git clone https://git:<OPS_OR_SESSION_TOKEN>@<forge-host>/api/git/my-app.git
 ```
 
 ### SSH auth

@@ -21,6 +21,7 @@ import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import { resolveActiveDeployLogView } from "@/lib/active-deploy-logs";
 import { ProjectRenameEditor } from "@/components/ProjectRenameEditor";
 import { GitLocalPushRecipes } from "@/components/GitLocalPushRecipes";
+import { GitHttpsCredentials } from "@/components/GitHttpsCredentials";
 import { ProjectRoutingEditor } from "@/components/ProjectRoutingEditor";
 import type { ProjectCaddySettings } from "@/lib/project-routing-shared";
 import {
@@ -1120,12 +1121,9 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
                         <code className="mt-1 block break-all font-mono text-xs text-[var(--forge-bright)]">
                           {project.httpsCloneUrl}
                         </code>
-                        <p className="mt-1 text-xs text-[var(--forge-faint)]">
-                          Auth with session cookie, Ops bearer, or Basic password =
-                          Ops/agent token. See docs/git-server.md.
-                        </p>
                       </div>
                     ) : null}
+                    <GitHttpsCredentials />
                     {project.sshCloneUrl ? (
                       <div>
                         <div className="text-xs font-medium text-[var(--forge-muted)]">
