@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from "vitest";
+import { describe, expect, it, afterEach, beforeEach } from "vitest";
 import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -7,6 +7,7 @@ import {
   assertNoDockerSockMount,
   buildAgentContainerRunArgs,
   mountArgTargetsDockerSock,
+  resolveHostBindPath,
   setAgentContainerDockerRunner,
   startAgentContainer,
   stopAgentContainer,
@@ -45,9 +46,121 @@ function seedSession(): { projectId: string; sessionId: string } {
 }
 
 describe("agent container lifecycle", () => {
+  let previousContainerName: string | undefined;
+
+  beforeEach(() => {
+    previousContainerName = process.env.FORGE_CONTAINER_NAME;
+  });
+
   afterEach(() => {
     setAgentContainerDockerRunner(null);
+    if (previousContainerName === undefined) {
+      delete process.env.FORGE_CONTAINER_NAME;
+    } else {
+      process.env.FORGE_CONTAINER_NAME = previousContainerName;
+    }
   });
+
+  it("rewrites /data workspace binds to the host volume source", async () => {
+    process.env.FORGE_CONTAINER_NAME = "forge_app_1";
+    setAgentContainerDockerRunner(async (args) => {
+      if (args[0] === "inspect" && args[1] === "forge_app_1") {
+        return {
+          stdout: JSON.stringify([
+            {
+              Mounts: [
+                {
+                  Type: "volume",
+                  Source:
+                    "/home/jeeth/.local/share/containers/storage/volumes/forge_forge-data/_data",
+                  Destination: "/data",
+                },
+              ],
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      throw new Error(`unexpected docker args: ${args.join(" ")}`);
+    });
+
+    expect(
+      await resolveHostBindPath("/data/repos/shatterfield-main"),
+    ).toBe(
+      "/home/jeeth/.local/share/containers/storage/volumes/forge_forge-data/_data/repos/shatterfield-main",
+    );
+  });
+
+  it("leaves host paths unchanged when they are not under a container mount", async () => {
+    process.env.FORGE_CONTAINER_NAME = "forge_app_1";
+    setAgentContainerDockerRunner(async (args) => {
+      if (args[0] === "inspect") {
+        return {
+          stdout: JSON.stringify([
+            {
+              Mounts: [
+                {
+                  Source: "/host/vol/_data",
+                  Destination: "/data",
+                },
+              ],
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    expect(await resolveHostBindPath("/tmp/agent-lifecycle")).toBe(
+      "/tmp/agent-lifecycle",
+    );
+  });
+
+  it("startAgentContainer bind-mounts the host path for /data clones", async () => {
+    process.env.FORGE_CONTAINER_NAME = "forge_app_1";
+    const { projectId, sessionId } = seedSession();
+    const seen: string[][] = [];
+
+    setAgentContainerDockerRunner(async (args) => {
+      seen.push([...args]);
+      if (args[0] === "image") return { stdout: "[]\n", stderr: "" };
+      if (args[0] === "inspect") {
+        return {
+          stdout: JSON.stringify([
+            {
+              Mounts: [
+                {
+                  Source: "/host/forge-data/_data",
+                  Destination: "/data",
+                },
+              ],
+            },
+          ]),
+          stderr: "",
+        };
+      }
+      if (args[0] === "run") return { stdout: "cidhostbind\n", stderr: "" };
+      return { stdout: "", stderr: "" };
+    });
+
+    await startAgentContainer({
+      sessionId,
+      projectId,
+      branch: "agent/feat",
+      cloneUrl: "https://github.com/owner/repo.git",
+      opsBaseUrl: "http://127.0.0.1:3456",
+      opsToken: "fos.test.token",
+      workspaceBind: "/data/repos/shatterfield-main",
+    });
+
+    const runArgs = seen.find((a) => a[0] === "run");
+    expect(runArgs).toContain(
+      "/host/forge-data/_data/repos/shatterfield-main:/workspace/repo:z",
+    );
+    expect(runArgs?.some((a) => a.startsWith("/data/repos/"))).toBe(false);
+  });
+
 
   it("detects docker.sock mount targets", () => {
     expect(mountArgTargetsDockerSock("/var/run/docker.sock:/var/run/docker.sock")).toBe(

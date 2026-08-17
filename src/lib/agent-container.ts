@@ -9,7 +9,11 @@ import {
   type AgentContainerStatus,
   type AgentKillReason,
 } from "@/lib/db/schema";
-import { dockerExecEnv, ensureDockerDaemon } from "@/lib/docker-runtime";
+import {
+  dockerExecEnv,
+  ensureDockerDaemon,
+  readForgeContainerName,
+} from "@/lib/docker-runtime";
 import {
   AGENT_HEARTBEAT_INTERVAL_SEC,
   AGENT_WALL_CLOCK_MS,
@@ -41,7 +45,11 @@ export type StartAgentContainerOpts = {
   agentPrompt?: string;
   cursorApiKey?: string;
   packagesJson?: string;
-  /** Host path bind-mounted at /workspace/repo (shared edits; never a docker sock). */
+  /**
+   * Workspace path bind-mounted at /workspace/repo.
+   * May be a Forge-container path (e.g. /data/repos/…); rewritten to the host
+   * volume source before `docker run` so Podman does not mkdir /data on the host.
+   */
   workspaceBind?: string;
 };
 
@@ -105,6 +113,60 @@ export async function ensureAgentImage(
 export function agentContainerName(sessionId: string): string {
   const short = sessionId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || "session";
   return `forge-agent-${short}`;
+}
+
+type InspectMount = {
+  Source?: string;
+  Destination?: string;
+};
+
+/**
+ * Map a path visible inside Forge to the host path Podman/Docker should bind.
+ * `/data/repos/foo` is a volume mount inside forge_app_1; passing it unchanged
+ * makes the host runtime try `mkdir /data` and fail with permission denied.
+ */
+export async function resolveHostBindPath(containerPath: string): Promise<string> {
+  const path = containerPath.trim();
+  if (!path) return path;
+
+  const containerName = readForgeContainerName();
+  if (!containerName) return path;
+
+  let stdout: string;
+  try {
+    ({ stdout } = await runDocker(["inspect", containerName]));
+  } catch {
+    return path;
+  }
+
+  let mounts: InspectMount[] = [];
+  try {
+    const parsed = JSON.parse(stdout) as Array<{ Mounts?: InspectMount[] }>;
+    mounts = parsed[0]?.Mounts ?? [];
+  } catch {
+    return path;
+  }
+
+  const matches = mounts
+    .filter((mount) => {
+      const dest = mount.Destination?.replace(/\/$/, "") || "";
+      const source = mount.Source?.trim();
+      if (!dest || !source) return false;
+      return path === dest || path.startsWith(`${dest}/`);
+    })
+    .sort(
+      (a, b) =>
+        (b.Destination?.replace(/\/$/, "") ?? "").length -
+        (a.Destination?.replace(/\/$/, "") ?? "").length,
+    );
+
+  const best = matches[0];
+  if (!best?.Source || !best.Destination) return path;
+
+  const dest = best.Destination.replace(/\/$/, "");
+  const source = best.Source.replace(/\/$/, "");
+  const suffix = path.slice(dest.length).replace(/^\/+/, "");
+  return suffix ? `${source}/${suffix}` : source;
 }
 
 /**
@@ -275,7 +337,10 @@ export async function startAgentContainer(
   const image = opts.image?.trim() || DEFAULT_AGENT_IMAGE;
   await ensureAgentImage(image);
 
-  const args = buildAgentContainerRunArgs(opts);
+  const workspaceBind = opts.workspaceBind?.trim()
+    ? await resolveHostBindPath(opts.workspaceBind.trim())
+    : opts.workspaceBind;
+  const args = buildAgentContainerRunArgs({ ...opts, workspaceBind });
   assertNoDockerSockMount(args);
 
   const { stdout } = await runDocker(args);
