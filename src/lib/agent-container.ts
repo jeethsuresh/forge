@@ -250,6 +250,8 @@ export function buildAgentContainerRunArgs(
     `forge.agent.session=${opts.sessionId}`,
     "--label",
     `forge.agent.project=${opts.projectId}`,
+    "--user",
+    "0:0",
   ];
 
   for (const [key, value] of Object.entries(env)) {

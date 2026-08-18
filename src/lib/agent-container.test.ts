@@ -195,6 +195,8 @@ describe("agent container lifecycle", () => {
       true,
     );
     expect(args).toContain("/data/clones/proj:/workspace/repo:z");
+    expect(args).toContain("--user");
+    expect(args).toContain("0:0");
     expect(args.some((a) => a.includes("docker.sock"))).toBe(false);
     expect(args.some((a) => a.includes("podman.sock"))).toBe(false);
     expect(() => assertNoDockerSockMount(args)).not.toThrow();

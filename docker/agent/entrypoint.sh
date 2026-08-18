@@ -50,14 +50,25 @@ configure_git() {
 }
 
 clone_repo() {
+  mkdir -p "${WORKDIR}"
+  git config --global --add safe.directory "${WORKDIR}" || true
+
   if [[ -d "${WORKDIR}/.git" ]]; then
     cd "${WORKDIR}"
     git fetch --all --prune 2>/dev/null || true
-    git checkout "${BRANCH}" 2>/dev/null || git checkout -B "${BRANCH}"
+    if ! git checkout "${BRANCH}" 2>/dev/null; then
+      git checkout -B "${BRANCH}"
+    fi
     return 0
   fi
-  rm -rf "${WORKDIR}"
-  mkdir -p "$(dirname "${WORKDIR}")"
+
+  # Bind-mounted workspaces are non-empty; never rm -rf the mount point.
+  if [[ -n "$(ls -A "${WORKDIR}" 2>/dev/null || true)" ]]; then
+    echo "Workspace ${WORKDIR} is not a git checkout; using as-is (no clone)." >&2
+    cd "${WORKDIR}"
+    return 0
+  fi
+
   git clone --branch "${BRANCH}" --single-branch "${CLONE_URL}" "${WORKDIR}"
   cd "${WORKDIR}"
 }
