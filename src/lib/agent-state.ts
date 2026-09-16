@@ -14,6 +14,7 @@ import {
   isAgentTurnComplete,
   isStuckActiveSession,
   isTerminalSessionStatus,
+  sessionHasLiveRuntime,
 } from "@/lib/agent-turn";
 import {
   isIdleAgentSession,
@@ -193,11 +194,22 @@ function reconcileStaleActiveSessions(projectId: string): number {
       continue;
     }
 
+    const container = db
+      .select()
+      .from(agentContainers)
+      .where(eq(agentContainers.sessionId, session.id))
+      .get();
+    const hasActiveRuntime = sessionHasLiveRuntime({
+      containerStatus: container?.status ?? null,
+      lastHeartbeatAt: container?.lastHeartbeatAt ?? null,
+      lastActivityAt: container?.lastActivityAt ?? null,
+      sessionStartedAt: session.startedAt,
+    });
     const stuck = isStuckActiveSession({
       status: session.status,
       failedTurnStartSeq: session.failedTurnStartSeq,
-      hasActiveRuntime: false,
-      projectMarkedActive: false,
+      hasActiveRuntime,
+      projectMarkedActive: hasActiveRuntime,
       turnIncomplete,
     });
     if (!stuck) continue;

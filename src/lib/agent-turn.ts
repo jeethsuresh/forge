@@ -79,6 +79,48 @@ export interface StuckSessionInput {
   turnIncomplete?: boolean;
 }
 
+/** Align with agentHeartbeatMissWindowMs (10s interval × 3 misses). */
+export const DEFAULT_HEARTBEAT_MISS_WINDOW_MS = 30_000;
+/** Git fetch + docker run can take longer than one UI poll. */
+export const AGENT_STARTUP_GRACE_MS = 120_000;
+
+export interface LiveRuntimeInput {
+  containerStatus?: string | null;
+  lastHeartbeatAt?: Date | null;
+  lastActivityAt?: Date | null;
+  sessionStartedAt: Date;
+  now?: Date;
+  heartbeatMissWindowMs?: number;
+  startupGraceMs?: number;
+}
+
+/**
+ * Whether poll-time reconcile should treat the session as still live.
+ * Container row / heartbeat are source of truth; the in-memory Set is not.
+ */
+export function sessionHasLiveRuntime(input: LiveRuntimeInput): boolean {
+  if (
+    input.containerStatus === "starting" ||
+    input.containerStatus === "running"
+  ) {
+    return true;
+  }
+
+  const now = input.now ?? new Date();
+  const miss = input.heartbeatMissWindowMs ?? DEFAULT_HEARTBEAT_MISS_WINDOW_MS;
+  const beat = input.lastHeartbeatAt ?? input.lastActivityAt;
+  if (beat && now.getTime() - beat.getTime() < miss) {
+    return true;
+  }
+
+  if (input.containerStatus) {
+    return false;
+  }
+
+  const grace = input.startupGraceMs ?? AGENT_STARTUP_GRACE_MS;
+  return now.getTime() - input.sessionStartedAt.getTime() < grace;
+}
+
 /** Detect sessions stuck active in DB after the agent runtime has ended. */
 export function isStuckActiveSession(input: StuckSessionInput): boolean {
   const {
