@@ -4,11 +4,16 @@ import { db } from "@/lib/db";
 import { forgeUpdates } from "@/lib/db/schema";
 import { attemptForgeSelfUpdateRecovery } from "@/lib/deploy-recovery";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
+import { authorizeForgeRecoverRequest } from "@/lib/forge-recover-auth";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 1800;
 
 export async function POST(request: Request) {
+  if (!authorizeForgeRecoverRequest(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const body = (await request.json().catch(() => null)) as {
     updateId?: string;
     errorMessage?: string;

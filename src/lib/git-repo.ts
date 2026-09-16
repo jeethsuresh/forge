@@ -20,10 +20,12 @@ import { resolveClonePath } from "@/lib/paths";
 import { mintGitCloneToken } from "@/lib/git-clone-token";
 import {
   formatGitError,
+} from "@/lib/git-workspace";
+import {
   githubCloneUrl,
   parseGithubRepo,
   prepareGithubGitAuth,
-} from "@/lib/github";
+} from "@/lib/github-import";
 
 const execFileAsync = promisify(execFile);
 

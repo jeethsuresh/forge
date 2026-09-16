@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { agentEvents } from "@/lib/db/schema";
+import { agentEvents, agentSessions } from "@/lib/db/schema";
 import { recordAgentActivity } from "@/lib/agent-heartbeat";
 import { parseStreamEventLine } from "@/lib/agent-stream";
 
@@ -41,8 +41,10 @@ export function ingestAgentEvents(
       if (parsed?.type) eventType = parsed.type;
       payload = event.line;
       if (parsed?.type === "system" && parsed.subtype === "init" && parsed.session_id) {
-        // cursor session id is updated by agent-runner when process-mode streams;
-        // container mode may post init via events — leave to caller if needed.
+        db.update(agentSessions)
+          .set({ cursorSessionId: parsed.session_id })
+          .where(eq(agentSessions.id, sessionId))
+          .run();
       }
     } else if (typeof event.payload === "string") {
       payload = event.payload;

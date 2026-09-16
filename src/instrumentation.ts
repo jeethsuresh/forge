@@ -47,5 +47,25 @@ export async function register() {
 
     const { startAgentKillPolicyTicker } = await import("@/lib/agent-heartbeat");
     startAgentKillPolicyTicker();
+
+    try {
+      const { migrateGithubOriginProjects } = await import(
+        "@/lib/git-migrate-origin"
+      );
+      await migrateGithubOriginProjects();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[forge-git] Origin migrate failed: ${message}`);
+    }
+
+    try {
+      const { backfillForgeUpdatesIntoDeployments } = await import(
+        "@/lib/self-update"
+      );
+      backfillForgeUpdatesIntoDeployments();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[forge] Forge update backfill failed: ${message}`);
+    }
   }
 }

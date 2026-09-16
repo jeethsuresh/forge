@@ -1,7 +1,6 @@
 "use client";
 
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -11,42 +10,41 @@ import {
   runtimeStatusColor,
   runtimeStatusLabel,
   shortSha,
-  statusColor,
 } from "@/lib/utils";
-import type { RuntimeStatus } from "@/lib/project-status";
 import { mergePolledProjectDetail } from "@/lib/project-detail-client";
 import { ForgeSelfUpdateEditor } from "@/components/ForgeSelfUpdateEditor";
 import { ActiveDeployLogsPanel } from "@/components/ActiveDeployLogsPanel";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import { resolveActiveDeployLogView } from "@/lib/active-deploy-logs";
-import { ProjectRenameEditor } from "@/components/ProjectRenameEditor";
-import { GitLocalPushRecipes } from "@/components/GitLocalPushRecipes";
-import { GitHttpsCredentials } from "@/components/GitHttpsCredentials";
-import { ProjectRoutingEditor } from "@/components/ProjectRoutingEditor";
 import type { ProjectCaddySettings } from "@/lib/project-routing-shared";
-import {
-  DeployEnvVarsEditor,
-  type DeployEnvVarRow,
-} from "@/components/DeployEnvVarsEditor";
+import { type DeployEnvVarRow } from "@/components/DeployEnvVarsEditor";
 import { ProjectGitTreePanel } from "@/components/ProjectGitTreePanel";
 import { ProjectDiffPanel } from "@/components/ProjectDiffPanel";
-import { ProjectCaddyLogsSection } from "@/components/ProjectCaddyLogsSection";
-import { ProjectLocalBranchesEditor } from "@/components/ProjectLocalBranchesEditor";
 import { ForgefileStatusBanner } from "@/components/ForgefileStatusBanner";
 import { DeployTargetPorts } from "@/components/DeployTargetPorts";
 import { ProjectArtifacts } from "@/components/ProjectArtifacts";
+import { ProjectStudioSettings } from "@/components/ProjectStudioSettings";
+import { ProjectStudioOverview } from "@/components/ProjectStudioOverview";
+import {
+  DEPLOYMENTS_PER_PAGE,
+  projectPollIntervalMs,
+  type Deployment,
+  type ForgefileStatus,
+  type ProjectDetail,
+} from "@/components/project-studio-types";
 import {
   agentSessionSourceBadgeClass,
   agentSessionSourceLabel,
 } from "@/lib/agent-session-source";
 import { projectSwatch } from "@/lib/project-swatch";
-import { statusTone } from "@/lib/ui-status";
-import { Badge, Button } from "@/components/ui";
+import { Button } from "@/components/ui";
 import {
   legacyProjectSearchToPath,
   projectModeHref,
   type ProjectMode,
 } from "@/lib/project-routes";
+
+import { StatCard } from "@/components/project-studio-panels";
 
 const AgentWorkspace = dynamic(
   () =>
@@ -62,121 +60,6 @@ const AgentWorkspace = dynamic(
     ),
   },
 );
-
-const DEPLOYMENTS_PER_PAGE = 10;
-
-function projectPollIntervalMs(
-  mode: ProjectMode,
-  isDeploying: boolean,
-): number | null {
-  if (typeof document !== "undefined" && document.hidden) {
-    return null;
-  }
-  if (mode === "agents" || mode === "changes") return 12_000;
-  if (mode === "settings" && !isDeploying) return 12_000;
-  if (isDeploying) return 5_000;
-  return 10_000;
-}
-
-interface ContainerInfo {
-  name: string;
-  service: string;
-  state: string;
-  status: string;
-  ports: string;
-}
-
-interface Deployment {
-  id: string;
-  commitSha: string | null;
-  branch: string;
-  status: string;
-  trigger: string;
-  logs: string;
-  errorMessage: string | null;
-  startedAt: string;
-  completedAt: string | null;
-}
-
-interface ProjectDetail {
-  project: {
-    id: string;
-    name: string;
-    githubRepo: string;
-    branch: string;
-    clonePath: string;
-    lastSeenCommit: string | null;
-    enabled: boolean;
-    createdAt: string;
-    updatedAt: string;
-    deployEnvVars: DeployEnvVarRow[];
-    deployEnvFileSource: ".env" | ".env.example" | null;
-    composeProjectName?: string;
-    hostPort?: number | null;
-    resolvedHostPort?: number | null;
-    caddyRoute?: ProjectCaddySettings | null;
-    linkedRouteKeys?: string[];
-    isForge?: boolean;
-    gitSlug?: string | null;
-    httpsCloneUrl?: string | null;
-    sshCloneUrl?: string | null;
-    importedFrom?: string | null;
-    gitEmpty?: boolean;
-    gitCloneUsername?: string | null;
-    gitCloneToken?: string | null;
-  };
-  deployments: Deployment[];
-  currentDeployment: Deployment | null;
-  containers: ContainerInfo[];
-  isDeploying: boolean;
-  runtimeStatus: RuntimeStatus;
-  hasComposeFile: boolean;
-  branches: string[];
-  supportsRollback: boolean;
-  hasRollbackImage: boolean;
-  forgeStatus: {
-    configured: boolean;
-    updateAvailable: boolean;
-    hasRollbackImage: boolean;
-    activeUpdate: {
-      id: string;
-      status: string;
-      targetCommitSha: string | null;
-      logs: string;
-      errorMessage: string | null;
-      startedAt: string;
-    } | null;
-    recentUpdates: Array<{
-      id: string;
-      status: string;
-      trigger: string;
-      targetCommitSha: string | null;
-      startedAt: string;
-      logs: string;
-      errorMessage: string | null;
-    }>;
-  } | null;
-  blockingAgentSession: {
-    id: string;
-    branch: string;
-    status: string;
-    sessionSource: "manual" | "recovery" | "rebase-recovery";
-  } | null;
-  deployUpdate: {
-    branch: string;
-    deployedCommitSha: string | null;
-    remoteCommitSha: string | null;
-    updateAvailable: boolean;
-    deployAllowed: boolean;
-    remoteCommitLookupFailed: boolean;
-    reason: string;
-  } | null;
-}
-
-type ForgefileStatus = {
-  status: "missing" | "invalid" | "valid" | "unknown";
-  errorMessage: string | null;
-};
 
 export function ProjectStudio({ mode }: { mode: ProjectMode }) {
   const { id } = useParams<{ id: string }>();
@@ -681,133 +564,18 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
       </div>
 
       {activeTab === "overview" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-5">
-          {forgefileStatus && forgefileStatus.status !== "valid" ? (
-            <ForgefileStatusBanner
-              projectId={project.id}
-              projectName={project.name}
-              branch={selectedDeployBranch}
-              status={forgefileStatus.status}
-              errorMessage={forgefileStatus.errorMessage}
-            />
-          ) : null}
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <div className="forge-surface p-4">
-              <div className="forge-section-label mb-2">Watch branch</div>
-              <div className="font-mono text-lg font-semibold text-[var(--forge-bright)]">
-                {project.branch}
-              </div>
-            </div>
-            <div className="forge-surface p-4">
-              <div className="forge-section-label mb-2">Deployed</div>
-              <div className="font-mono text-lg font-semibold text-[var(--forge-bright)]">
-                {shortSha(currentDeployment?.commitSha ?? project.lastSeenCommit)}
-              </div>
-            </div>
-            <div className="forge-surface p-4">
-              <div className="forge-section-label mb-2">Last deploy</div>
-              <div className="text-lg font-semibold text-[var(--forge-bright)]">
-                {deployedAt ? formatRelativeTime(deployedAt) : "Never"}
-              </div>
-            </div>
-            <div className="forge-surface p-4">
-              <div className="forge-section-label mb-2">Runtime</div>
-              <div
-                className={`text-lg font-semibold ${runtimeStatusColor(runtimeStatus)}`}
-              >
-                {runtimeStatusLabel(runtimeStatus)}
-              </div>
-            </div>
-          </div>
-
-          {blockingAgentSession ? (
-            <div className="forge-attention-row justify-between">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-[var(--forge-bright)]">
-                  Agent on{" "}
-                  <span className="font-mono">{blockingAgentSession.branch}</span>{" "}
-                  is blocking deploys
-                </p>
-                <p className="text-xs capitalize text-[var(--forge-warning)]">
-                  {blockingAgentSession.status}
-                </p>
-              </div>
-              <Button
-                size="sm"
-                variant="warning"
-                onClick={() => openAgentSession(blockingAgentSession.id)}
-              >
-                Open agent
-              </Button>
-            </div>
-          ) : null}
-
-          {currentDeployment ? (
-            <div className="forge-surface p-4">
-              <div className="forge-section-label mb-3">Latest deploy</div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={statusTone(currentDeployment.status)}>
-                  {currentDeployment.status}
-                </Badge>
-                <span className="font-mono text-sm text-[var(--forge-bright)]">
-                  {shortSha(currentDeployment.commitSha)}
-                </span>
-                <span className="text-xs text-[var(--forge-muted)]">
-                  {formatRelativeTime(currentDeployment.startedAt)}
-                </span>
-              </div>
-            </div>
-          ) : null}
-
-          {containers.length > 0 ? (
-            <div className="forge-surface p-4">
-              <div className="forge-section-label mb-3">Containers</div>
-              <ul className="divide-y divide-[var(--forge-line)]">
-                {containers.slice(0, 8).map((c) => (
-                  <li
-                    key={`${c.service}-${c.name}`}
-                    className="flex items-center justify-between gap-2 py-2 text-sm"
-                  >
-                    <span className="font-medium text-[var(--forge-bright)]">
-                      {c.service}
-                    </span>
-                    <span
-                      className={
-                        c.state === "running"
-                          ? "forge-status-pill forge-tone-success"
-                          : "forge-status-pill forge-tone-neutral"
-                      }
-                    >
-                      {c.state}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
-
-          <DeployTargetPorts
-            projectId={project.id}
-            title="Deploy target ports"
-          />
-
-          <ProjectArtifacts projectId={project.id} className="mt-6" />
-
-          <div className="flex flex-wrap gap-2 pt-1">
-            <Button variant="primary" onClick={() => selectTab("deploy")}>
-              Deploy
-            </Button>
-            <Button variant="info" onClick={() => selectTab("agents")}>
-              Agents
-            </Button>
-            <Button variant="secondary" onClick={() => selectTab("changes")}>
-              Changes
-            </Button>
-            <Button variant="ghost" onClick={() => selectTab("settings")}>
-              Settings
-            </Button>
-          </div>
-        </div>
+        <ProjectStudioOverview
+          project={project}
+          forgefileStatus={forgefileStatus}
+          selectedDeployBranch={selectedDeployBranch}
+          currentDeployment={currentDeployment}
+          deployedAt={deployedAt}
+          runtimeStatus={runtimeStatus}
+          blockingAgentSession={blockingAgentSession}
+          containers={containers}
+          openAgentSession={openAgentSession}
+          selectTab={selectTab}
+        />
       ) : activeTab === "deploy" ? (
         <div
           className={`min-h-0 flex-1 ${
@@ -1114,172 +882,30 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
           </div>
         </div>
       ) : activeTab === "settings" ? (
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-          <section className="mb-8">
-            <h2 className="forge-section-label mb-3">Project</h2>
-            <div className="forge-surface px-4 py-4">
-              <ProjectRenameEditor
-                projectId={id}
-                name={project.name}
-                disabled={actionLoading || deployBusy}
-                onRenamed={fetchData}
-              />
-            </div>
-          </section>
-
-          {project.httpsCloneUrl || project.sshCloneUrl ? (
-            <section className="mb-8">
-              <h2 className="forge-section-label mb-3">Clone URLs</h2>
-              <div className="forge-surface space-y-3 px-4 py-4">
-                {project.gitEmpty && project.httpsCloneUrl ? (
-                  <>
-                    <p className="text-sm text-[var(--forge-muted)]">
-                      This Forge repo has no commits yet. Push from your local
-                      checkout:
-                    </p>
-                    <GitLocalPushRecipes
-                      httpsUrl={project.httpsCloneUrl}
-                      sshUrl={project.sshCloneUrl}
-                      defaultBranch={project.branch}
-                      cloneToken={project.gitCloneToken}
-                      regenerating={regeneratingCloneToken}
-                      onRegenerate={regenerateCloneToken}
-                    />
-                  </>
-                ) : (
-                  <>
-                    {project.httpsCloneUrl ? (
-                      <div>
-                        <div className="text-xs font-medium text-[var(--forge-muted)]">
-                          HTTPS (smart HTTP)
-                        </div>
-                        <code className="mt-1 block break-all font-mono text-xs text-[var(--forge-bright)]">
-                          {project.httpsCloneUrl}
-                        </code>
-                      </div>
-                    ) : null}
-                    <GitHttpsCredentials
-                      cloneToken={project.gitCloneToken}
-                      regenerating={regeneratingCloneToken}
-                      onRegenerate={regenerateCloneToken}
-                    />
-                    {project.sshCloneUrl ? (
-                      <div>
-                        <div className="text-xs font-medium text-[var(--forge-muted)]">
-                          SSH
-                        </div>
-                        <code className="mt-1 block break-all font-mono text-xs text-[var(--forge-bright)]">
-                          {project.sshCloneUrl}
-                        </code>
-                        <p className="mt-1 text-xs text-[var(--forge-faint)]">
-                          Register keys under Global settings → Git SSH.
-                        </p>
-                      </div>
-                    ) : null}
-                  </>
-                )}
-              </div>
-            </section>
-          ) : (
-            <section className="mb-8">
-              <h2 className="forge-section-label mb-3">Git origin</h2>
-              <div className="forge-surface px-4 py-4 text-sm text-[var(--forge-muted)]">
-                This project still uses GitHub (
-                <code className="text-xs">{project.githubRepo}</code>
-                ). Import into Forge from{" "}
-                <Link
-                  href="/projects/new"
-                  className="text-[var(--forge-accent-hot)]"
-                >
-                  Add project → Import GitHub
-                </Link>{" "}
-                or attach an existing checkout via{" "}
-                <Link
-                  href="/projects/new"
-                  className="text-[var(--forge-accent-hot)]"
-                >
-                  Add local
-                </Link>{" "}
-                to make Forge the primary origin.
-              </div>
-            </section>
-          )}
-
-          <ProjectLocalBranchesEditor
-            projectId={id}
-            disabled={actionLoading || deployBusy}
-            onChanged={fetchData}
-          />
-
-          <div className="mb-8">
-            <ProjectRoutingEditor
-              key={`${project.updatedAt}-routing`}
-              projectId={id}
-              values={{
-                hostPort: project.hostPort ?? null,
-                resolvedHostPort: project.resolvedHostPort ?? null,
-                composeProjectName:
-                  project.composeProjectName ?? project.name.toLowerCase(),
-                caddyRoute: project.caddyRoute ?? null,
-                linkedRouteKeys: project.linkedRouteKeys ?? [],
-              }}
-              disabled={actionLoading || deployBusy}
-              saving={routingSaving}
-              onSave={saveProjectRouting}
-            />
-          </div>
-
-          <ProjectCaddyLogsSection
-            projectId={id}
-            caddyRoute={project.caddyRoute ?? null}
-            linkedRouteKeys={project.linkedRouteKeys ?? []}
-          />
-
-          <div className="mb-8">
-            <DeployEnvVarsEditor
-              key={project.updatedAt}
-              vars={project.deployEnvVars}
-              envFileSource={project.deployEnvFileSource}
-              disabled={actionLoading || deployBusy}
-              saving={envSaving}
-              onSave={saveDeployEnvVars}
-            />
-          </div>
-
-          <DeploymentHistorySection
-            isForge={isForge}
-            watchBranch={project.branch}
-            deployments={deployments}
-            paginatedDeployments={paginatedDeployments}
-            expandedDeploymentId={expandedDeploymentId}
-            toggleDeployment={toggleDeployment}
-            deploymentPageCount={deploymentPageCount}
-            safeDeploymentPage={safeDeploymentPage}
-            deploymentRangeStart={deploymentRangeStart}
-            deploymentRangeEnd={deploymentRangeEnd}
-            onPageChange={setDeploymentPage}
-          />
-
-          {!isForge && (
-            <section className="mt-8">
-              <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
-                Danger zone
-              </h2>
-              <div className="rounded-xl border border-red-400/20 bg-zinc-900 px-4 py-4">
-                <p className="mb-3 text-sm text-zinc-400">
-                  Remove this project from {APP_DISPLAY_NAME}. Running containers will not be
-                  stopped automatically.
-                </p>
-                <button
-                  onClick={deleteProject}
-                  className="min-h-11 rounded-lg border border-red-400/20 px-4 py-2.5 text-sm text-red-400 hover:bg-red-400/10"
-                >
-                  Remove project
-                </button>
-              </div>
-            </section>
-          )}
-        </div>
+        <ProjectStudioSettings
+          projectId={id}
+          project={project}
+          isForge={isForge}
+          actionLoading={actionLoading}
+          deployBusy={deployBusy}
+          fetchData={fetchData}
+          regeneratingCloneToken={regeneratingCloneToken}
+          regenerateCloneToken={regenerateCloneToken}
+          routingSaving={routingSaving}
+          saveProjectRouting={saveProjectRouting}
+          envSaving={envSaving}
+          saveDeployEnvVars={saveDeployEnvVars}
+          deployments={deployments}
+          paginatedDeployments={paginatedDeployments}
+          expandedDeploymentId={expandedDeploymentId}
+          toggleDeployment={toggleDeployment}
+          deploymentPageCount={deploymentPageCount}
+          safeDeploymentPage={safeDeploymentPage}
+          deploymentRangeStart={deploymentRangeStart}
+          deploymentRangeEnd={deploymentRangeEnd}
+          setDeploymentPage={setDeploymentPage}
+          deleteProject={deleteProject}
+        />
       ) : activeTab === "changes" ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ProjectDiffPanel projectId={id} watchBranch={project.branch} />
@@ -1293,164 +919,6 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
             initialSessionId={initialAgentSessionId}
           />
         </div>
-      )}
-    </div>
-  );
-}
-
-function DeploymentHistorySection({
-  isForge,
-  watchBranch,
-  deployments,
-  paginatedDeployments,
-  expandedDeploymentId,
-  toggleDeployment,
-  deploymentPageCount,
-  safeDeploymentPage,
-  deploymentRangeStart,
-  deploymentRangeEnd,
-  onPageChange,
-}: {
-  isForge: boolean;
-  watchBranch: string;
-  deployments: Deployment[];
-  paginatedDeployments: Deployment[];
-  expandedDeploymentId: string | null;
-  toggleDeployment: (deploymentId: string) => void;
-  deploymentPageCount: number;
-  safeDeploymentPage: number;
-  deploymentRangeStart: number;
-  deploymentRangeEnd: number;
-  onPageChange: (page: number | ((page: number) => number)) => void;
-}) {
-  return (
-    <section>
-      <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
-        {isForge ? "Update history" : "Deployment history"}
-      </h2>
-      <div className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900">
-        {deployments.length === 0 ? (
-          <p className="px-4 py-8 text-center text-sm text-zinc-600">
-            No deployments yet
-          </p>
-        ) : (
-          <>
-            <ul className="divide-y divide-zinc-800">
-              {paginatedDeployments.map((d) => {
-                const expanded = expandedDeploymentId === d.id;
-                return (
-                  <li key={d.id}>
-                    <button
-                      type="button"
-                      onClick={() => toggleDeployment(d.id)}
-                      aria-expanded={expanded}
-                      className={`flex min-h-11 w-full flex-col gap-2 px-4 py-3 text-left text-sm transition-colors hover:bg-zinc-800/50 sm:flex-row sm:items-center sm:justify-between ${
-                        expanded ? "bg-zinc-800/80" : ""
-                      }`}
-                    >
-                      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
-                        <span
-                          className={`shrink-0 text-zinc-500 transition-transform ${expanded ? "rotate-90" : ""}`}
-                          aria-hidden
-                        >
-                          ›
-                        </span>
-                        <span
-                          className={`rounded border px-2 py-0.5 text-xs font-medium capitalize ${statusColor(d.status)}`}
-                        >
-                          {d.status}
-                        </span>
-                        <span className="font-mono text-zinc-400">
-                          {shortSha(d.commitSha)}
-                        </span>
-                        <span className="text-zinc-600">{d.trigger}</span>
-                        {d.branch !== watchBranch && (
-                          <span className="truncate font-mono text-xs text-orange-400/80">
-                            {d.branch}
-                          </span>
-                        )}
-                      </div>
-                      <span className="shrink-0 text-zinc-500">
-                        {formatRelativeTime(d.startedAt)}
-                      </span>
-                    </button>
-                    {expanded && (
-                      <div className="border-t border-zinc-800 bg-zinc-950 px-4 py-4">
-                        {d.errorMessage && (
-                          <p className="mb-3 text-sm text-red-400">{d.errorMessage}</p>
-                        )}
-                        <pre className="max-h-80 overflow-auto whitespace-pre-wrap font-mono text-xs leading-relaxed text-zinc-400 sm:max-h-96">
-                          {d.logs || "No logs recorded."}
-                        </pre>
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-            {deploymentPageCount > 1 && (
-              <div className="flex items-center justify-between border-t border-zinc-800 px-4 py-3">
-                <p className="text-xs text-zinc-500">
-                  Showing {deploymentRangeStart}–{deploymentRangeEnd} of{" "}
-                  {deployments.length}
-                </p>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onPageChange((page) => Math.max(0, page - 1))}
-                    disabled={safeDeploymentPage === 0}
-                    className="min-h-9 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
-                  >
-                    Previous
-                  </button>
-                  <span className="text-xs text-zinc-500">
-                    Page {safeDeploymentPage + 1} of {deploymentPageCount}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onPageChange((page) =>
-                        Math.min(deploymentPageCount - 1, page + 1),
-                      )
-                    }
-                    disabled={safeDeploymentPage >= deploymentPageCount - 1}
-                    className="min-h-9 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
-                  >
-                    Next
-                  </button>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-  subtitle,
-  mono,
-  valueClassName,
-}: {
-  label: string;
-  value: string;
-  subtitle?: string;
-  mono?: boolean;
-  valueClassName?: string;
-}) {
-  return (
-    <div className="forge-surface px-4 py-3">
-      <div className="forge-section-label mb-1">{label}</div>
-      <div
-        className={`mt-1 text-lg font-semibold text-[var(--forge-bright)] ${mono ? "font-mono text-base" : ""} ${valueClassName ?? ""}`}
-      >
-        {value}
-      </div>
-      {subtitle && (
-        <div className="mt-0.5 text-xs text-[var(--forge-muted)]">{subtitle}</div>
       )}
     </div>
   );

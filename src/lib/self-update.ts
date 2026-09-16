@@ -5,7 +5,9 @@ import { promisify } from "util";
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
+  deployments,
   forgeUpdates,
+  type DeploymentStatus,
   type ForgeUpdate,
   type ForgeUpdateStatus,
   type ForgeUpdateTrigger,
@@ -19,7 +21,10 @@ import {
   forgeDataVolumeName,
   hostDockerSocket,
 } from "@/lib/docker-runtime";
-import { getRemoteCommitSha, parseGithubRepo, validateBranchName, formatGitError } from "@/lib/github";
+import { getRemoteCommitSha, validateBranchName, formatGitError } from "@/lib/git-workspace";
+import { findForgeProject } from "@/lib/forge-project";
+import { projectRemoteUrl } from "@/lib/project-git-remote";
+import { reconcileSidecarReleaseFile } from "@/lib/release-pins";
 import { resolveForgeHostMounts } from "@/lib/forge-host-mounts";
 import {
   computeForgeUpdateAvailability,
@@ -92,6 +97,139 @@ function readReleaseState(): ForgeReleaseState | null {
   }
 }
 
+function mapForgeUpdateToDeploymentStatus(
+  status: ForgeUpdateStatus,
+): DeploymentStatus {
+  switch (status) {
+    case "pending":
+      return "pending";
+    case "pulling":
+      return "pulling";
+    case "building":
+      return "building";
+    case "testing":
+      return "testing";
+    case "staging":
+      return "staging";
+    case "cutover":
+    case "health_check":
+      return "deploying";
+    case "success":
+      return "success";
+    case "failed":
+      return "failed";
+    case "rolled_back":
+      return "rolled_back";
+    default: {
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
+  }
+}
+
+function insertSelfDeployment(
+  updateId: string,
+  trigger: ForgeUpdateTrigger,
+  branch: string,
+): void {
+  const project = findForgeProject();
+  if (!project) return;
+  const existing = db
+    .select({ id: deployments.id })
+    .from(deployments)
+    .where(eq(deployments.id, updateId))
+    .get();
+  if (existing) return;
+  db.insert(deployments)
+    .values({
+      id: updateId,
+      projectId: project.id,
+      branch,
+      status: "pending",
+      trigger: trigger === "rollback" ? "rollback" : "manual",
+      logs: "",
+      deployTarget: "self",
+      startedAt: new Date(),
+    })
+    .run();
+}
+
+function syncForgeUpdateToDeployment(updateId: string): void {
+  const update = db
+    .select()
+    .from(forgeUpdates)
+    .where(eq(forgeUpdates.id, updateId))
+    .get();
+  if (!update) return;
+  const dep = db
+    .select({ id: deployments.id })
+    .from(deployments)
+    .where(eq(deployments.id, updateId))
+    .get();
+  if (!dep) {
+    const project = findForgeProject();
+    if (!project) return;
+    db.insert(deployments)
+      .values({
+        id: updateId,
+        projectId: project.id,
+        branch: project.branch,
+        status: mapForgeUpdateToDeploymentStatus(update.status),
+        trigger: update.trigger === "rollback" ? "rollback" : "manual",
+        logs: update.logs,
+        errorMessage: update.errorMessage,
+        commitSha: update.targetCommitSha,
+        deployTarget: "self",
+        startedAt: update.startedAt,
+        completedAt: update.completedAt,
+      })
+      .run();
+    return;
+  }
+  db.update(deployments)
+    .set({
+      logs: update.logs,
+      status: mapForgeUpdateToDeploymentStatus(update.status),
+      errorMessage: update.errorMessage,
+      commitSha: update.targetCommitSha,
+      completedAt: update.completedAt,
+    })
+    .where(eq(deployments.id, updateId))
+    .run();
+}
+
+export function backfillForgeUpdatesIntoDeployments(): number {
+  const project = findForgeProject();
+  if (!project) return 0;
+  const rows = db.select().from(forgeUpdates).all();
+  let count = 0;
+  for (const row of rows) {
+    const existing = db
+      .select({ id: deployments.id })
+      .from(deployments)
+      .where(eq(deployments.id, row.id))
+      .get();
+    if (existing) continue;
+    db.insert(deployments)
+      .values({
+        id: row.id,
+        projectId: project.id,
+        branch: project.branch,
+        status: mapForgeUpdateToDeploymentStatus(row.status),
+        trigger: row.trigger === "rollback" ? "rollback" : "manual",
+        logs: row.logs,
+        errorMessage: row.errorMessage,
+        commitSha: row.targetCommitSha,
+        deployTarget: "self",
+        startedAt: row.startedAt,
+        completedAt: row.completedAt,
+      })
+      .run();
+    count += 1;
+  }
+  return count;
+}
+
 function toUpdateView(row: ForgeUpdate): ForgeUpdateView {
   return {
     id: row.id,
@@ -117,6 +255,7 @@ function appendUpdateLog(updateId: string, message: string): void {
     .set({ logs: (row?.logs ?? "") + line })
     .where(eq(forgeUpdates.id, updateId))
     .run();
+  syncForgeUpdateToDeployment(updateId);
 }
 
 function findInProgressUpdates(): ForgeUpdate[] {
@@ -173,16 +312,20 @@ async function updaterContainerExists(name: string): Promise<boolean> {
 }
 
 function getSelfRepoConfig(): { repo: string; branch: string } | null {
-  const rawRepo = process.env.FORGE_SELF_REPO?.trim();
-  if (!rawRepo) return null;
-  try {
-    return {
-      repo: parseGithubRepo(rawRepo),
-      branch: process.env.FORGE_SELF_BRANCH?.trim() || "main",
-    };
-  } catch {
-    return null;
+  const project = findForgeProject();
+  if (project) {
+    try {
+      return { repo: projectRemoteUrl(project), branch: project.branch };
+    } catch {
+      return { repo: project.clonePath, branch: project.branch };
+    }
   }
+  const raw = process.env.FORGE_SELF_REPO?.trim();
+  if (!raw) return null;
+  return {
+    repo: raw,
+    branch: process.env.FORGE_SELF_BRANCH?.trim() || "main",
+  };
 }
 
 export async function isForgeUpdateInProgress(): Promise<boolean> {
@@ -230,6 +373,7 @@ export async function reconcileStaleForgeUpdates(): Promise<number> {
         })
         .where(eq(forgeUpdates.id, row.id))
         .run();
+      syncForgeUpdateToDeployment(row.id);
       reconciled += 1;
       continue;
     }
@@ -250,6 +394,7 @@ export async function reconcileStaleForgeUpdates(): Promise<number> {
         })
         .where(eq(forgeUpdates.id, row.id))
         .run();
+      syncForgeUpdateToDeployment(row.id);
       reconciled += 1;
       continue;
     }
@@ -262,6 +407,7 @@ export async function reconcileStaleForgeUpdates(): Promise<number> {
       })
       .where(eq(forgeUpdates.id, row.id))
       .run();
+    syncForgeUpdateToDeployment(row.id);
     reconciled += 1;
   }
 
@@ -271,6 +417,11 @@ export async function reconcileStaleForgeUpdates(): Promise<number> {
 
 export async function getForgeStatus(): Promise<ForgeStatusView> {
   await reconcileStaleForgeUpdates();
+  const forgeProject = findForgeProject();
+  if (forgeProject) {
+    backfillForgeUpdatesIntoDeployments();
+    reconcileSidecarReleaseFile(forgeProject.id);
+  }
 
   const config = getSelfRepoConfig();
   const releaseState = readReleaseState();
@@ -554,6 +705,7 @@ export async function startForgeUpdate(options?: {
       startedAt: new Date(),
     })
     .run();
+  insertSelfDeployment(updateId, "manual", branch);
 
   if (branch !== config.branch) {
     appendUpdateLog(
@@ -575,6 +727,7 @@ export async function startForgeUpdate(options?: {
       })
       .where(eq(forgeUpdates.id, updateId))
       .run();
+    syncForgeUpdateToDeployment(updateId);
     throw new Error(message);
   }
 
@@ -600,6 +753,11 @@ export async function startForgeRollback(): Promise<string> {
       startedAt: new Date(),
     })
     .run();
+  insertSelfDeployment(
+    updateId,
+    "rollback",
+    findForgeProject()?.branch || process.env.FORGE_SELF_BRANCH?.trim() || "main",
+  );
 
   try {
     await spawnUpdater(updateId, { rollback: true });
@@ -614,6 +772,7 @@ export async function startForgeRollback(): Promise<string> {
       })
       .where(eq(forgeUpdates.id, updateId))
       .run();
+    syncForgeUpdateToDeployment(updateId);
     throw new Error(message);
   }
 

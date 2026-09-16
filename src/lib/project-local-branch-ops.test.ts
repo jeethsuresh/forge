@@ -10,7 +10,7 @@ import {
   getCurrentLocalBranch,
   renameLocalBranch,
 } from "@/lib/project-local-branch-ops";
-import { listLocalBranches } from "@/lib/github";
+import { listLocalBranches } from "@/lib/git-workspace";
 
 const execFileAsync = promisify(execFile);
 

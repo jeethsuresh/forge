@@ -17,7 +17,7 @@ import {
   projectForgefile,
   requireValidForgefile,
 } from "@/lib/forgefile-project";
-import { cloneOrPull } from "@/lib/github";
+import { cloneOrPull } from "@/lib/git-workspace";
 import { projectRemoteUrl } from "@/lib/project-git-remote";
 import { resolveArtifactsRoot, resolveClonePath } from "@/lib/paths";
 import {

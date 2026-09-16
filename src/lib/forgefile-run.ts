@@ -11,7 +11,7 @@ import {
   projectForgefile,
   requireValidForgefile,
 } from "@/lib/forgefile-project";
-import { runScript } from "@/lib/github";
+import { runScript } from "@/lib/git-workspace";
 import { resolveClonePath } from "@/lib/paths";
 import {
   buildProjectScriptEnv,

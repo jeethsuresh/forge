@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { agentSessions } from "@/lib/db/schema";
 import { activeAgentProjects, isAgentSessionActive } from "@/lib/agent-state";
+import { transition } from "@/lib/agent-session-machine";
 import { isQueuedAgentSessionStatus } from "@/lib/agent-session-source";
 
 export { isQueuedAgentSessionStatus };
@@ -45,7 +46,6 @@ export function countQueuedAgentSessions(projectId: string): number {
 export function markAgentSessionQueued(sessionId: string, prompt: string): void {
   db.update(agentSessions)
     .set({
-      status: "queued",
       initialPrompt: prompt,
       errorMessage: null,
       completedAt: null,
@@ -55,6 +55,7 @@ export function markAgentSessionQueued(sessionId: string, prompt: string): void 
     })
     .where(eq(agentSessions.id, sessionId))
     .run();
+  transition(sessionId, { type: "queue" });
 }
 
 export type StartQueuedAgentTurn = (
@@ -73,10 +74,7 @@ export function processAgentQueue(
   if (!next) return;
 
   activeAgentProjects.add(projectId);
-  db.update(agentSessions)
-    .set({ status: "pending", errorMessage: null, completedAt: null })
-    .where(eq(agentSessions.id, next.id))
-    .run();
+  transition(next.id, { type: "start" });
 
   startTurn(next.id, projectId, next.initialPrompt);
 }

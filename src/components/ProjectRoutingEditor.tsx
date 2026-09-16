@@ -8,7 +8,6 @@ import {
   routeDisplayLabel,
 } from "@/lib/project-routing-shared";
 import type { ProjectCaddySettings } from "@/lib/project-routing-shared";
-import { CaddyRouteForm } from "@/components/CaddyRouteForm";
 import { ProjectCaddyRouteAssociation } from "@/components/ProjectCaddyRouteAssociation";
 
 const CADDY_CONFIG_CACHE_MS = 30_000;
@@ -79,7 +78,6 @@ export function ProjectRoutingEditor({
   values,
   disabled = false,
   saving = false,
-  compact = false,
   onSave,
 }: ProjectRoutingEditorProps) {
   const collapseKey = `forge:config-collapse:${projectId}:routing`;
@@ -89,16 +87,11 @@ export function ProjectRoutingEditor({
   const [hostPortInput, setHostPortInput] = useState(
     values.hostPort !== null ? String(values.hostPort) : "",
   );
-  const [caddyEnabled, setCaddyEnabled] = useState(
-    values.caddyRoute?.enabled ?? false,
-  );
-  const [caddyRoute, setCaddyRoute] = useState(
-    values.caddyRoute ?? emptyCaddyRoute(values.resolvedHostPort),
-  );
+  const caddyRoute =
+    values.caddyRoute ?? emptyCaddyRoute(values.resolvedHostPort);
   const [linkedRouteKeys, setLinkedRouteKeys] = useState(
     values.linkedRouteKeys ?? [],
   );
-  const [servers, setServers] = useState<HttpServerSummary[]>([]);
   const [liveRoutes, setLiveRoutes] = useState<ParsedRoute[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -111,7 +104,6 @@ export function ProjectRoutingEditor({
   const loadCaddyData = useCallback(() => {
     const now = Date.now();
     if (cachedCaddyConfig && cachedCaddyConfig.expiresAt > now) {
-      setServers(cachedCaddyConfig.servers);
       setLiveRoutes(cachedCaddyConfig.routes);
       return;
     }
@@ -130,11 +122,9 @@ export function ProjectRoutingEditor({
           servers,
           routes,
         };
-        setServers(servers);
         setLiveRoutes(routes);
       })
       .catch(() => {
-        setServers([]);
         setLiveRoutes([]);
       });
   }, []);
@@ -176,15 +166,7 @@ export function ProjectRoutingEditor({
 
     const payload = {
       hostPort,
-      caddyRoute: caddyEnabled
-        ? {
-            enabled: true,
-            routeKey: caddyRoute.routeKey,
-            route: caddyRoute.route,
-          }
-        : caddyRoute.routeKey
-          ? { ...caddyRoute, enabled: false }
-          : null,
+      caddyRoute: null,
       linkedRouteKeys,
     };
 
@@ -194,7 +176,6 @@ export function ProjectRoutingEditor({
 
   const collapseSummary = [
     Number.isInteger(resolvedPort) ? `port ${resolvedPort}` : "no port",
-    caddyEnabled ? "managed route on" : "managed route off",
     `${associatedRoutes.length} linked`,
   ].join(" · ");
 
@@ -311,8 +292,9 @@ export function ProjectRoutingEditor({
           </h3>
           {associatedRoutes.length === 0 ? (
             <p className="text-sm text-zinc-500">
-              No routes linked yet. Enable a managed route below or associate
-              existing routes from global settings.
+              No routes linked yet. Public hosts come from the Forgefile service
+              directory; you can associate unmanaged Caddy routes below for log
+              filtering.
             </p>
           ) : (
             <ul className="space-y-2">
@@ -358,38 +340,14 @@ export function ProjectRoutingEditor({
         </div>
 
         <div className="space-y-3 border-t border-zinc-800 pt-5">
-          <label className="inline-flex items-center gap-2 text-sm text-zinc-300">
-            <input
-              type="checkbox"
-              checked={caddyEnabled}
-              onChange={(e) => {
-                setDirty(true);
-                setCaddyEnabled(e.target.checked);
-              }}
-              disabled={disabled || saving}
-              className="rounded border-zinc-600 bg-zinc-950 text-orange-500 focus:ring-orange-500/40"
-            />
-            Manage a Forge-owned reverse-proxy route for this project
-          </label>
-
-          {caddyEnabled && (
-            <CaddyRouteForm
-              values={caddyRoute.route}
-              servers={servers}
-              onChange={(route) => {
-                setDirty(true);
-                setCaddyRoute((prev) => ({ ...prev, route }));
-              }}
-              disabled={disabled || saving}
-              showActions={false}
-              formClassName={
-                compact
-                  ? "space-y-4 rounded-lg border border-zinc-800 bg-zinc-950/60 p-4"
-                  : "space-y-4 rounded-lg border border-zinc-800 bg-zinc-950/60 p-4"
-              }
-              datalistId={`caddy-server-names-${projectId}`}
-            />
-          )}
+          <h3 className="text-sm font-medium text-zinc-300">
+            Public Caddy (Forgefile)
+          </h3>
+          <p className="text-sm text-zinc-500">
+            Project public hosts are written from the Forgefile service directory
+            after a successful deploy. Change a subdomain in the Forgefile to
+            change the public host. Global Caddy remains for non-project routes.
+          </p>
         </div>
 
         <div className="flex flex-wrap gap-3">

@@ -7,7 +7,7 @@ import {
   commitAgentSessionChanges,
   getAgentSession,
 } from "@/lib/agent-runner";
-import { commitAllChanges, hasUncommittedChanges } from "@/lib/github";
+import { commitAllChanges, hasUncommittedChanges } from "@/lib/git-workspace";
 
 export async function POST(
   request: Request,

@@ -1,22 +1,11 @@
 import { execFile } from "child_process";
-import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { promisify } from "util";
 import { composeAppContainerName, composeProjectName } from "@/lib/compose-project-name";
-import {
-  containerDockerSocket,
-  dockerExecEnv,
-  dockerHostForRuntime,
-  ensureDockerDaemon,
-  forgeDataVolumeName,
-  hostDockerSocket,
-  inContainerDockerSocketMount,
-  readForgeContainerName,
-} from "@/lib/docker-runtime";
-import { resolveForgeHostMounts } from "@/lib/forge-host-mounts";
-import { findForgeProject, forgeSourceDir, isForgeProject } from "@/lib/forge-project";
-import { runScript } from "@/lib/github";
+import { dockerExecEnv } from "@/lib/docker-runtime";
+import { forgeSourceDir, isForgeProject } from "@/lib/forge-project";
+import { runScript } from "@/lib/git-workspace";
 import { resolveClonePath } from "@/lib/paths";
 import { pickFreePort } from "@/lib/network-ports";
 import { buildProjectScriptEnv, projectScriptArgs } from "@/lib/projects";
@@ -33,7 +22,6 @@ const dockerOpts = { env: dockerExecEnv() };
 const COMPOSE_FILES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml"];
 const HEALTH_RETRIES = Number(process.env.FORGE_HEALTH_RETRIES ?? "30");
 const HEALTH_INTERVAL_MS = Number(process.env.FORGE_HEALTH_INTERVAL ?? "2") * 1000;
-const FORGE_CUTOVER_SCRIPT = "/usr/local/bin/forge-production-cutover.sh";
 
 export interface ProjectReleaseState {
   /** Docker tag currently serving production (git SHA preferred; "stable" is a movable alias). */
@@ -371,121 +359,6 @@ async function teardownStaging(
   }
 }
 
-async function spawnForgeProductionCutoverSidecar(options: {
-  composeSlug: string;
-  scriptEnv: NodeJS.ProcessEnv;
-  imageTag: string;
-  commitSha?: string;
-  log: (msg: string) => void;
-}): Promise<void> {
-  const { composeSlug, scriptEnv, imageTag, commitSha, log } = options;
-  await ensureDockerDaemon();
-
-  const imageName = process.env.FORGE_IMAGE_NAME ?? "forge-app";
-  const runningSha = process.env.FORGE_COMMIT_SHA?.trim().toLowerCase() ?? "";
-  let imageRef = `${imageName}:${RELEASE_ALIAS_STABLE}`;
-  if (!(await dockerImageExists(imageName, RELEASE_ALIAS_STABLE))) {
-    if (
-      runningSha &&
-      /^[0-9a-f]{7,40}$/.test(runningSha) &&
-      (await dockerImageExists(imageName, runningSha))
-    ) {
-      imageRef = `${imageName}:${runningSha}`;
-    } else {
-      throw new Error(
-        `No ${imageName}:${RELEASE_ALIAS_STABLE} image (or FORGE_COMMIT_SHA tag) available for cutover sidecar`,
-      );
-    }
-  }
-  const cutoverId = randomUUID().slice(0, 8);
-  const containerName = `forge-cutover-${cutoverId}`;
-  const dockerHost = dockerHostForRuntime();
-  const hostSocket = hostDockerSocket();
-  const hostPort = String(scriptEnv.HOST_PORT ?? "3000");
-  const forgeContainerName =
-    scriptEnv.FORGE_CONTAINER_NAME?.trim() ??
-    readForgeContainerName() ??
-    composeAppContainerName(composeSlug);
-
-  // Prefer live env; fall back to the Forge project row when cutover previously
-  // wiped FORGE_SELF_* from the running container.
-  const forgeProject = findForgeProject();
-  const selfRepo =
-    process.env.FORGE_SELF_REPO?.trim() ||
-    scriptEnv.FORGE_SELF_REPO?.trim() ||
-    forgeProject?.githubRepo?.trim() ||
-    "";
-  const selfBranch =
-    process.env.FORGE_SELF_BRANCH?.trim() ||
-    scriptEnv.FORGE_SELF_BRANCH?.trim() ||
-    forgeProject?.branch?.trim() ||
-    "main";
-
-  const args = [
-    "run",
-    "--rm",
-    "-d",
-    "--name",
-    containerName,
-    "--network",
-    "host",
-    "-v",
-    `${forgeDataVolumeName()}:/data`,
-    "-v",
-    `${hostSocket}:${inContainerDockerSocketMount()}`,
-    "-e",
-    `DOCKER_HOST=${dockerHost}`,
-    "-e",
-    `DOCKER_SOCKET=${hostSocket}`,
-    "-e",
-    `FORGE_DOCKER_SOCKET=${containerDockerSocket()}`,
-    "-e",
-    `FORGE_RUN_AS_ROOT=1`,
-    "-e",
-    `FORGE_IMAGE_TAG=${imageTag}`,
-    "-e",
-    `FORGE_IMAGE_NAME=${imageName}`,
-    "-e",
-    `HOST_PORT=${hostPort}`,
-    "-e",
-    `COMPOSE_PROJECT_NAME=${composeSlug}`,
-    "-e",
-    `FORGE_CONTAINER_NAME=${forgeContainerName}`,
-    "-e",
-    `FORGE_SOURCE_DIR=${forgeSourceDir()}`,
-    "-e",
-    `FORGE_RELEASE_STATE=${process.env.FORGE_RELEASE_STATE ?? "/data/forge-release.json"}`,
-  ];
-
-  if (selfRepo) {
-    args.push("-e", `FORGE_SELF_REPO=${selfRepo}`);
-    args.push("-e", `FORGE_SELF_BRANCH=${selfBranch}`);
-  }
-
-  if (commitSha) {
-    args.push("-e", `FORGE_RELEASE_COMMIT_SHA=${commitSha}`);
-    args.push("-e", `FORGE_COMMIT_SHA=${commitSha}`);
-  }
-
-  const hostMounts = resolveForgeHostMounts();
-  if (hostMounts.cursorAgentDir) {
-    args.push("-e", `FORGE_CURSOR_AGENT_DIR=${hostMounts.cursorAgentDir}`);
-    args.push("-v", `${hostMounts.cursorAgentDir}:/opt/cursor-agent:ro,z`);
-  }
-  if (hostMounts.cursorConfigDir) {
-    args.push("-e", `FORGE_CURSOR_CONFIG_DIR=${hostMounts.cursorConfigDir}`);
-    args.push("-v", `${hostMounts.cursorConfigDir}:/opt/cursor-config:ro,z`);
-  }
-
-  args.push(imageRef, "bash", FORGE_CUTOVER_SCRIPT);
-
-  log(`Spawning production cutover sidecar ${containerName} (image tag ${imageTag})`);
-  await execFileAsync("docker", args, dockerOpts);
-  log(
-    `Cutover sidecar ${containerName} started; production container will be recreated`,
-  );
-}
-
 async function deployWithImageTag(
   project: Project,
   composeSlug: string,
@@ -497,13 +370,9 @@ async function deployWithImageTag(
   const repoPath = resolveClonePath(project.clonePath);
   const env = withImageTagEnv(scriptEnv, imageTag);
   if (isForgeProject(project)) {
-    await spawnForgeProductionCutoverSidecar({
-      composeSlug,
-      scriptEnv: env,
-      imageTag,
-      log,
-    });
-    return;
+    throw new Error(
+      "Forge production cutover is sidecar-only (Ops/UI self-update). Do not run ./deploy.sh against Forge.",
+    );
   }
   log(`Deploying with image tag ${imageTag}`);
   await runScript("deploy.sh", repoPath, log, { env, args: scriptArgs });
@@ -659,14 +528,9 @@ export async function runComposeReleaseDeploy(
 
     log(`Deploying new release to production port ${hostPort} (project ${composeSlug})`);
     if (isForgeProject(project)) {
-      await spawnForgeProductionCutoverSidecar({
-        composeSlug,
-        scriptEnv,
-        imageTag: releaseTag,
-        commitSha: releaseTag,
-        log,
-      });
-      return { status: "cutover_pending" };
+      throw new Error(
+        "Forge production cutover is sidecar-only (Ops/UI self-update). Do not run ./deploy.sh against Forge.",
+      );
     }
 
     await deployWithImageTag(

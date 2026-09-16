@@ -345,7 +345,7 @@ describe("reconcileProjectAgentSessions", () => {
     expect(getBlockingAgentSession(projectId)?.id).toBe(sessionId);
   });
 
-  it("fails running sessions whose agent container is already stopped", () => {
+  it("fails incomplete running sessions whose agent container is already stopped", () => {
     const now = new Date();
     db.insert(agentSessions)
       .values({
@@ -356,6 +356,16 @@ describe("reconcileProjectAgentSessions", () => {
         initialPrompt: "do work",
         logs: "",
         startedAt: now,
+      })
+      .run();
+    db.insert(agentEvents)
+      .values({
+        id: randomUUID(),
+        sessionId,
+        seq: 1,
+        eventType: "user",
+        payload: JSON.stringify({ type: "user", text: "do work" }),
+        createdAt: now,
       })
       .run();
     db.insert(agentContainers)
@@ -389,5 +399,55 @@ describe("reconcileProjectAgentSessions", () => {
       .where(eq(agentContainers.sessionId, sessionId))
       .get();
     expect(container?.killReason).toBe("reconcile_missing");
+  });
+
+  it("does not fail deploying sessions whose container was removed after a successful turn", () => {
+    const now = new Date();
+    const deploymentId = randomUUID();
+    db.insert(deployments)
+      .values({
+        id: deploymentId,
+        projectId,
+        branch: "agent/test",
+        status: "deploying",
+        trigger: "agent",
+        logs: "",
+        startedAt: now,
+      })
+      .run();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "agent/test",
+        status: "deploying",
+        initialPrompt: "do work",
+        logs: "",
+        deploymentId,
+        startedAt: now,
+      })
+      .run();
+    db.insert(agentContainers)
+      .values({
+        sessionId,
+        containerId: "removedcid",
+        image: "forge-agent:latest",
+        status: "removed",
+        lastHeartbeatAt: now,
+        lastActivityAt: now,
+        startedAt: now,
+        deadlineAt: new Date(now.getTime() + AGENT_WALL_CLOCK_MS),
+        killReason: null,
+      })
+      .run();
+
+    reconcileProjectAgentSessions(projectId);
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    expect(session?.status).toBe("deploying");
   });
 });

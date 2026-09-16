@@ -1,3 +1,5 @@
+import { isOperatorStopError } from "@/lib/agent-session-events";
+
 export const RECOVERY_PROMPT_PREFIX = "[deploy-recovery]";
 export const REBASE_RECOVERY_PROMPT_PREFIX = "[rebase-recovery]";
 
@@ -54,13 +56,7 @@ export function isRecoveryAbortedByUser(session: {
   logs?: string | null;
 }): boolean {
   if (session.status === "cancelled") return true;
-  if (session.errorMessage === "Stopped by user.") return true;
-  const logs = session.logs ?? "";
-  return (
-    logs.includes("Session ended by user.") ||
-    logs.includes("Session cancelled by user.") ||
-    logs.includes("Agent stopped by user.")
-  );
+  return isOperatorStopError(session.errorMessage);
 }
 
 export function agentSessionSourceLabel(source: AgentSessionSource): string {

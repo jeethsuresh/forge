@@ -7,7 +7,7 @@ import {
   createAgentBranch,
   createAgentSession,
 } from "@/lib/agent-runner";
-import { validateBranchName } from "@/lib/github";
+import { validateBranchName } from "@/lib/git-workspace";
 
 export async function POST(
   request: Request,

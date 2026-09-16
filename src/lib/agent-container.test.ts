@@ -202,6 +202,21 @@ describe("agent container lifecycle", () => {
     expect(() => assertNoDockerSockMount(args)).not.toThrow();
   });
 
+  it("passes FORGE_CURSOR_SESSION_ID when resuming a Cursor session", () => {
+    const args = buildAgentContainerRunArgs({
+      sessionId: "sess-1",
+      projectId: "proj-1",
+      branch: "main",
+      cloneUrl: "https://git.example/acme.git",
+      opsBaseUrl: "http://127.0.0.1:3456",
+      opsToken: "fos.sess-1.token",
+      cursorSessionId: "cursor-abc",
+    });
+    expect(
+      args.some((a) => a.includes("FORGE_CURSOR_SESSION_ID=cursor-abc")),
+    ).toBe(true);
+  });
+
   it("rejects workspace binds that look like docker.sock", () => {
     expect(() =>
       buildAgentContainerRunArgs({

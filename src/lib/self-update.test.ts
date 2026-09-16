@@ -7,8 +7,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { forgeUpdates } from "@/lib/db/schema";
 
-vi.mock("@/lib/github", () => ({
-  parseGithubRepo: (repo: string) => repo,
+vi.mock("@/lib/git-workspace", () => ({
   getRemoteCommitSha: vi.fn(),
   validateBranchName: (name: string) => {
     const trimmed = name.trim();
@@ -67,7 +66,7 @@ vi.mock("child_process", async () => {
   };
 });
 
-import { getRemoteCommitSha } from "@/lib/github";
+import { getRemoteCommitSha } from "@/lib/git-workspace";
 
 describe("getForgeHealthPayload", () => {
   let tempDir: string;

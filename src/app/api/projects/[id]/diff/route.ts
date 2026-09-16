@@ -7,7 +7,7 @@ import {
   buildProjectGitDiff,
   resolveDiffModeFromParams,
 } from "@/lib/project-git-diff";
-import { listLocalBranches } from "@/lib/github";
+import { listLocalBranches } from "@/lib/git-workspace";
 
 export async function GET(
   request: Request,

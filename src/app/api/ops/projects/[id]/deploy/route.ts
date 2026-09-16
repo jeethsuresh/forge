@@ -1,19 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
-import { runDeployment } from "@/lib/deployer";
-import {
-  isAgentSessionActive,
-  getBlockingAgentSession,
-  getActiveSessionForProject,
-} from "@/lib/agent-state";
-import { db } from "@/lib/db";
-import { agentSessions } from "@/lib/db/schema";
-import { isForgeProject } from "@/lib/forge-project";
-import { validateBranchName } from "@/lib/github";
-import { invalidateProjectBranches } from "@/lib/project-branches-cache";
-import { invalidateProjectRuntimeCache } from "@/lib/project-runtime-cache";
-import { shouldAuthorizeActiveSessionDeploy } from "@/lib/ops-session-deploy";
-import { startForgeUpdate } from "@/lib/self-update";
+import { DeployProjectError, deployProject } from "@/lib/project-deploy";
 import {
   errorWithAudit,
   jsonWithAudit,
@@ -44,114 +30,33 @@ export async function POST(
   if (actionResult instanceof NextResponse) return actionResult;
   const { actionDescription } = actionResult;
 
-  const authorizeActiveSessionDeploy = body.authorizeActiveSessionDeploy === true;
-  const activeSession = getActiveSessionForProject(id);
-  const sessionAuthorized = shouldAuthorizeActiveSessionDeploy({
-    auth,
-    authorizeActiveSessionDeploy,
-    blockingSessionId: activeSession?.id,
-  });
-
-  if (isAgentSessionActive(id) && !sessionAuthorized) {
-    const blocking = getBlockingAgentSession(id);
-    return errorWithAudit(
-      "An agent session is active. End it before deploying.",
-      409,
-      {
-        request,
-        auth,
-        method: "POST",
-        path,
-        actionDescription,
-        requestBody: body,
-        projectId: id,
-        resourceType: "deploy",
-      },
-    );
-  }
-
-  const branch = typeof body.branch === "string" ? body.branch.trim() : project.branch;
+  const branch = typeof body.branch === "string" ? body.branch.trim() : undefined;
   const deployment =
     typeof body.deployment === "string" && body.deployment.trim()
       ? body.deployment.trim()
       : undefined;
-  const validationError = validateBranchName(branch);
-  if (validationError) {
-    return errorWithAudit(validationError, 400, {
-      request,
-      auth,
-      method: "POST",
-      path,
-      actionDescription,
-      requestBody: body,
-      projectId: id,
-      resourceType: "deploy",
-    });
-  }
-
-  if (isForgeProject(project)) {
-    try {
-      if (sessionAuthorized && activeSession) {
-        db.update(agentSessions)
-          .set({ status: "deploying" })
-          .where(eq(agentSessions.id, activeSession.id))
-          .run();
-      }
-
-      const updateId = await startForgeUpdate({ branch });
-
-      if (sessionAuthorized && activeSession) {
-        db.update(agentSessions)
-          .set({ deploymentId: updateId })
-          .where(eq(agentSessions.id, activeSession.id))
-          .run();
-      }
-
-      invalidateProjectRuntimeCache(id);
-      return jsonWithAudit(
-        {
-          updateId,
-          branch,
-          mode: "forge-self-update",
-          authorizedActiveSession: sessionAuthorized,
-        },
-        { status: 202 },
-        {
-          request,
-          auth,
-          method: "POST",
-          path,
-          actionDescription,
-          requestBody: body,
-          projectId: id,
-          resourceType: "forge-update",
-          resourceId: updateId,
-        },
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Update failed";
-      return errorWithAudit(message, 409, {
-        request,
-        auth,
-        method: "POST",
-        path,
-        actionDescription,
-        requestBody: body,
-        projectId: id,
-        resourceType: "forge-update",
-      });
-    }
-  }
 
   try {
-    const deploymentId = await runDeployment(id, "manual", {
+    const result = await deployProject({
+      projectId: id,
       branch,
-      deployment,
+      target: deployment,
+      trigger: "manual",
+      authorizeActiveSession: body.authorizeActiveSessionDeploy === true,
+      auth,
     });
-    invalidateProjectRuntimeCache(id);
-    invalidateProjectBranches(id);
     return jsonWithAudit(
-      { deploymentId, branch, deployment: deployment ?? null, mode: "project" },
+      {
+        ...(result.mode === "forge-self-update"
+          ? { updateId: result.deploymentId, mode: result.mode }
+          : {
+              deploymentId: result.deploymentId,
+              deployment: result.deployment,
+              mode: "project",
+            }),
+        branch: result.branch,
+        authorizedActiveSession: result.authorizedActiveSession,
+      },
       { status: 202 },
       {
         request,
@@ -161,11 +66,24 @@ export async function POST(
         actionDescription,
         requestBody: body,
         projectId: id,
-        resourceType: "deployment",
-        resourceId: deploymentId,
+        resourceType:
+          result.mode === "forge-self-update" ? "forge-update" : "deployment",
+        resourceId: result.deploymentId,
       },
     );
   } catch (err) {
+    if (err instanceof DeployProjectError) {
+      return errorWithAudit(err.message, err.status, {
+        request,
+        auth,
+        method: "POST",
+        path,
+        actionDescription,
+        requestBody: body,
+        projectId: id,
+        resourceType: "deploy",
+      });
+    }
     const message = err instanceof Error ? err.message : "Deploy failed";
     return errorWithAudit(message, 409, {
       request,
@@ -175,7 +93,7 @@ export async function POST(
       actionDescription,
       requestBody: body,
       projectId: id,
-      resourceType: "deployment",
+      resourceType: "deploy",
     });
   }
 }

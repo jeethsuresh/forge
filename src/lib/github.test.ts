@@ -4,7 +4,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { promisify } from "util";
 import { describe, expect, it } from "vitest";
-import { parseGithubRepo } from "@/lib/github";
+import { parseGithubRepo } from "@/lib/github-import";
 
 const execFileAsync = promisify(execFile);
 
@@ -42,12 +42,12 @@ describe("parseGithubRepo", () => {
 
 describe("buildAgentCommitMessage", () => {
   it("prefixes the initial prompt", async () => {
-    const { buildAgentCommitMessage } = await import("@/lib/github");
+    const { buildAgentCommitMessage } = await import("@/lib/git-workspace");
     expect(buildAgentCommitMessage("Add login page")).toBe("Agent: Add login page");
   });
 
   it("truncates long prompts", async () => {
-    const { buildAgentCommitMessage } = await import("@/lib/github");
+    const { buildAgentCommitMessage } = await import("@/lib/git-workspace");
     const long = "x".repeat(100);
     const message = buildAgentCommitMessage(long);
     expect(message.startsWith("Agent: ")).toBe(true);
@@ -58,7 +58,7 @@ describe("buildAgentCommitMessage", () => {
 
 describe("gitAuthorIdentity", () => {
   it("uses defaults when env vars are unset", async () => {
-    const { gitAuthorIdentity } = await import("@/lib/github");
+    const { gitAuthorIdentity } = await import("@/lib/git-workspace");
     const prevName = process.env.FORGE_GIT_USER_NAME;
     const prevEmail = process.env.FORGE_GIT_USER_EMAIL;
     delete process.env.FORGE_GIT_USER_NAME;
@@ -77,7 +77,7 @@ describe("gitAuthorIdentity", () => {
   });
 
   it("reads FORGE_GIT_USER_NAME and FORGE_GIT_USER_EMAIL", async () => {
-    const { gitAuthorIdentity } = await import("@/lib/github");
+    const { gitAuthorIdentity } = await import("@/lib/git-workspace");
     const prevName = process.env.FORGE_GIT_USER_NAME;
     const prevEmail = process.env.FORGE_GIT_USER_EMAIL;
     process.env.FORGE_GIT_USER_NAME = "Test User";
@@ -122,7 +122,7 @@ describe("gitHubCredentials", () => {
   }
 
   it("returns null when no token or password is set", async () => {
-    const { gitHubCredentials } = await import("@/lib/github");
+    const { gitHubCredentials } = await import("@/lib/github-import");
     const saved = saveEnv();
     try {
       expect(gitHubCredentials()).toBeNull();
@@ -132,7 +132,7 @@ describe("gitHubCredentials", () => {
   });
 
   it("prefers FORGE_GITHUB_TOKEN over other secrets", async () => {
-    const { gitHubCredentials } = await import("@/lib/github");
+    const { gitHubCredentials } = await import("@/lib/github-import");
     const saved = saveEnv();
     process.env.FORGE_GITHUB_TOKEN = "forge-token";
     process.env.GITHUB_TOKEN = "gh-token";
@@ -148,7 +148,7 @@ describe("gitHubCredentials", () => {
   });
 
   it("falls back to GITHUB_TOKEN then FORGE_GIT_PASSWORD", async () => {
-    const { gitHubCredentials } = await import("@/lib/github");
+    const { gitHubCredentials } = await import("@/lib/github-import");
 
     const savedGh = saveEnv();
     process.env.GITHUB_TOKEN = "gh-token";
@@ -174,7 +174,7 @@ describe("gitHubCredentials", () => {
   });
 
   it("uses FORGE_GIT_USERNAME then FORGE_GIT_USER_NAME for username", async () => {
-    const { gitHubCredentials } = await import("@/lib/github");
+    const { gitHubCredentials } = await import("@/lib/github-import");
 
     const savedUser = saveEnv();
     process.env.FORGE_GITHUB_TOKEN = "token";
@@ -205,14 +205,14 @@ describe("gitHubCredentials", () => {
 
 describe("formatGitError", () => {
   it("prefers stderr from exec errors", async () => {
-    const { formatGitError } = await import("@/lib/github");
+    const { formatGitError } = await import("@/lib/git-workspace");
     expect(formatGitError({ stderr: "remote rejected", message: "Command failed" })).toBe(
       "remote rejected",
     );
   });
 
   it("falls back to message or string coercion", async () => {
-    const { formatGitError } = await import("@/lib/github");
+    const { formatGitError } = await import("@/lib/git-workspace");
     expect(formatGitError({ message: "Command failed" })).toBe("Command failed");
     expect(formatGitError("network down")).toBe("network down");
   });
@@ -238,7 +238,7 @@ describe("hasUnpushedCommits", () => {
       await runGit(workDir, ["commit", "-m", "init"]);
       await runGit(workDir, ["push", "-u", "origin", "main"]);
 
-      const { hasUnpushedCommits } = await import("@/lib/github");
+      const { hasUnpushedCommits } = await import("@/lib/git-workspace");
       expect(await hasUnpushedCommits(workDir, "main")).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -259,7 +259,7 @@ describe("hasUnpushedCommits", () => {
       await runGit(workDir, ["push", "-u", "origin", "main"]);
       await runGit(workDir, ["commit", "--allow-empty", "-m", "ahead"]);
 
-      const { hasUnpushedCommits } = await import("@/lib/github");
+      const { hasUnpushedCommits } = await import("@/lib/git-workspace");
       expect(await hasUnpushedCommits(workDir, "main")).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -291,7 +291,7 @@ describe("hasRemotePushConflict", () => {
       await runGit(cloneDir, ["push", "origin", "main"]);
       await runGit(workDir, ["fetch", "origin"]);
 
-      const { hasRemotePushConflict } = await import("@/lib/github");
+      const { hasRemotePushConflict } = await import("@/lib/git-workspace");
       expect(await hasRemotePushConflict(workDir, "main")).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -312,7 +312,7 @@ describe("hasRemotePushConflict", () => {
       await runGit(workDir, ["push", "-u", "origin", "main"]);
       await runGit(workDir, ["commit", "--allow-empty", "-m", "ahead"]);
 
-      const { hasRemotePushConflict } = await import("@/lib/github");
+      const { hasRemotePushConflict } = await import("@/lib/git-workspace");
       expect(await hasRemotePushConflict(workDir, "main")).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -322,13 +322,13 @@ describe("hasRemotePushConflict", () => {
 
 describe("validateBranchName", () => {
   it("accepts common branch names", async () => {
-    const { validateBranchName } = await import("@/lib/github");
+    const { validateBranchName } = await import("@/lib/git-workspace");
     expect(validateBranchName("agent/my-feature")).toBeNull();
     expect(validateBranchName("feature-123")).toBeNull();
   });
 
   it("rejects invalid branch names", async () => {
-    const { validateBranchName } = await import("@/lib/github");
+    const { validateBranchName } = await import("@/lib/git-workspace");
     expect(validateBranchName("")).toBeTruthy();
     expect(validateBranchName("has space")).toBeTruthy();
     expect(validateBranchName("../escape")).toBeTruthy();
@@ -355,7 +355,7 @@ describe("createLocalBranchFromBase", () => {
       await runGit(workDir, ["push", "-u", "origin", "main"]);
 
       const { createLocalBranchFromBase, listLocalBranches } = await import(
-        "@/lib/github"
+        "@/lib/git-workspace"
       );
       const logs: string[] = [];
       await createLocalBranchFromBase(
@@ -387,7 +387,7 @@ describe("createLocalBranchFromBase", () => {
       await runGit(workDir, ["commit", "--allow-empty", "-m", "init"]);
       await runGit(workDir, ["branch", "agent/existing"]);
 
-      const { createLocalBranchFromBase } = await import("@/lib/github");
+      const { createLocalBranchFromBase } = await import("@/lib/git-workspace");
       await expect(
         createLocalBranchFromBase(
           "acme/repo",
@@ -416,7 +416,7 @@ describe("pushBranch", () => {
       await runGit(workDir, ["config", "user.name", "Test"]);
       await runGit(workDir, ["commit", "--allow-empty", "-m", "agent work"]);
 
-      const { pushBranch, hasUnpushedCommits } = await import("@/lib/github");
+      const { pushBranch, hasUnpushedCommits } = await import("@/lib/git-workspace");
       await pushBranch(workDir, "agent/test");
       expect(await hasUnpushedCommits(workDir, "agent/test")).toBe(false);
     } finally {
@@ -441,7 +441,7 @@ describe("pushBranch", () => {
         join(root, "missing-remote.git"),
       ]);
 
-      const { pushBranch } = await import("@/lib/github");
+      const { pushBranch } = await import("@/lib/git-workspace");
       await expect(pushBranch(workDir, "main")).rejects.toThrow(
         /Failed to push main to origin:/,
       );
@@ -467,7 +467,7 @@ describe("ensureLocalBranchForAgent", () => {
       await runGit(seed, ["push", "-u", "origin", "main"]);
 
       const { ensureLocalBranchForAgent, listLocalBranches } = await import(
-        "@/lib/github"
+        "@/lib/git-workspace"
       );
       await ensureLocalBranchForAgent(bareDir, "main", workDir, "main", () => {});
 
@@ -493,7 +493,7 @@ describe("ensureLocalBranchForAgent", () => {
       await runGit(workDir, ["fetch", "origin"]);
 
       const { ensureLocalBranchForAgent, listLocalBranches } = await import(
-        "@/lib/github"
+        "@/lib/git-workspace"
       );
       expect(await listLocalBranches(workDir)).not.toContain("feature/remote-only");
 
@@ -524,7 +524,7 @@ describe("ensureLocalBranchForAgent", () => {
       await runGit(workDir, ["commit", "--allow-empty", "-m", "init"]);
       await runGit(workDir, ["push", "-u", "origin", "main"]);
 
-      const { ensureLocalBranchForAgent } = await import("@/lib/github");
+      const { ensureLocalBranchForAgent } = await import("@/lib/git-workspace");
       await expect(
         ensureLocalBranchForAgent(
           bareDir,
@@ -561,7 +561,7 @@ describe("listAvailableBranches", () => {
       await runGit(bareDir, ["branch", "remote-only", "main"]);
       await runGit(workDir, ["fetch", "origin"]);
 
-      const { listAvailableBranches } = await import("@/lib/github");
+      const { listAvailableBranches } = await import("@/lib/git-workspace");
       const branches = await listAvailableBranches("main", workDir);
 
       expect(branches).toContain("main");
@@ -596,7 +596,7 @@ describe("isCommitAncestor", () => {
       });
       const newer = newerStdout.trim();
 
-      const { isCommitAncestor } = await import("@/lib/github");
+      const { isCommitAncestor } = await import("@/lib/git-workspace");
       expect(await isCommitAncestor(older, newer, workDir)).toBe(true);
       expect(await isCommitAncestor(newer, older, workDir)).toBe(false);
     } finally {

@@ -8,6 +8,7 @@ import {
   shouldAutoCompleteRecoverySession,
   RECOVERY_PROMPT_PREFIX,
 } from "@/lib/agent-session-source";
+import { operatorStopError } from "@/lib/agent-session-events";
 
 describe("resolveAgentSessionSource", () => {
   it("prefers the stored source column", () => {
@@ -96,17 +97,18 @@ describe("isRecoveryAbortedByUser", () => {
     expect(
       isRecoveryAbortedByUser({
         status: "failed",
-        errorMessage: "Stopped by user.",
+        errorMessage: operatorStopError("stop"),
         logs: "",
       }),
     ).toBe(true);
   });
 
-  it("detects end-session log markers", () => {
+  it("detects end-session operator_stop", () => {
     expect(
       isRecoveryAbortedByUser({
         status: "completed",
-        logs: "Session ended by user.\n",
+        errorMessage: operatorStopError("end"),
+        logs: "",
       }),
     ).toBe(true);
   });

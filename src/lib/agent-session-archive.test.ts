@@ -7,7 +7,7 @@ import { promisify } from "util";
 import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { agentSessions, projects } from "@/lib/db/schema";
+import { agentSessions, gitRepositories, projects } from "@/lib/db/schema";
 import {
   archiveAgentSession,
   endAgentSession,
@@ -62,6 +62,20 @@ describe("agent session archive + recreate", () => {
         updatedAt: now,
       })
       .run();
+    const repoId = randomUUID();
+    db.insert(gitRepositories)
+      .values({
+        id: repoId,
+        slug: `archive-${id.slice(0, 8)}`,
+        barePath: bareDir,
+        defaultBranch: "main",
+        createdAt: now,
+      })
+      .run();
+    db.update(projects)
+      .set({ gitRepositoryId: repoId })
+      .where(eq(projects.id, id))
+      .run();
     ids.push(id);
   });
 
@@ -80,7 +94,17 @@ describe("agent session archive + recreate", () => {
         }
       }
       db.delete(agentSessions).where(eq(agentSessions.projectId, id)).run();
+      const linked = db
+        .select({ gitRepositoryId: projects.gitRepositoryId })
+        .from(projects)
+        .where(eq(projects.id, id))
+        .get();
       db.delete(projects).where(eq(projects.id, id)).run();
+      if (linked?.gitRepositoryId) {
+        db.delete(gitRepositories)
+          .where(eq(gitRepositories.id, linked.gitRepositoryId))
+          .run();
+      }
     }
     ids.length = 0;
     if (rootDir) {
@@ -193,7 +217,17 @@ describe("createAgentSession working clone sync", () => {
         }
       }
       db.delete(agentSessions).where(eq(agentSessions.projectId, id)).run();
+      const linked = db
+        .select({ gitRepositoryId: projects.gitRepositoryId })
+        .from(projects)
+        .where(eq(projects.id, id))
+        .get();
       db.delete(projects).where(eq(projects.id, id)).run();
+      if (linked?.gitRepositoryId) {
+        db.delete(gitRepositories)
+          .where(eq(gitRepositories.id, linked.gitRepositoryId))
+          .run();
+      }
     }
     ids.length = 0;
     if (rootDir) {
@@ -231,10 +265,24 @@ describe("createAgentSession working clone sync", () => {
         updatedAt: new Date(),
       })
       .run();
+    const repoId = randomUUID();
+    db.insert(gitRepositories)
+      .values({
+        id: repoId,
+        slug: `sync-${id.slice(0, 8)}`,
+        barePath: bareDir,
+        defaultBranch: "main",
+        createdAt: new Date(),
+      })
+      .run();
+    db.update(projects)
+      .set({ gitRepositoryId: repoId })
+      .where(eq(projects.id, id))
+      .run();
     ids.push(id);
 
     const { createAgentSession } = await import("@/lib/agent-runner");
-    const { listLocalBranches } = await import("@/lib/github");
+    const { listLocalBranches } = await import("@/lib/git-workspace");
 
     const result = await createAgentSession(id, "main", "bootstrap forgefile");
     expect(result.sessionId).toBeTruthy();

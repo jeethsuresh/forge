@@ -17,6 +17,7 @@ import { db } from "@/lib/db";
 import {
   artifactBuilds,
   artifacts,
+  gitRepositories,
   projectForgefiles,
   projects,
 } from "@/lib/db/schema";
@@ -30,8 +31,8 @@ import { projectForgefile } from "@/lib/forgefile-project";
 
 const execFileAsync = promisify(execFile);
 
-vi.mock("@/lib/github", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/github")>();
+vi.mock("@/lib/git-workspace", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/git-workspace")>();
   return {
     ...actual,
     cloneOrPull: vi.fn(
@@ -82,6 +83,20 @@ describe("artifact-build", () => {
         createdAt: now,
         updatedAt: now,
       })
+      .run();
+    const repoId = randomUUID();
+    db.insert(gitRepositories)
+      .values({
+        id: repoId,
+        slug: `artifacts-${projectId.slice(0, 8)}`,
+        barePath: tempDir,
+        defaultBranch: "main",
+        createdAt: now,
+      })
+      .run();
+    db.update(projects)
+      .set({ gitRepositoryId: repoId })
+      .where(eq(projects.id, projectId))
       .run();
 
     mkdirSync(join(tempDir, "scripts"), { recursive: true });
@@ -143,7 +158,17 @@ artifacts:
     db.delete(projectForgefiles)
       .where(eq(projectForgefiles.projectId, projectId))
       .run();
+    const linked = db
+      .select({ gitRepositoryId: projects.gitRepositoryId })
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .get();
     db.delete(projects).where(eq(projects.id, projectId)).run();
+    if (linked?.gitRepositoryId) {
+      db.delete(gitRepositories)
+        .where(eq(gitRepositories.id, linked.gitRepositoryId))
+        .run();
+    }
     rmSync(tempDir, { recursive: true, force: true });
     rmSync(artifactsRoot, { recursive: true, force: true });
     if (previousArtifactsDir === undefined) {

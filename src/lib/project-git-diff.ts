@@ -1,7 +1,7 @@
 import { execFile } from "child_process";
 import { existsSync } from "fs";
 import { promisify } from "util";
-import { formatGitError } from "@/lib/github";
+import { formatGitError } from "@/lib/git-workspace";
 import { resolveClonePath } from "@/lib/paths";
 import { shortSha } from "@/lib/utils";
 import type { ProjectDiffMode } from "@/lib/project-diff-url";

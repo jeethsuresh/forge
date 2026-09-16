@@ -101,7 +101,7 @@ describe("resolveAgentSessionBanner", () => {
     expect(
       resolveAgentSessionBanner({
         status: "failed",
-        hasActiveProcess: true,
+        hasActiveRuntime: true,
         isDeploying: false,
         errorMessage: "Agent exited with code 1",
         canRetry: true,
@@ -117,7 +117,7 @@ describe("resolveAgentSessionBanner", () => {
     expect(
       resolveAgentSessionBanner({
         status: "running",
-        hasActiveProcess: true,
+        hasActiveRuntime: true,
         isDeploying: false,
         errorMessage: null,
         canRetry: false,
@@ -129,7 +129,7 @@ describe("resolveAgentSessionBanner", () => {
     expect(
       resolveAgentSessionBanner({
         status: "running",
-        hasActiveProcess: false,
+        hasActiveRuntime: false,
         isDeploying: false,
         errorMessage: null,
         canRetry: false,
@@ -139,7 +139,7 @@ describe("resolveAgentSessionBanner", () => {
     expect(
       resolveAgentSessionBanner({
         status: "pending",
-        hasActiveProcess: false,
+        hasActiveRuntime: false,
         isDeploying: false,
         errorMessage: null,
         canRetry: false,
@@ -151,7 +151,7 @@ describe("resolveAgentSessionBanner", () => {
     expect(
       resolveAgentSessionBanner({
         status: "deploying",
-        hasActiveProcess: false,
+        hasActiveRuntime: false,
         isDeploying: true,
         errorMessage: null,
         canRetry: false,
@@ -224,7 +224,7 @@ describe("isStuckActiveSession", () => {
       isStuckActiveSession({
         status: "running",
         failedTurnStartSeq: 3,
-        hasActiveProcess: false,
+        hasActiveRuntime: false,
         projectMarkedActive: true,
         turnIncomplete: true,
       }),
@@ -236,7 +236,7 @@ describe("isStuckActiveSession", () => {
       isStuckActiveSession({
         status: "running",
         failedTurnStartSeq: null,
-        hasActiveProcess: false,
+        hasActiveRuntime: false,
         projectMarkedActive: true,
         turnIncomplete: false,
       }),
@@ -248,7 +248,7 @@ describe("isStuckActiveSession", () => {
       isStuckActiveSession({
         status: "pending",
         failedTurnStartSeq: null,
-        hasActiveProcess: false,
+        hasActiveRuntime: false,
         projectMarkedActive: false,
       }),
     ).toBe(true);
@@ -259,7 +259,7 @@ describe("isStuckActiveSession", () => {
       isStuckActiveSession({
         status: "pending",
         failedTurnStartSeq: null,
-        hasActiveProcess: false,
+        hasActiveRuntime: false,
         projectMarkedActive: true,
       }),
     ).toBe(false);

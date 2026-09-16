@@ -1,15 +1,17 @@
 import { chmodSync, mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
-import { opsApiBaseUrl } from "@/lib/ops-api-auth";
+import { opsApiBaseUrl, resolveOpsSessionSecret } from "@/lib/ops-api-auth";
 
-/** Secret header for post-receive → Forge notify (env or generated file later). */
+/** Secret header for post-receive → Forge notify. Never a hardcoded prod default. */
 export function resolveGitHookSecret(): string {
   const fromEnv = process.env.FORGE_GIT_HOOK_SECRET?.trim();
   if (fromEnv) return fromEnv;
   if (process.env.FORGE_DB_PATH === ":memory:") {
-    return "test-git-hook-secret";
+    return process.env.FORGE_OPS_SESSION_SECRET?.trim() || "test-git-hook-secret";
   }
-  return process.env.FORGE_OPS_SESSION_SECRET?.trim() || "forge-git-hook-dev";
+  const fromOpsEnv = process.env.FORGE_OPS_SESSION_SECRET?.trim();
+  if (fromOpsEnv) return fromOpsEnv;
+  return resolveOpsSessionSecret();
 }
 
 export function gitHookNotifyUrl(): string {
@@ -47,15 +49,27 @@ PAYLOAD=$(
   done
   printf ']}'
 )
-if command -v curl >/dev/null 2>&1; then
-  curl -sS -X POST "$NOTIFY_URL" \\
-    -H "Content-Type: application/json" \\
-    -H "X-Forge-Git-Hook-Secret: $SECRET" \\
-    -d "$PAYLOAD" >/dev/null || true
-elif command -v wget >/dev/null 2>&1; then
-  wget -q -O /dev/null --header="Content-Type: application/json" \\
-    --header="X-Forge-Git-Hook-Secret: $SECRET" \\
-    --post-data="$PAYLOAD" "$NOTIFY_URL" || true
+notify() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -sS -X POST "$NOTIFY_URL" \\
+      -H "Content-Type: application/json" \\
+      -H "X-Forge-Git-Hook-Secret: $SECRET" \\
+      -d "$PAYLOAD"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q -O - --header="Content-Type: application/json" \\
+      --header="X-Forge-Git-Hook-Secret: $SECRET" \\
+      --post-data="$PAYLOAD" "$NOTIFY_URL"
+  else
+    echo "forge post-receive: curl or wget required" >&2
+    return 1
+  fi
+}
+if ! notify >/dev/null; then
+  echo "forge post-receive: notify failed, retrying once" >&2
+  sleep 1
+  if ! notify >/dev/null; then
+    echo "forge post-receive: notify failed after retry" >&2
+  fi
 fi
 `;
 

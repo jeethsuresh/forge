@@ -1,8 +1,5 @@
 import { NextResponse } from "next/server";
-import { isDeploymentActive, runProjectRollback } from "@/lib/deployer";
-import { hasRollbackImage, projectSupportsRollback } from "@/lib/deploy-rollback";
-import { isForgeProject } from "@/lib/forge-project";
-import { startForgeRollback } from "@/lib/self-update";
+import { DeployProjectError, rollbackProject } from "@/lib/project-deploy";
 import {
   errorWithAudit,
   jsonWithAudit,
@@ -33,86 +30,12 @@ export async function POST(
   if (actionResult instanceof NextResponse) return actionResult;
   const { actionDescription } = actionResult;
 
-  if (isDeploymentActive(id)) {
-    return errorWithAudit(
-      "A deployment is already in progress for this project",
-      409,
-      {
-        request,
-        auth,
-        method: "POST",
-        path,
-        actionDescription,
-        requestBody: body,
-        projectId: id,
-        resourceType: "rollback",
-      },
-    );
-  }
-
-  if (isForgeProject(project)) {
-    try {
-      const updateId = await startForgeRollback();
-      return jsonWithAudit(
-        { updateId, mode: "forge-self-update" },
-        { status: 202 },
-        {
-          request,
-          auth,
-          method: "POST",
-          path,
-          actionDescription,
-          requestBody: body,
-          projectId: id,
-          resourceType: "forge-rollback",
-          resourceId: updateId,
-        },
-      );
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Rollback failed";
-      return errorWithAudit(message, 409, {
-        request,
-        auth,
-        method: "POST",
-        path,
-        actionDescription,
-        requestBody: body,
-        projectId: id,
-        resourceType: "forge-rollback",
-      });
-    }
-  }
-
-  if (!projectSupportsRollback(project)) {
-    return errorWithAudit("This project does not support rollback", 400, {
-      request,
-      auth,
-      method: "POST",
-      path,
-      actionDescription,
-      requestBody: body,
-      projectId: id,
-      resourceType: "rollback",
-    });
-  }
-
-  if (!(await hasRollbackImage(project))) {
-    return errorWithAudit("No rollback image is available", 409, {
-      request,
-      auth,
-      method: "POST",
-      path,
-      actionDescription,
-      requestBody: body,
-      projectId: id,
-      resourceType: "rollback",
-    });
-  }
-
   try {
-    const deploymentId = await runProjectRollback(id);
+    const result = await rollbackProject(id);
     return jsonWithAudit(
-      { deploymentId, mode: "project" },
+      result.mode === "forge-self-update"
+        ? { updateId: result.deploymentId, mode: result.mode }
+        : { deploymentId: result.deploymentId, mode: result.mode },
       { status: 202 },
       {
         request,
@@ -122,11 +45,24 @@ export async function POST(
         actionDescription,
         requestBody: body,
         projectId: id,
-        resourceType: "rollback",
-        resourceId: deploymentId,
+        resourceType:
+          result.mode === "forge-self-update" ? "forge-rollback" : "rollback",
+        resourceId: result.deploymentId,
       },
     );
   } catch (err) {
+    if (err instanceof DeployProjectError) {
+      return errorWithAudit(err.message, err.status, {
+        request,
+        auth,
+        method: "POST",
+        path,
+        actionDescription,
+        requestBody: body,
+        projectId: id,
+        resourceType: "rollback",
+      });
+    }
     const message = err instanceof Error ? err.message : "Rollback failed";
     return errorWithAudit(message, 409, {
       request,

@@ -9,7 +9,7 @@ import {
   isRecoveryPrompt,
   RECOVERY_PROMPT_PREFIX,
 } from "@/lib/deploy-recovery";
-import { parseGithubRepo } from "@/lib/github";
+import { parseGithubRepo } from "@/lib/github-import";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
 
 function deleteProjectsForRepo(repo: string): void {

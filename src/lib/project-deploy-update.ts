@@ -1,7 +1,7 @@
 import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { deployments, type Project } from "@/lib/db/schema";
-import { getRemoteCommitSha } from "@/lib/github";
+import { getRemoteCommitSha } from "@/lib/git-workspace";
 import { projectRemoteUrl } from "@/lib/project-git-remote";
 import type { ProjectReleaseState } from "@/lib/deploy-rollback";
 import {

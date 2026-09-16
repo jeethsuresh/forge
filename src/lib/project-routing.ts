@@ -1,6 +1,6 @@
-import { db } from "@/lib/db";
-import { projects } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { projects, serviceDirectory } from "@/lib/db/schema";
 import { composeProjectName } from "@/lib/compose-project-name";
 import { parseDeployEnvJson } from "@/lib/deploy-env";
 import { validateRouteForm, type ParsedRoute } from "@/lib/caddy-config";
@@ -68,8 +68,26 @@ export function hostPortConflict(
       project.hostPort !== null &&
       project.hostPort === port,
   );
-  if (!conflict) return null;
-  return `Port ${port} is already assigned to “${conflict.name}”`;
+  if (conflict) {
+    return `Port ${port} is already assigned to “${conflict.name}”`;
+  }
+
+  const directoryConflict = db
+    .select({
+      projectId: serviceDirectory.projectId,
+      deployTarget: serviceDirectory.deployTarget,
+      portName: serviceDirectory.portName,
+      port: serviceDirectory.port,
+    })
+    .from(serviceDirectory)
+    .all()
+    .find(
+      (row) =>
+        row.port === port &&
+        row.projectId !== excludeProjectId,
+    );
+  if (!directoryConflict) return null;
+  return `Port ${port} is already claimed in the service directory (${directoryConflict.deployTarget}/${directoryConflict.portName})`;
 }
 
 export function resolveHostPortFromDeployEnv(

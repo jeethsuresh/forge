@@ -11,6 +11,7 @@ mkdirSync(dirname(dbPath), { recursive: true });
 const sqlite = new Database(dbPath);
 sqlite.pragma("journal_mode = WAL");
 sqlite.pragma("foreign_keys = ON");
+sqlite.pragma("busy_timeout = 5000");
 
 export const db = drizzle(sqlite, { schema });
 
@@ -262,6 +263,14 @@ CREATE INDEX IF NOT EXISTS idx_secret_requests_session_id
   ON secret_requests(session_id);
 CREATE INDEX IF NOT EXISTS idx_secret_requests_project_id
   ON secret_requests(project_id);
+
+CREATE TABLE IF NOT EXISTS release_pins (
+  project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+  stable_commit_sha TEXT,
+  rollback_commit_sha TEXT,
+  image_tag TEXT,
+  updated_at INTEGER NOT NULL
+);
 `;
 
 sqlite.exec(INIT_SQL);

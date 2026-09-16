@@ -8,7 +8,7 @@ import {
   getSessionForBranch,
 } from "@/lib/agent-runner";
 import { getActiveSessionForProject } from "@/lib/agent-state";
-import { listLocalBranches } from "@/lib/github";
+import { listLocalBranches } from "@/lib/git-workspace";
 import { branchOpsBlockedResponse } from "@/lib/git-tree-branch-ops";
 import { invalidateProjectBranches } from "@/lib/project-branches-cache";
 import {

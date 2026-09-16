@@ -11,6 +11,7 @@ import {
   stopAgentContainer,
 } from "@/lib/agent-container";
 import { activeAgentProjects } from "@/lib/agent-state";
+import { transition } from "@/lib/agent-session-machine";
 
 /** Spec defaults for agent container kill policy (design §3). */
 export const AGENT_HEARTBEAT_INTERVAL_SEC = 10;
@@ -151,14 +152,7 @@ async function applyAgentKill(
   }
 
   appendSessionLog(sessionId, message);
-  db.update(agentSessions)
-    .set({
-      status: "failed",
-      completedAt: new Date(),
-      errorMessage: message,
-    })
-    .where(eq(agentSessions.id, sessionId))
-    .run();
+  transition(sessionId, { type: "kill", reason });
 
   activeAgentProjects.delete(session.projectId);
 }

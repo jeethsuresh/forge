@@ -13,7 +13,7 @@ import {
 } from "@/lib/deploy-rollback";
 import { isForgeProject } from "@/lib/forge-project";
 import { getForgeStatus } from "@/lib/self-update";
-import { getRemoteCommitSha, listAvailableBranches } from "@/lib/github";
+import { getRemoteCommitSha, listAvailableBranches } from "@/lib/git-workspace";
 import { projectRemoteUrl, getProjectGitRepository } from "@/lib/project-git-remote";
 import { forgeGitHttpsUrl, forgeGitSshUrl, gitRepositoryIsEmpty } from "@/lib/git-repo";
 import { deploymentRowForClient } from "@/lib/project-poll";

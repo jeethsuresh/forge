@@ -3,7 +3,7 @@ import { existsSync } from "fs";
 import { join } from "path";
 import { isDeploymentActive } from "@/lib/deployer";
 import { stopComposeProject } from "@/lib/docker";
-import { runScript } from "@/lib/github";
+import { runScript } from "@/lib/git-workspace";
 import { resolveClonePath } from "@/lib/paths";
 import { buildProjectScriptEnv, projectScriptArgs } from "@/lib/projects";
 import {

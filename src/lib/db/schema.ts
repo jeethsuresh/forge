@@ -279,6 +279,17 @@ export const forgeUpdates = sqliteTable("forge_updates", {
   completedAt: integer("completed_at", { mode: "timestamp" }),
 });
 
+/** SQLite source of truth for release image pins; sidecar JSON is a working copy. */
+export const releasePins = sqliteTable("release_pins", {
+  projectId: text("project_id")
+    .primaryKey()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  stableCommitSha: text("stable_commit_sha"),
+  rollbackCommitSha: text("rollback_commit_sha"),
+  imageTag: text("image_tag"),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
 export const agentEvents = sqliteTable("agent_events", {
   id: text("id").primaryKey(),
   sessionId: text("session_id")
@@ -388,4 +399,5 @@ export type AgentContainer = typeof agentContainers.$inferSelect;
 export type Secret = typeof secrets.$inferSelect;
 export type SecretRequest = typeof secretRequests.$inferSelect;
 export type ForgeUpdate = typeof forgeUpdates.$inferSelect;
+export type ReleasePin = typeof releasePins.$inferSelect;
 export type OpsApiAction = typeof opsApiActions.$inferSelect;

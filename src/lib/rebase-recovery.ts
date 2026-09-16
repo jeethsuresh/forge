@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import type { Project } from "@/lib/db/schema";
-import { formatGitError, listLocalBranches, validateBranchName } from "@/lib/github";
+import { formatGitError, listLocalBranches, validateBranchName } from "@/lib/git-workspace";
 import { resolveClonePath } from "@/lib/paths";
 import { createRebaseRecoveryAgentSession } from "@/lib/agent-runner";
 import {

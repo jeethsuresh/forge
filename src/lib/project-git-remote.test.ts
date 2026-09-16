@@ -54,4 +54,15 @@ describe("project-git-remote", () => {
       rmSync(reposRoot, { recursive: true, force: true });
     }
   });
+
+  it("throws when a project has no Forge git repository", () => {
+    const project = {
+      id: "no-git",
+      name: "Orphan",
+      githubRepo: "acme/orphan",
+      gitRepositoryId: null,
+    } as unknown as import("@/lib/db/schema").Project;
+    expect(() => projectRemoteUrl(project)).toThrow(/no Forge git repository/);
+    expect(() => projectAgentCloneUrl(project)).toThrow(/no Forge git repository/);
+  });
 });
