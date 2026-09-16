@@ -52,6 +52,7 @@ describe("reconcileProjectAgentSessions", () => {
 
   it("marks incomplete running turns failed when no in-memory agent is active", () => {
     const now = new Date();
+    const startedAt = new Date(now.getTime() - 10 * 60 * 1000);
     db.insert(agentSessions)
       .values({
         id: sessionId,
@@ -60,7 +61,7 @@ describe("reconcileProjectAgentSessions", () => {
         status: "running",
         initialPrompt: "do work",
         logs: "",
-        startedAt: now,
+        startedAt,
       })
       .run();
     db.insert(agentEvents)
@@ -70,7 +71,7 @@ describe("reconcileProjectAgentSessions", () => {
         seq: 1,
         eventType: "user",
         payload: JSON.stringify({ type: "user", text: "do work" }),
-        createdAt: now,
+        createdAt: startedAt,
       })
       .run();
 
@@ -189,6 +190,7 @@ describe("reconcileProjectAgentSessions", () => {
 
   it("still fails incomplete recovery turns when no in-memory agent is active", () => {
     const now = new Date();
+    const startedAt = new Date(now.getTime() - 10 * 60 * 1000);
     db.insert(agentSessions)
       .values({
         id: sessionId,
@@ -198,7 +200,7 @@ describe("reconcileProjectAgentSessions", () => {
         source: "recovery",
         initialPrompt: "[deploy-recovery] fix deploy",
         logs: "",
-        startedAt: now,
+        startedAt,
       })
       .run();
     db.insert(agentEvents)
@@ -208,7 +210,7 @@ describe("reconcileProjectAgentSessions", () => {
         seq: 1,
         eventType: "user",
         payload: JSON.stringify({ type: "user", text: "[deploy-recovery] fix" }),
-        createdAt: now,
+        createdAt: startedAt,
       })
       .run();
 
@@ -341,6 +343,193 @@ describe("reconcileProjectAgentSessions", () => {
       .where(eq(agentSessions.id, sessionId))
       .get();
     expect(session?.status).toBe("running");
+    expect(isAgentSessionActive(projectId)).toBe(true);
+    expect(getBlockingAgentSession(projectId)?.id).toBe(sessionId);
+  });
+
+  function insertLiveContainer(id: string, now: Date, status: "starting" | "running" = "running") {
+    db.insert(agentContainers)
+      .values({
+        sessionId: id,
+        containerId: `cid-${id.slice(0, 8)}`,
+        image: "forge-agent:latest",
+        status,
+        lastHeartbeatAt: now,
+        lastActivityAt: now,
+        startedAt: now,
+        deadlineAt: new Date(now.getTime() + AGENT_WALL_CLOCK_MS),
+        killReason: null,
+      })
+      .run();
+  }
+
+  it("does not interrupt an incomplete running turn with a live container when the in-memory set is empty", () => {
+    const now = new Date();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "agent/forgefile",
+        status: "running",
+        initialPrompt: "Create a forgefile",
+        logs: "",
+        startedAt: now,
+      })
+      .run();
+    db.insert(agentEvents)
+      .values({
+        id: randomUUID(),
+        sessionId,
+        seq: 1,
+        eventType: "user",
+        payload: JSON.stringify({ type: "user", text: "Create a forgefile" }),
+        createdAt: now,
+      })
+      .run();
+    insertLiveContainer(sessionId, now);
+
+    const count = reconcileProjectAgentSessions(projectId);
+    expect(count).toBe(0);
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    expect(session?.status).toBe("running");
+    expect(session?.errorMessage).toBeNull();
+    expect(isAgentSessionActive(projectId)).toBe(true);
+    expect(getBlockingAgentSession(projectId)?.id).toBe(sessionId);
+  });
+
+  it("does not interrupt a recently started running turn that has no container row yet", () => {
+    const now = new Date();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "agent/starting",
+        status: "running",
+        initialPrompt: "do work",
+        logs: "",
+        startedAt: now,
+      })
+      .run();
+    db.insert(agentEvents)
+      .values({
+        id: randomUUID(),
+        sessionId,
+        seq: 1,
+        eventType: "user",
+        payload: JSON.stringify({ type: "user", text: "do work" }),
+        createdAt: now,
+      })
+      .run();
+
+    const count = reconcileProjectAgentSessions(projectId);
+    expect(count).toBe(0);
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    expect(session?.status).toBe("running");
+    expect(session?.errorMessage).toBeNull();
+  });
+
+  it("does not interrupt a pending session that started recently without a container row", () => {
+    const now = new Date();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "agent/pending",
+        status: "pending",
+        initialPrompt: "do work",
+        logs: "",
+        startedAt: now,
+      })
+      .run();
+
+    const count = reconcileProjectAgentSessions(projectId);
+    expect(count).toBe(0);
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    expect(session?.status).toBe("pending");
+    expect(session?.errorMessage).toBeNull();
+  });
+
+  it("keeps a live-container session running when a sibling on the same project is orphaned", () => {
+    const now = new Date();
+    const siblingId = randomUUID();
+    const staleStart = new Date(now.getTime() - 10 * 60 * 1000);
+
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "agent/live",
+        status: "running",
+        initialPrompt: "live turn",
+        logs: "",
+        startedAt: now,
+      })
+      .run();
+    db.insert(agentEvents)
+      .values({
+        id: randomUUID(),
+        sessionId,
+        seq: 1,
+        eventType: "user",
+        payload: JSON.stringify({ type: "user", text: "live turn" }),
+        createdAt: now,
+      })
+      .run();
+    insertLiveContainer(sessionId, now);
+
+    db.insert(agentSessions)
+      .values({
+        id: siblingId,
+        projectId,
+        branch: "agent/orphan",
+        status: "running",
+        initialPrompt: "orphaned turn",
+        logs: "",
+        startedAt: staleStart,
+      })
+      .run();
+    db.insert(agentEvents)
+      .values({
+        id: randomUUID(),
+        sessionId: siblingId,
+        seq: 1,
+        eventType: "user",
+        payload: JSON.stringify({ type: "user", text: "orphaned turn" }),
+        createdAt: staleStart,
+      })
+      .run();
+
+    const count = reconcileProjectAgentSessions(projectId);
+    expect(count).toBe(1);
+
+    const live = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    const orphan = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, siblingId))
+      .get();
+    expect(live?.status).toBe("running");
+    expect(orphan?.status).toBe("failed");
+    expect(orphan?.errorMessage).toBe("Agent session interrupted");
     expect(isAgentSessionActive(projectId)).toBe(true);
     expect(getBlockingAgentSession(projectId)?.id).toBe(sessionId);
   });

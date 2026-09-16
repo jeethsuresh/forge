@@ -10,6 +10,7 @@ import {
   isTerminalSessionStatus,
   parseStoredUserEventPrompt,
   resolveAgentSessionBanner,
+  sessionHasLiveRuntime,
 } from "@/lib/agent-turn";
 
 const EVENTS = [
@@ -261,6 +262,81 @@ describe("isStuckActiveSession", () => {
         failedTurnStartSeq: null,
         hasActiveRuntime: false,
         projectMarkedActive: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not treat an incomplete running turn as stuck while runtime is live", () => {
+    expect(
+      isStuckActiveSession({
+        status: "running",
+        failedTurnStartSeq: 3,
+        hasActiveRuntime: true,
+        projectMarkedActive: false,
+        turnIncomplete: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("sessionHasLiveRuntime", () => {
+  const startedAt = new Date("2026-09-16T01:14:32Z");
+
+  it("is true for starting or running containers", () => {
+    expect(
+      sessionHasLiveRuntime({
+        containerStatus: "running",
+        sessionStartedAt: startedAt,
+        now: new Date(startedAt.getTime() + 60_000),
+      }),
+    ).toBe(true);
+    expect(
+      sessionHasLiveRuntime({
+        containerStatus: "starting",
+        sessionStartedAt: startedAt,
+        now: new Date(startedAt.getTime() + 60_000),
+      }),
+    ).toBe(true);
+  });
+
+  it("is true when a heartbeat is inside the miss window", () => {
+    expect(
+      sessionHasLiveRuntime({
+        containerStatus: "stopped",
+        lastHeartbeatAt: new Date(startedAt.getTime() + 10_000),
+        sessionStartedAt: startedAt,
+        now: new Date(startedAt.getTime() + 20_000),
+      }),
+    ).toBe(true);
+  });
+
+  it("is true during startup grace when no container row exists yet", () => {
+    expect(
+      sessionHasLiveRuntime({
+        containerStatus: null,
+        sessionStartedAt: startedAt,
+        now: new Date(startedAt.getTime() + 30_000),
+      }),
+    ).toBe(true);
+  });
+
+  it("is false for an orphaned session with no container after startup grace", () => {
+    expect(
+      sessionHasLiveRuntime({
+        containerStatus: null,
+        sessionStartedAt: startedAt,
+        now: new Date(startedAt.getTime() + 10 * 60 * 1000),
+      }),
+    ).toBe(false);
+  });
+
+  it("is false for a stopped container whose heartbeat has expired", () => {
+    expect(
+      sessionHasLiveRuntime({
+        containerStatus: "stopped",
+        lastHeartbeatAt: startedAt,
+        sessionStartedAt: startedAt,
+        now: new Date(startedAt.getTime() + 60_000),
       }),
     ).toBe(false);
   });
