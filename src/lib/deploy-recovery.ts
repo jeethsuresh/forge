@@ -28,7 +28,7 @@ import {
   isForgeProject,
 } from "@/lib/forge-project";
 import { ensureForgeSourceWritableForAgents } from "@/lib/forge-source-permissions";
-import { runScript } from "@/lib/github";
+import { runScript } from "@/lib/git-workspace";
 import { startForgeRollback } from "@/lib/self-update";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import {

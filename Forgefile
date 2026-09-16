@@ -13,7 +13,7 @@ scripts:
     description: Run Forge unit tests
   deploy:
     run: ./deploy.sh
-    description: Deploy Forge via compose (use Ops/UI for self-update, not agents)
+    description: Internal compose helper. Forge self-update uses Ops/UI Redeploy (sidecar), not this script.
   teardown:
     run: ./teardown.sh
     description: Stop Forge compose stack

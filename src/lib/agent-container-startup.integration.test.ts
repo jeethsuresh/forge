@@ -20,7 +20,6 @@ import {
   setAgentContainerDockerRunner,
   startAgentContainer,
 } from "@/lib/agent-container";
-import { projectRemoteUrl } from "@/lib/project-git-remote";
 
 const execFileAsync = promisify(execFile);
 
@@ -137,15 +136,15 @@ describe("agent container startup integration (Layer A)", () => {
 
   it("agent-runner syncs branches and agent-container resolves host binds", async () => {
     const { readFile } = await import("fs/promises");
-    const runner = await readFile(
-      join(process.cwd(), "src/lib/agent-runner.ts"),
+    const lifecycle = await readFile(
+      join(process.cwd(), "src/lib/agent-session-lifecycle.ts"),
       "utf8",
     );
     const container = await readFile(
       join(process.cwd(), "src/lib/agent-container.ts"),
       "utf8",
     );
-    expect(runner).toMatch(/ensureLocalBranchForAgent/);
+    expect(lifecycle).toMatch(/ensureLocalBranchForAgent/);
     expect(container).toMatch(/resolveHostBindPath/);
     expect(container).toMatch(/ensureAgentImage/);
   });
@@ -182,14 +181,12 @@ describe("agent container startup integration (Layer A)", () => {
       projectIds.push(projectId);
 
       const { ensureLocalBranchForAgent, listLocalBranches } = await import(
-        "@/lib/github"
+        "@/lib/git-workspace"
       );
       expect(await listLocalBranches(clonePath)).toEqual([]);
 
       await ensureLocalBranchForAgent(
-        projectRemoteUrl(
-          db.select().from(projects).where(eq(projects.id, projectId)).get()!,
-        ),
+        bareDir,
         "main",
         clonePath,
         "main",

@@ -29,6 +29,10 @@ import {
   removeAgentContainer,
   setAgentContainerKillReason,
 } from "@/lib/agent-container";
+import {
+  shouldFailStoppedContainer,
+  transition,
+} from "@/lib/agent-session-machine";
 
 export const activeAgentProjects = new Set<string>();
 
@@ -79,26 +83,13 @@ function finalizeDeployingSessionFromForgeUpdate(
       session.id,
       "Forge self-update completed successfully.",
     );
-    db.update(agentSessions)
-      .set({
-        status: "completed",
-        completedAt: new Date(),
-        errorMessage: null,
-        commitSha: update.targetCommitSha ?? session.commitSha,
-      })
-      .where(eq(agentSessions.id, session.id))
-      .run();
+    transition(session.id, { type: "deploy_ok" }, {
+      commitSha: update.targetCommitSha ?? session.commitSha,
+    });
   } else {
     const message = update.errorMessage ?? `Forge update ${update.status}`;
     appendSessionLog(session.id, `Forge self-update failed: ${message}`);
-    db.update(agentSessions)
-      .set({
-        status: "failed",
-        completedAt: new Date(),
-        errorMessage: message,
-      })
-      .where(eq(agentSessions.id, session.id))
-      .run();
+    transition(session.id, { type: "deploy_fail", errorMessage: message });
   }
 
   activeAgentProjects.delete(session.projectId);
@@ -124,25 +115,11 @@ function finalizeDeployingSessionFromDeployment(
 
   if (deployment.status === "success") {
     appendSessionLog(session.id, "Rebuild and release completed successfully.");
-    db.update(agentSessions)
-      .set({
-        status: "completed",
-        completedAt: new Date(),
-        errorMessage: null,
-      })
-      .where(eq(agentSessions.id, session.id))
-      .run();
+    transition(session.id, { type: "deploy_ok" });
   } else {
     const message = deployment.errorMessage ?? "Deployment failed";
     appendSessionLog(session.id, `Deployment failed: ${message}`);
-    db.update(agentSessions)
-      .set({
-        status: "failed",
-        completedAt: new Date(),
-        errorMessage: message,
-      })
-      .where(eq(agentSessions.id, session.id))
-      .run();
+    transition(session.id, { type: "deploy_fail", errorMessage: message });
   }
 
   activeAgentProjects.delete(session.projectId);
@@ -211,14 +188,7 @@ function reconcileStaleActiveSessions(projectId: string): number {
           "Agent turn finished. Session marked completed.",
         );
       }
-      db.update(agentSessions)
-        .set({
-          status: "completed",
-          completedAt: new Date(),
-          errorMessage: null,
-        })
-        .where(eq(agentSessions.id, session.id))
-        .run();
+      transition(session.id, { type: "turn_complete" });
       reconciled += 1;
       continue;
     }
@@ -226,7 +196,7 @@ function reconcileStaleActiveSessions(projectId: string): number {
     const stuck = isStuckActiveSession({
       status: session.status,
       failedTurnStartSeq: session.failedTurnStartSeq,
-      hasActiveProcess: false,
+      hasActiveRuntime: false,
       projectMarkedActive: false,
       turnIncomplete,
     });
@@ -238,14 +208,7 @@ function reconcileStaleActiveSessions(projectId: string): number {
         : "Agent session interrupted";
 
     appendSessionLog(session.id, message);
-    db.update(agentSessions)
-      .set({
-        status: "failed",
-        completedAt: new Date(),
-        errorMessage: message,
-      })
-      .where(eq(agentSessions.id, session.id))
-      .run();
+    transition(session.id, { type: "fail", errorMessage: message });
     reconciled += 1;
   }
 
@@ -286,6 +249,18 @@ function reconcileStoppedContainerSessions(projectId: string): number {
       continue;
     }
 
+    const turnIncomplete = !isAgentTurnComplete(sessionEvents(session.id));
+    if (
+      !shouldFailStoppedContainer({
+        sessionStatus: session.status,
+        containerStatus: container.status,
+        killReason: container.killReason,
+        turnIncomplete,
+      })
+    ) {
+      continue;
+    }
+
     const reason = container.killReason ?? "reconcile_missing";
     const message =
       reason === "reconcile_missing"
@@ -296,14 +271,11 @@ function reconcileStoppedContainerSessions(projectId: string): number {
     if (!container.killReason) {
       setAgentContainerKillReason(session.id, "reconcile_missing");
     }
-    db.update(agentSessions)
-      .set({
-        status: "failed",
-        completedAt: new Date(),
-        errorMessage: message,
-      })
-      .where(eq(agentSessions.id, session.id))
-      .run();
+    if (container.killReason) {
+      transition(session.id, { type: "kill", reason: container.killReason });
+    } else {
+      transition(session.id, { type: "fail", errorMessage: message });
+    }
     activeAgentProjects.delete(projectId);
     reconciled += 1;
   }
@@ -352,14 +324,7 @@ export async function reconcileMissingAgentContainers(
       // ignore
     }
     appendSessionLog(session.id, message);
-    db.update(agentSessions)
-      .set({
-        status: "failed",
-        completedAt: new Date(),
-        errorMessage: message,
-      })
-      .where(eq(agentSessions.id, session.id))
-      .run();
+    transition(session.id, { type: "fail", errorMessage: message });
     activeAgentProjects.delete(session.projectId);
     reconciled += 1;
   }

@@ -242,14 +242,15 @@ describe("deploy-agent-resilience integration (Layer A)", () => {
     expect(session?.errorMessage).toBeNull();
   });
 
-  it("agent-runner routes forge projects through startForgeUpdate", () => {
+  it("agent-runner routes deploys through deployProject", () => {
     const source = readFileSync(
       join(process.cwd(), "src/lib/agent-runner.ts"),
       "utf8",
     );
-    expect(source).toMatch(/isForgeProjectId\(projectId\)/);
-    expect(source).toMatch(/startForgeUpdate\(\{ branch \}\)/);
+    expect(source).toMatch(/deployProject\(/);
+    expect(source).toMatch(/trigger: "agent"/);
     expect(source).toMatch(/Forge self-update/);
+    expect(source).not.toMatch(/startForgeUpdate\(/);
   });
 
   it("self-update reconcile heals success-marker rows (source invariant)", () => {

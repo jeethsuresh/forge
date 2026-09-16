@@ -231,6 +231,6 @@ describe("agent heartbeat kill policy", () => {
       .where(eq(agentSessions.id, sessionId))
       .get();
     expect(session?.status).toBe("failed");
-    expect(session?.errorMessage).toMatch(/wall-clock/i);
+    expect(session?.errorMessage).toMatch(/wall_clock/i);
   });
 });

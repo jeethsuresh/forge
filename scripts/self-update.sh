@@ -378,8 +378,14 @@ print(json.dumps({
 PY
   )"
   local response=""
+  local recover_token="${FORGE_RECOVER_SECRET:-${FORGE_OPS_API_TOKEN:-}}"
+  if [[ -z "${recover_token}" ]]; then
+    log "Recovery request skipped: FORGE_RECOVER_SECRET or FORGE_OPS_API_TOKEN is required"
+    return 1
+  fi
   if ! response="$(curl -fsS -X POST "${FORGE_API_BASE}/api/forge/recover" \
     -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${recover_token}" \
     -d "$payload" \
     --max-time 1800 2>&1)"; then
     log "Recovery request failed: ${response}"

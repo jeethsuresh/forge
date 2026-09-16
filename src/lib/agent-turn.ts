@@ -25,8 +25,8 @@ export function isAgentTurnComplete(events: AgentEventRow[]): boolean {
 export function resolveAgentSessionBanner(
   input: AgentSessionBannerInput,
 ): AgentSessionBanner | null {
-  const { status, hasActiveProcess, isDeploying, errorMessage, canRetry } =
-    input;
+  const { status, isDeploying, errorMessage, canRetry } = input;
+  const hasActiveRuntime = input.hasActiveRuntime ?? input.hasActiveProcess ?? false;
 
   if (isDeploying) {
     return { kind: "working", text: "Rebuilding and releasing containers…" };
@@ -44,7 +44,7 @@ export function resolveAgentSessionBanner(
     return null;
   }
 
-  if (hasActiveProcess) {
+  if (hasActiveRuntime) {
     return { kind: "working", text: "Agent is working…" };
   }
 
@@ -55,7 +55,9 @@ export type AgentSessionBannerKind = "working" | "failed" | null;
 
 export interface AgentSessionBannerInput {
   status: string;
-  hasActiveProcess: boolean;
+  hasActiveRuntime?: boolean;
+  /** @deprecated Use hasActiveRuntime */
+  hasActiveProcess?: boolean;
   isDeploying: boolean;
   errorMessage: string | null;
   canRetry: boolean;
@@ -70,21 +72,23 @@ export interface AgentSessionBanner {
 export interface StuckSessionInput {
   status: string;
   failedTurnStartSeq: number | null;
-  hasActiveProcess: boolean;
+  hasActiveRuntime?: boolean;
+  /** @deprecated Use hasActiveRuntime */
+  hasActiveProcess?: boolean;
   projectMarkedActive: boolean;
   turnIncomplete?: boolean;
 }
 
-/** Detect sessions stuck active in DB after the agent process has ended. */
+/** Detect sessions stuck active in DB after the agent runtime has ended. */
 export function isStuckActiveSession(input: StuckSessionInput): boolean {
   const {
     status,
-    hasActiveProcess,
     projectMarkedActive,
     turnIncomplete = false,
   } = input;
+  const hasActiveRuntime = input.hasActiveRuntime ?? input.hasActiveProcess ?? false;
 
-  if (hasActiveProcess) return false;
+  if (hasActiveRuntime) return false;
 
   if (status === "running" && turnIncomplete) {
     return true;

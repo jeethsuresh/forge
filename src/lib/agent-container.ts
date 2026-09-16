@@ -45,6 +45,7 @@ export type StartAgentContainerOpts = {
   agentPrompt?: string;
   cursorApiKey?: string;
   packagesJson?: string;
+  cursorSessionId?: string;
   /**
    * Workspace path bind-mounted at /workspace/repo.
    * May be a Forge-container path (e.g. /data/repos/…); rewritten to the host
@@ -234,6 +235,9 @@ export function buildAgentContainerRunArgs(
   if (opts.agentPrompt) env.FORGE_AGENT_PROMPT = opts.agentPrompt;
   if (opts.cursorApiKey) env.CURSOR_API_KEY = opts.cursorApiKey;
   if (opts.packagesJson) env.FORGE_AGENT_PACKAGES_JSON = opts.packagesJson;
+  if (opts.cursorSessionId?.trim()) {
+    env.FORGE_CURSOR_SESSION_ID = opts.cursorSessionId.trim();
+  }
 
   if (hostMounts.cursorAgentDir) {
     env.FORGE_AGENT_BIN = resolveCursorAgentBinInMount(hostMounts.cursorAgentDir);

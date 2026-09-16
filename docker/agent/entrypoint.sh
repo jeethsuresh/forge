@@ -90,8 +90,13 @@ run_agent() {
     echo "Agent binary not found at ${AGENT_BIN}" >&2
     exit 127
   fi
+  local resume_args=()
+  if [[ -n "${FORGE_CURSOR_SESSION_ID:-}" ]]; then
+    resume_args=(--resume "${FORGE_CURSOR_SESSION_ID}")
+  fi
   # Stream JSON lines to Ops event ingest (UI must not depend on docker logs).
-  "${AGENT_BIN}" -p --force --output-format stream-json --stream-partial-output "${prompt}" \
+  "${AGENT_BIN}" -p --force --output-format stream-json --stream-partial-output \
+    "${resume_args[@]}" "${prompt}" \
     | while IFS= read -r line; do
         [[ -z "${line}" ]] && continue
         # Escape for JSON string embedding

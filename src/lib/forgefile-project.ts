@@ -5,6 +5,7 @@ import {
   artifacts,
   deployTargets,
   projectForgefiles,
+  projects,
   type Artifact,
   type DeployTarget,
   type ProjectForgefile,
@@ -153,6 +154,18 @@ export function reconcileServiceDirectory(projectId: string): void {
   }
 
   removeStaleDeclaredServices(projectId, keepKeys);
+}
+
+function projectHostPortFromForgefile(projectId: string, forgefile: Forgefile): void {
+  const publicPorts = Object.values(forgefile.deployments).flatMap((deployment) =>
+    deployment.ports.filter((port) => port.public),
+  );
+  const first = publicPorts[0];
+  if (!first) return;
+  db.update(projects)
+    .set({ hostPort: first.port, updatedAt: new Date() })
+    .where(eq(projects.id, projectId))
+    .run();
 }
 
 function replaceDeployTargets(projectId: string, forgefile: Forgefile): void {
@@ -317,6 +330,7 @@ export function projectForgefile(
     replaceDeployTargets(projectId, forgefile);
     syncArtifactDeclarations(projectId, forgefile.artifacts);
     reconcileServiceDirectory(projectId);
+    projectHostPortFromForgefile(projectId, forgefile);
   });
 
   return { status: "valid" };

@@ -20,8 +20,30 @@ describe("git-hooks", () => {
       expect(body).toContain(gitHookNotifyUrl());
       expect(body).toContain(resolveGitHookSecret());
       expect(body).toContain("X-Forge-Git-Hook-Secret");
+      expect(body).toContain("retrying once");
+      expect(body).not.toContain("|| true");
     } finally {
       rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
+  it("never falls back to forge-git-hook-dev", () => {
+    const previousHook = process.env.FORGE_GIT_HOOK_SECRET;
+    const previousDb = process.env.FORGE_DB_PATH;
+    const previousOps = process.env.FORGE_OPS_SESSION_SECRET;
+    try {
+      delete process.env.FORGE_GIT_HOOK_SECRET;
+      process.env.FORGE_DB_PATH = "/tmp/forge-hook-secret-test.db";
+      process.env.FORGE_OPS_SESSION_SECRET = "ops-session-secret";
+      expect(resolveGitHookSecret()).toBe("ops-session-secret");
+      expect(resolveGitHookSecret()).not.toBe("forge-git-hook-dev");
+    } finally {
+      if (previousHook === undefined) delete process.env.FORGE_GIT_HOOK_SECRET;
+      else process.env.FORGE_GIT_HOOK_SECRET = previousHook;
+      if (previousDb === undefined) delete process.env.FORGE_DB_PATH;
+      else process.env.FORGE_DB_PATH = previousDb;
+      if (previousOps === undefined) delete process.env.FORGE_OPS_SESSION_SECRET;
+      else process.env.FORGE_OPS_SESSION_SECRET = previousOps;
     }
   });
 });

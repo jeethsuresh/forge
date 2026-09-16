@@ -13,7 +13,7 @@ import {
   checkoutLocalBranch,
   getRemoteCommitSha,
   isCommitAncestor,
-} from "@/lib/github";
+} from "@/lib/git-workspace";
 import { projectRemoteUrl } from "@/lib/project-git-remote";
 import { isAgentSessionActive } from "@/lib/agent-state";
 import { handleProjectDeployFailure } from "@/lib/deploy-recovery";

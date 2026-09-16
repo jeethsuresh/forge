@@ -9,7 +9,7 @@ import {
   listLocalBranches,
   pushBranch,
   validateBranchName,
-} from "@/lib/github";
+} from "@/lib/git-workspace";
 import { resolveClonePath } from "@/lib/paths";
 import { shortSha } from "@/lib/utils";
 

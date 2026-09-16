@@ -56,4 +56,4 @@ Smart HTTP is the supported path in unit tests; SSH is optional host infrastruct
   - existing `origin`: `git remote add forge <https-url>` and `git config remote.pushDefault forge`
   - always `cat >> AGENTS.md` to append (or create) a note that agents push to Forge
 
-Existing GitHub-only projects: use Import (or Add local + push) so agents and deploy jobs clone from Forge.
+Existing GitHub-only projects: Forge migrates them into `/data/git/<slug>.git` on startup (`migrateGithubOriginProjects`). After that, deploy and agent paths require a Forge repo — GitHub remains import-only.

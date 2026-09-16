@@ -4,7 +4,7 @@ import {
   formatGitError,
   listLocalBranches,
   validateBranchName,
-} from "@/lib/github";
+} from "@/lib/git-workspace";
 import { resolveClonePath } from "@/lib/paths";
 
 const execFileAsync = promisify(execFile);

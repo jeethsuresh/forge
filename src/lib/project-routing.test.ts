@@ -2,7 +2,7 @@ import { describe, expect, it, afterEach } from "vitest";
 import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { projects } from "@/lib/db/schema";
+import { projects, serviceDirectory } from "@/lib/db/schema";
 import {
   applyHostPortToRoute,
   defaultProjectCaddyRoute,
@@ -140,6 +140,40 @@ describe("projectRoutingView", () => {
 describe("hostPortConflict", () => {
   it("returns null when no rows exist", () => {
     expect(hostPortConflict(3999)).toBeNull();
+  });
+
+  it("conflicts with service_directory ports as well as projects.host_port", () => {
+    const id = randomUUID();
+    const now = new Date();
+    db.insert(projects)
+      .values({
+        id,
+        name: "Dir Port",
+        githubRepo: "acme/dir-port",
+        branch: "main",
+        clonePath: `/tmp/${id}`,
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(serviceDirectory)
+      .values({
+        id: randomUUID(),
+        projectId: id,
+        deployTarget: "app",
+        portName: "http",
+        port: 3888,
+        public: true,
+        status: "unknown",
+        routeStatus: "none",
+        updatedAt: now,
+      })
+      .run();
+    expect(hostPortConflict(3888)).toMatch(/service directory/);
+    expect(hostPortConflict(3888, id)).toBeNull();
+    db.delete(serviceDirectory).where(eq(serviceDirectory.projectId, id)).run();
+    db.delete(projects).where(eq(projects.id, id)).run();
   });
 });
 

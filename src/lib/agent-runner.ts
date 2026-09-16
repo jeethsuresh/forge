@@ -1,4 +1,3 @@
-import { spawn, type ChildProcess } from "child_process";
 import { randomUUID } from "crypto";
 import { existsSync } from "fs";
 import { and, desc, eq, gt, gte, isNotNull, isNull } from "drizzle-orm";
@@ -12,11 +11,10 @@ import {
   type AgentSessionStatus,
   type Project,
 } from "@/lib/db/schema";
-import { parseStreamEventLine, sessionEventsHaveFileEdits } from "@/lib/agent-stream";
+import { sessionEventsHaveFileEdits } from "@/lib/agent-stream";
 import {
   canRetryFailedAgentTurn,
   failedTurnEventSeq,
-  findFailedTurnPrompt,
   isAgentTurnComplete,
   isStuckActiveSession,
 } from "@/lib/agent-turn";
@@ -28,34 +26,21 @@ import {
 } from "@/lib/agent-state";
 import {
   agentSessionSourceLabel,
-  isInactiveAgentSessionStatus,
   resolveAgentSessionSource,
   shouldAutoCompleteRecoverySession,
 } from "@/lib/agent-session-source";
 import {
   listLocalBranches,
-  ensureLocalBranchForAgent,
   prepareAgentWorkspace,
-  commitAllChanges,
-  buildAgentCommitMessage,
   hasUncommittedChanges,
-  hasUnpushedCommits,
-  pushBranch,
-  revertAgentBranchWorkspace,
-  revertAgentSessionCommit as revertPushedAgentCommit,
-  createLocalBranchFromBase,
-  validateBranchName,
-  gitHubCredentials,
-} from "@/lib/github";
+} from "@/lib/git-workspace";
+import { gitHubCredentials } from "@/lib/github-import";
 import {
   projectAgentCloneUrl,
   projectRemoteUrl,
   projectUsesForgeGit,
 } from "@/lib/project-git-remote";
-import { resolveCursorAgentBin } from "@/lib/cursor-agent";
-import { runDeployment } from "@/lib/deployer";
-import { isForgeProjectId } from "@/lib/forge-project";
-import { startForgeUpdate } from "@/lib/self-update";
+import { deployProject } from "@/lib/project-deploy";
 import { resolveClonePath } from "@/lib/paths";
 import { prependForgeOpsInstructions, buildForgeOpsAgentInstructions } from "@/lib/agent-ops-prompt";
 import { isForgeUpdateTerminalStatus } from "@/lib/ops-session-deploy";
@@ -75,66 +60,54 @@ import {
 import { AGENT_HEARTBEAT_INTERVAL_SEC } from "@/lib/agent-heartbeat";
 import { getProjectForgefile } from "@/lib/forgefile-project";
 import type { Forgefile } from "@/lib/forgefile-types";
+import { transition, type SessionPatch } from "@/lib/agent-session-machine";
+import { commitAgentSessionChanges } from "@/lib/agent-session-lifecycle";
 
-const activeAgentProcesses = new Map<string, ChildProcess>();
-/** Sessions with a live agent container (Forge 2.0 default runtime). */
-const activeAgentContainers = new Set<string>();
-const stoppingSessions = new Set<string>();
-const cancelledSessions = new Set<string>();
-/** Session ended via endAgentSession — process close must not overwrite status. */
-const endedSessions = new Set<string>();
+/** Sessions with a live agent container. */
+export const activeAgentContainers = new Set<string>();
+export const stoppingSessions = new Set<string>();
+export const cancelledSessions = new Set<string>();
+/** Session ended via endAgentSession — container close must not overwrite status. */
+export const endedSessions = new Set<string>();
 const deploymentPollTimers = new Map<string, NodeJS.Timeout>();
 const deploymentPollActive = new Set<string>();
 
-const AGENT_KILL_GRACE_MS = 5000;
-
-/** Default: container. `FORGE_AGENT_RUNTIME=process` keeps host-child spawn for tests/legacy. */
-export function agentRuntimeMode(): "container" | "process" {
-  const raw = process.env.FORGE_AGENT_RUNTIME?.trim().toLowerCase();
-  if (raw === "process") return "process";
+export function agentRuntimeMode(): "container" {
   return "container";
 }
 
-function isAgentRuntimeActive(sessionId: string): boolean {
-  return (
-    activeAgentProcesses.has(sessionId) || activeAgentContainers.has(sessionId)
-  );
+export function isAgentRuntimeActive(sessionId: string): boolean {
+  return activeAgentContainers.has(sessionId);
 }
 
-async function stopAgentRuntime(sessionId: string): Promise<void> {
-  const proc = activeAgentProcesses.get(sessionId);
-  if (proc) {
-    terminateAgentProcess(proc);
-    activeAgentProcesses.delete(sessionId);
+export async function stopAgentRuntime(sessionId: string): Promise<void> {
+  if (!activeAgentContainers.has(sessionId)) return;
+  try {
+    await stopAgentContainer(sessionId);
+  } catch {
+    // ignore stop failures
   }
-  if (activeAgentContainers.has(sessionId)) {
-    try {
-      await stopAgentContainer(sessionId);
-    } catch {
-      // ignore stop failures
-    }
-    try {
-      await removeAgentContainer(sessionId);
-    } catch {
-      // ignore remove failures
-    }
-    activeAgentContainers.delete(sessionId);
+  try {
+    await removeAgentContainer(sessionId);
+  } catch {
+    // ignore remove failures
   }
+  activeAgentContainers.delete(sessionId);
 }
 
-const TERMINAL_STATUSES: AgentSessionStatus[] = [
+export const TERMINAL_STATUSES: AgentSessionStatus[] = [
   "completed",
   "failed",
   "cancelled",
 ];
 
-const ACTIVE_TURN_STATUSES: AgentSessionStatus[] = [
+export const ACTIVE_TURN_STATUSES: AgentSessionStatus[] = [
   "pending",
   "running",
   "deploying",
 ];
 
-function drainAgentQueue(projectId: string): void {
+export function drainAgentQueue(projectId: string): void {
   processAgentQueue(projectId, (sessionId, queuedProjectId, prompt) => {
     void executeAgentTurn(sessionId, queuedProjectId, prompt);
   });
@@ -144,39 +117,7 @@ export function drainQueuedAgentSessions(projectId: string): void {
   drainAgentQueue(projectId);
 }
 
-function spawnAgentProcess(
-  args: string[],
-  options: Parameters<typeof spawn>[2],
-): ReturnType<typeof spawn> {
-  const agentPath = resolveCursorAgentBin();
-  // Line-buffer stdout so stream-json partial events reach the DB/SSE promptly.
-  if (existsSync("/usr/bin/stdbuf")) {
-    return spawn("stdbuf", ["-oL", "-eL", agentPath, ...args], options);
-  }
-  return spawn(agentPath, args, options);
-}
-
-function terminateAgentProcess(proc: ChildProcess): void {
-  const pid = proc.pid;
-  if (!pid || proc.killed) return;
-
-  try {
-    proc.kill("SIGTERM");
-  } catch {
-    // process may already be gone
-  }
-
-  setTimeout(() => {
-    try {
-      process.kill(pid, 0);
-      process.kill(pid, "SIGKILL");
-    } catch {
-      // already exited
-    }
-  }, AGENT_KILL_GRACE_MS);
-}
-
-function cancelDeploymentPoll(sessionId: string): void {
+export function cancelDeploymentPoll(sessionId: string): void {
   deploymentPollActive.delete(sessionId);
   const timer = deploymentPollTimers.get(sessionId);
   if (timer) {
@@ -185,7 +126,7 @@ function cancelDeploymentPoll(sessionId: string): void {
   }
 }
 
-function appendSessionLog(sessionId: string, message: string): void {
+export function appendSessionLog(sessionId: string, message: string): void {
   const line = `[${new Date().toISOString()}] ${message}\n`;
   const row = db
     .select({ logs: agentSessions.logs })
@@ -199,24 +140,58 @@ function appendSessionLog(sessionId: string, message: string): void {
     .run();
 }
 
-function updateSessionStatus(
+export function updateSessionStatus(
   sessionId: string,
   status: AgentSessionStatus,
-  extra?: {
-    cursorSessionId?: string;
-    errorMessage?: string | null;
-    completedAt?: Date;
-    deploymentId?: string;
-    commitSha?: string;
-  },
+  extra?: SessionPatch,
 ): void {
-  db.update(agentSessions)
-    .set({ status, ...extra })
-    .where(eq(agentSessions.id, sessionId))
-    .run();
+  switch (status) {
+    case "queued":
+      transition(sessionId, { type: "queue" }, extra);
+      return;
+    case "pending":
+      transition(sessionId, { type: "start" }, extra);
+      return;
+    case "running":
+      transition(sessionId, { type: "run" }, extra);
+      return;
+    case "deploying":
+      transition(
+        sessionId,
+        { type: "deploy_start", deploymentId: extra?.deploymentId ?? undefined },
+        extra,
+      );
+      return;
+    case "completed":
+      transition(sessionId, { type: "turn_complete" }, extra);
+      return;
+    case "failed":
+      transition(
+        sessionId,
+        { type: "fail", errorMessage: extra?.errorMessage ?? "failed" },
+        extra,
+      );
+      return;
+    case "cancelled":
+      transition(sessionId, { type: "operator_stop", reason: "cancel" }, extra);
+      return;
+    case "idle":
+      patchIdleNotSupported(sessionId, extra);
+      return;
+    default: {
+      const _exhaustive: never = status;
+      return _exhaustive;
+    }
+  }
 }
 
-function getNextEventSeq(sessionId: string): number {
+function patchIdleNotSupported(sessionId: string, extra?: SessionPatch): void {
+  if (extra) {
+    db.update(agentSessions).set(extra).where(eq(agentSessions.id, sessionId)).run();
+  }
+}
+
+export function getNextEventSeq(sessionId: string): number {
   const row = db
     .select({ seq: agentEvents.seq })
     .from(agentEvents)
@@ -227,7 +202,7 @@ function getNextEventSeq(sessionId: string): number {
   return (row?.seq ?? 0) + 1;
 }
 
-function recordEvent(sessionId: string, eventType: string, payload: string): void {
+export function recordEvent(sessionId: string, eventType: string, payload: string): void {
   const seq = getNextEventSeq(sessionId);
   db.insert(agentEvents)
     .values({
@@ -249,7 +224,7 @@ export interface BranchAgentInfo {
   hasAgent: boolean;
 }
 
-function markTurnSucceeded(sessionId: string): void {
+export function markTurnSucceeded(sessionId: string): void {
   const current = db
     .select({ cursorSessionId: agentSessions.cursorSessionId })
     .from(agentSessions)
@@ -265,20 +240,20 @@ function markTurnSucceeded(sessionId: string): void {
     .run();
 }
 
-function markTurnFailed(sessionId: string, turnStartSeq: number): void {
+export function markTurnFailed(sessionId: string, turnStartSeq: number): void {
   db.update(agentSessions)
     .set({ failedTurnStartSeq: turnStartSeq })
     .where(eq(agentSessions.id, sessionId))
     .run();
 }
 
-function deleteEventsFromSeq(sessionId: string, fromSeq: number): void {
+export function deleteEventsFromSeq(sessionId: string, fromSeq: number): void {
   db.delete(agentEvents)
     .where(and(eq(agentEvents.sessionId, sessionId), gte(agentEvents.seq, fromSeq)))
     .run();
 }
 
-function reactivateSession(sessionId: string): void {
+export function reactivateSession(sessionId: string): void {
   db.update(agentSessions)
     .set({
       status: "idle",
@@ -292,7 +267,7 @@ function reactivateSession(sessionId: string): void {
     .run();
 }
 
-function reactivateFailedSession(sessionId: string): void {
+export function reactivateFailedSession(sessionId: string): void {
   db.update(agentSessions)
     .set({
       status: "pending",
@@ -309,6 +284,8 @@ export function isAgentProcessRunning(sessionId: string): boolean {
 }
 
 export type AgentSessionForClient = NonNullable<ReturnType<typeof getAgentSession>> & {
+  hasActiveRuntime: boolean;
+  /** @deprecated Use hasActiveRuntime */
   hasActiveProcess: boolean;
   canRetry: boolean;
   hasFileEdits: boolean;
@@ -324,6 +301,7 @@ function withClientFields(session: NonNullable<ReturnType<typeof getAgentSession
   const container = getAgentContainer(session.id);
   return {
     ...session,
+    hasActiveRuntime: isAgentProcessRunning(session.id),
     hasActiveProcess: isAgentProcessRunning(session.id),
     canRetry: canRetryFailedAgentTurn(session, events),
     hasFileEdits: sessionEventsHaveFileEdits(events),
@@ -372,7 +350,7 @@ async function maybeAutoFinishSessionIfNoEdits(
   activeAgentProjects.delete(projectId);
 }
 
-function finalizeSessionAfterFailedTurn(
+export function finalizeSessionAfterFailedTurn(
   sessionId: string,
   projectId: string,
   message: string,
@@ -408,7 +386,7 @@ function finalizeSessionAfterFailedTurn(
   drainAgentQueue(projectId);
 }
 
-async function finalizeSessionAfterSuccessfulTurn(
+export async function finalizeSessionAfterSuccessfulTurn(
   sessionId: string,
   projectId: string,
 ): Promise<void> {
@@ -463,7 +441,7 @@ export function reconcileStuckAgentSession(sessionId: string) {
   const stuck = isStuckActiveSession({
     status: session.status,
     failedTurnStartSeq: session.failedTurnStartSeq,
-    hasActiveProcess: isAgentRuntimeActive(sessionId),
+    hasActiveRuntime: isAgentRuntimeActive(sessionId),
     projectMarkedActive: activeAgentProjects.has(session.projectId),
     turnIncomplete,
   });
@@ -552,7 +530,7 @@ export async function getBranchAgentOverview(
   });
 }
 
-function assertNoConflictingActiveSession(
+export function assertNoConflictingActiveSession(
   projectId: string,
   branch: string,
 ): void {
@@ -566,13 +544,13 @@ function assertNoConflictingActiveSession(
   }
 }
 
-function shouldQueueAgentSession(projectId: string, branch: string): boolean {
+export function shouldQueueAgentSession(projectId: string, branch: string): boolean {
   if (!isProjectAgentPipelineBusy(projectId)) return false;
   const active = getActiveSessionForProject(projectId);
   return Boolean(active && active.branch !== branch);
 }
 
-function queueAgentSession(
+export function queueAgentSession(
   projectId: string,
   branch: string,
   prompt: string,
@@ -616,134 +594,6 @@ function queueAgentSession(
   return { sessionId, queued: true };
 }
 
-function buildAgentArgs(
-  prompt: string,
-  cursorSessionId?: string | null,
-): string[] {
-  const args = [
-    "-p",
-    "--force",
-    "--output-format",
-    "stream-json",
-    "--stream-partial-output",
-  ];
-
-  if (cursorSessionId) {
-    args.push("--resume", cursorSessionId);
-  }
-
-  args.push(prompt);
-  return args;
-}
-
-async function runAgentTurnProcess(
-  sessionId: string,
-  project: Project,
-  prompt: string,
-  effectivePrompt: string,
-  turnStartSeq: number,
-  workspacePath?: string,
-): Promise<void> {
-  const session = db
-    .select()
-    .from(agentSessions)
-    .where(eq(agentSessions.id, sessionId))
-    .get();
-  if (!session) throw new Error("Session not found");
-
-  const args = buildAgentArgs(effectivePrompt, session.resumeCursorSessionId);
-  const env = { ...process.env };
-  const apiKey = process.env.FORGE_CURSOR_API_KEY ?? process.env.CURSOR_API_KEY;
-  if (apiKey) env.CURSOR_API_KEY = apiKey;
-  env.FORGE_OPS_API_TOKEN = mintSessionOpsToken(sessionId, project.id);
-  env.FORGE_OPS_API_BASE = opsApiBaseUrl();
-
-  return new Promise((resolve, reject) => {
-    const proc = spawnAgentProcess(args, {
-      cwd: resolveClonePath(workspacePath ?? project.clonePath),
-      env,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    activeAgentProcesses.set(sessionId, proc);
-
-    let stdoutBuffer = "";
-
-    const handleLine = (line: string) => {
-      const event = parseStreamEventLine(line);
-      if (!event) return;
-
-      if (event.type) {
-        recordEvent(sessionId, event.type, line);
-      }
-
-      if (event.type === "system" && event.subtype === "init" && event.session_id) {
-        db.update(agentSessions)
-          .set({ cursorSessionId: event.session_id })
-          .where(eq(agentSessions.id, sessionId))
-          .run();
-      }
-    };
-
-    proc.stdout?.on("data", (chunk: Buffer) => {
-      stdoutBuffer += chunk.toString();
-      const lines = stdoutBuffer.split("\n");
-      stdoutBuffer = lines.pop() ?? "";
-      for (const line of lines) handleLine(line);
-    });
-
-    proc.stderr?.on("data", (chunk: Buffer) => {
-      appendSessionLog(sessionId, `stderr: ${chunk.toString().trimEnd()}`);
-    });
-
-    proc.on("error", (err) => {
-      activeAgentProcesses.delete(sessionId);
-      markTurnFailed(sessionId, turnStartSeq);
-      reject(err);
-    });
-
-    proc.on("close", (code) => {
-      activeAgentProcesses.delete(sessionId);
-      if (stdoutBuffer.trim()) handleLine(stdoutBuffer);
-
-      if (cancelledSessions.has(sessionId)) {
-        cancelledSessions.delete(sessionId);
-        resolve();
-        return;
-      }
-
-      if (endedSessions.has(sessionId)) {
-        endedSessions.delete(sessionId);
-        stoppingSessions.delete(sessionId);
-        resolve();
-        return;
-      }
-
-      if (stoppingSessions.has(sessionId)) {
-        stoppingSessions.delete(sessionId);
-        markTurnFailed(sessionId, turnStartSeq);
-        updateSessionStatus(sessionId, "failed", {
-          errorMessage: "Stopped by user.",
-          completedAt: new Date(),
-        });
-        appendSessionLog(sessionId, "Agent stopped by user.");
-        activeAgentProjects.delete(project.id);
-        drainAgentQueue(project.id);
-        resolve();
-        return;
-      }
-
-      if (code !== 0 && code !== null) {
-        markTurnFailed(sessionId, turnStartSeq);
-        reject(new Error(`Agent exited with code ${code}`));
-        return;
-      }
-      markTurnSucceeded(sessionId);
-      resolve();
-    });
-  });
-}
-
 function resolveAgentPackagesJson(projectId: string): string | undefined {
   const row = getProjectForgefile(projectId);
   if (!row || row.status !== "valid") return undefined;
@@ -757,7 +607,7 @@ function resolveAgentPackagesJson(projectId: string): string | undefined {
   }
 }
 
-async function runAgentTurnContainer(
+export async function runAgentTurnContainer(
   sessionId: string,
   project: Project,
   prompt: string,
@@ -796,6 +646,8 @@ async function runAgentTurnContainer(
       cursorApiKey: apiKey,
       packagesJson: resolveAgentPackagesJson(project.id),
       workspaceBind: existsSync(workspace) ? workspace : undefined,
+      cursorSessionId:
+        session.resumeCursorSessionId ?? session.cursorSessionId ?? undefined,
     });
 
     appendSessionLog(
@@ -819,10 +671,7 @@ async function runAgentTurnContainer(
     if (stoppingSessions.has(sessionId)) {
       stoppingSessions.delete(sessionId);
       markTurnFailed(sessionId, turnStartSeq);
-      updateSessionStatus(sessionId, "failed", {
-        errorMessage: "Stopped by user.",
-        completedAt: new Date(),
-      });
+      transition(sessionId, { type: "operator_stop", reason: "stop" });
       appendSessionLog(sessionId, "Agent stopped by user.");
       activeAgentProjects.delete(project.id);
       drainAgentQueue(project.id);
@@ -844,7 +693,7 @@ async function runAgentTurnContainer(
   }
 }
 
-async function runAgentTurn(
+export async function runAgentTurn(
   sessionId: string,
   project: Project,
   prompt: string,
@@ -859,7 +708,7 @@ async function runAgentTurn(
   if (!session) throw new Error("Session not found");
 
   updateSessionStatus(sessionId, "running");
-  const includeOpsInstructions = !session.resumeCursorSessionId;
+  const includeOpsInstructions = !session.resumeCursorSessionId && !session.cursorSessionId;
   const opsInstructions = includeOpsInstructions
     ? buildForgeOpsAgentInstructions(project.id, sessionId)
     : null;
@@ -886,18 +735,6 @@ async function runAgentTurn(
   }
   recordEvent(sessionId, "user", JSON.stringify({ type: "user", text: prompt }));
 
-  if (agentRuntimeMode() === "process") {
-    await runAgentTurnProcess(
-      sessionId,
-      project,
-      prompt,
-      effectivePrompt,
-      turnStartSeq,
-      workspacePath,
-    );
-    return;
-  }
-
   await runAgentTurnContainer(
     sessionId,
     project,
@@ -908,7 +745,7 @@ async function runAgentTurn(
   );
 }
 
-async function deployAfterAgent(
+export async function deployAfterAgent(
   sessionId: string,
   projectId: string,
   branch: string,
@@ -917,30 +754,20 @@ async function deployAfterAgent(
   appendSessionLog(sessionId, "Agent finished. Starting rebuild and release…");
 
   try {
-    if (isForgeProjectId(projectId)) {
-      const updateId = await startForgeUpdate({ branch });
-      db.update(agentSessions)
-        .set({ deploymentId: updateId })
-        .where(eq(agentSessions.id, sessionId))
-        .run();
-      appendSessionLog(
-        sessionId,
-        `Forge self-update ${updateId} started (not ./deploy.sh).`,
-      );
-      return;
-    }
-
-    const deploymentId = await runDeployment(projectId, "agent", {
+    const result = await deployProject({
+      projectId,
       branch,
-      skipPull: true,
+      trigger: "agent",
     });
-
     db.update(agentSessions)
-      .set({ deploymentId })
+      .set({ deploymentId: result.deploymentId })
       .where(eq(agentSessions.id, sessionId))
       .run();
-
-    appendSessionLog(sessionId, `Deployment ${deploymentId} started.`);
+    const started =
+      result.mode === "forge-self-update"
+        ? `Forge self-update ${result.deploymentId} started (not ./deploy.sh).`
+        : `Deployment ${result.deploymentId} started.`;
+    appendSessionLog(sessionId, started);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     appendSessionLog(sessionId, `Deployment failed: ${message}`);
@@ -953,7 +780,7 @@ async function deployAfterAgent(
   }
 }
 
-async function waitForDeploymentAndFinalize(
+export async function waitForDeploymentAndFinalize(
   sessionId: string,
   projectId: string,
 ): Promise<void> {
@@ -1026,7 +853,7 @@ async function waitForDeploymentAndFinalize(
   deploymentPollTimers.set(sessionId, setTimeout(poll, 2000));
 }
 
-async function executeAgentTurn(
+export async function executeAgentTurn(
   sessionId: string,
   projectId: string,
   prompt: string,
@@ -1075,675 +902,6 @@ async function executeAgentTurn(
   }
 }
 
-export async function createAgentBranch(
-  projectId: string,
-  newBranch: string,
-): Promise<void> {
-  const trimmedBranch = newBranch.trim();
-  const validationError = validateBranchName(trimmedBranch);
-  if (validationError) throw new Error(validationError);
-
-  const project = db
-    .select()
-    .from(projects)
-    .where(eq(projects.id, projectId))
-    .get();
-
-  if (!project) throw new Error("Project not found");
-
-  if (trimmedBranch === project.branch) {
-    throw new Error(
-      `Cannot create a branch named "${trimmedBranch}" — that is the deploy branch`,
-    );
-  }
-
-  const localBranches = await listLocalBranches(project.clonePath);
-  if (localBranches.includes(trimmedBranch)) {
-    throw new Error(`Branch "${trimmedBranch}" already exists`);
-  }
-
-  await createLocalBranchFromBase(
-    projectRemoteUrl(project),
-    project.branch,
-    project.clonePath,
-    trimmedBranch,
-    () => {},
-  );
-}
-
-async function startAgentWithUserMessage(
-  sessionId: string,
-  prompt: string,
-): Promise<void> {
-  const trimmedPrompt = prompt.trim();
-  if (!trimmedPrompt) throw new Error("Prompt is required");
-
-  const session = db
-    .select()
-    .from(agentSessions)
-    .where(eq(agentSessions.id, sessionId))
-    .get();
-
-  if (!session) throw new Error("Session not found");
-  if (session.archivedAt) {
-    throw new Error("Archived sessions are read-only");
-  }
-  if (session.source === "recovery") {
-    throw new Error("Deploy recovery agents start automatically after a failed deploy");
-  }
-  if (session.source === "rebase-recovery") {
-    throw new Error("Rebase recovery agents start automatically after a failed rebase");
-  }
-
-  if (ACTIVE_TURN_STATUSES.includes(session.status)) {
-    await sendAgentMessage(sessionId, trimmedPrompt);
-    return;
-  }
-
-  if (session.status === "idle" || TERMINAL_STATUSES.includes(session.status)) {
-    if (TERMINAL_STATUSES.includes(session.status)) {
-      reactivateSession(sessionId);
-    }
-    activeAgentProjects.add(session.projectId);
-    updateSessionStatus(sessionId, "pending");
-    void executeAgentTurn(sessionId, session.projectId, trimmedPrompt);
-    return;
-  }
-
-  throw new Error("Session cannot be started");
-}
-
-export async function createAgentSession(
-  projectId: string,
-  branch: string,
-  prompt: string,
-): Promise<{ sessionId: string; queued: boolean }> {
-  const trimmedBranch = branch.trim();
-  if (!trimmedBranch) throw new Error("Branch is required");
-  if (!prompt.trim()) throw new Error("Prompt is required");
-
-  const project = db
-    .select()
-    .from(projects)
-    .where(eq(projects.id, projectId))
-    .get();
-
-  if (!project) throw new Error("Project not found");
-
-  await ensureLocalBranchForAgent(
-    projectRemoteUrl(project),
-    project.branch,
-    project.clonePath,
-    trimmedBranch,
-    () => {},
-  );
-
-  if (shouldQueueAgentSession(projectId, trimmedBranch)) {
-    return queueAgentSession(projectId, trimmedBranch, prompt.trim());
-  }
-
-  assertNoConflictingActiveSession(projectId, trimmedBranch);
-
-  const existing = getSessionForBranch(projectId, trimmedBranch);
-
-  if (existing) {
-    if (ACTIVE_TURN_STATUSES.includes(existing.status)) {
-      await sendAgentMessage(existing.id, prompt.trim());
-      return { sessionId: existing.id, queued: false };
-    }
-
-    if (existing.status === "idle" || isInactiveAgentSessionStatus(existing.status)) {
-      db.update(agentSessions)
-        .set({ initialPrompt: prompt.trim() })
-        .where(eq(agentSessions.id, existing.id))
-        .run();
-      await startAgentWithUserMessage(existing.id, prompt.trim());
-      return { sessionId: existing.id, queued: false };
-    }
-
-    throw new Error(`Session on "${trimmedBranch}" is in an unexpected state`);
-  }
-
-  const sessionId = randomUUID();
-
-  db.insert(agentSessions)
-    .values({
-      id: sessionId,
-      projectId,
-      branch: trimmedBranch,
-      status: "idle",
-      source: "manual",
-      initialPrompt: prompt.trim(),
-      logs: "",
-      startedAt: new Date(),
-    })
-    .run();
-
-  await startAgentWithUserMessage(sessionId, prompt.trim());
-
-  return { sessionId, queued: false };
-}
-
-export async function waitForAgentSessionTerminal(
-  sessionId: string,
-  timeoutMs = 30 * 60_000,
-): Promise<ReturnType<typeof getAgentSession>> {
-  const started = Date.now();
-  while (Date.now() - started < timeoutMs) {
-    const session = getAgentSession(sessionId);
-    if (session && TERMINAL_STATUSES.includes(session.status)) {
-      return session;
-    }
-    if (session && !isAgentRuntimeActive(sessionId)) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const refreshed = getAgentSession(sessionId);
-      if (refreshed && TERMINAL_STATUSES.includes(refreshed.status)) {
-        return refreshed;
-      }
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-  }
-  return getAgentSession(sessionId);
-}
-
-export async function createRecoveryAgentSession(
-  project: Project,
-  branch: string,
-  prompt: string,
-  options?: { workspacePath?: string },
-): Promise<string> {
-  const trimmedBranch = branch.trim();
-  if (!trimmedBranch) throw new Error("Branch is required");
-  if (!prompt.trim()) throw new Error("Prompt is required");
-
-  await ensureLocalBranchForAgent(
-    projectRemoteUrl(project),
-    project.branch,
-    options?.workspacePath ?? project.clonePath,
-    trimmedBranch,
-    () => {},
-  );
-
-  assertNoConflictingActiveSession(project.id, trimmedBranch);
-
-  const existing = getSessionForBranch(project.id, trimmedBranch);
-
-  if (existing) {
-    if (ACTIVE_TURN_STATUSES.includes(existing.status)) {
-      await sendAgentMessage(existing.id, prompt.trim());
-      return existing.id;
-    }
-
-    db.update(agentSessions)
-      .set({
-        status: "pending",
-        source: "recovery",
-        initialPrompt: prompt.trim(),
-        errorMessage: null,
-        completedAt: null,
-        deploymentId: null,
-        commitSha: null,
-        failedTurnStartSeq: null,
-      })
-      .where(eq(agentSessions.id, existing.id))
-      .run();
-    activeAgentProjects.add(project.id);
-    void executeAgentTurn(existing.id, project.id, prompt.trim(), options);
-    return existing.id;
-  }
-
-  const sessionId = randomUUID();
-  activeAgentProjects.add(project.id);
-
-  db.insert(agentSessions)
-    .values({
-      id: sessionId,
-      projectId: project.id,
-      branch: trimmedBranch,
-      status: "pending",
-      source: "recovery",
-      initialPrompt: prompt.trim(),
-      logs: "",
-      startedAt: new Date(),
-    })
-    .run();
-
-  void executeAgentTurn(sessionId, project.id, prompt.trim(), options);
-
-  return sessionId;
-}
-
-export async function createRebaseRecoveryAgentSession(
-  project: Project,
-  branch: string,
-  prompt: string,
-): Promise<string> {
-  const trimmedBranch = branch.trim();
-  if (!trimmedBranch) throw new Error("Branch is required");
-  if (!prompt.trim()) throw new Error("Prompt is required");
-
-  await ensureLocalBranchForAgent(
-    projectRemoteUrl(project),
-    project.branch,
-    project.clonePath,
-    trimmedBranch,
-    () => {},
-  );
-
-  assertNoConflictingActiveSession(project.id, trimmedBranch);
-
-  const existing = getSessionForBranch(project.id, trimmedBranch);
-
-  if (existing) {
-    if (ACTIVE_TURN_STATUSES.includes(existing.status)) {
-      await sendAgentMessage(existing.id, prompt.trim());
-      return existing.id;
-    }
-
-    db.update(agentSessions)
-      .set({
-        status: "pending",
-        source: "rebase-recovery",
-        initialPrompt: prompt.trim(),
-        errorMessage: null,
-        completedAt: null,
-        deploymentId: null,
-        commitSha: null,
-        failedTurnStartSeq: null,
-      })
-      .where(eq(agentSessions.id, existing.id))
-      .run();
-    activeAgentProjects.add(project.id);
-    void executeAgentTurn(existing.id, project.id, prompt.trim());
-    return existing.id;
-  }
-
-  const sessionId = randomUUID();
-  activeAgentProjects.add(project.id);
-
-  db.insert(agentSessions)
-    .values({
-      id: sessionId,
-      projectId: project.id,
-      branch: trimmedBranch,
-      status: "pending",
-      source: "rebase-recovery",
-      initialPrompt: prompt.trim(),
-      logs: "",
-      startedAt: new Date(),
-    })
-    .run();
-
-  void executeAgentTurn(sessionId, project.id, prompt.trim());
-
-  return sessionId;
-}
-
-function assertSessionReadyForPostAgentAction(sessionId: string) {
-  const session = db
-    .select()
-    .from(agentSessions)
-    .where(eq(agentSessions.id, sessionId))
-    .get();
-
-  if (!session) throw new Error("Session not found");
-
-  const allowedStatuses: AgentSessionStatus[] = ["running", "completed", "failed"];
-  if (!allowedStatuses.includes(session.status)) {
-    throw new Error("Session is not ready for commit or deploy");
-  }
-  if (isAgentRuntimeActive(sessionId)) {
-    throw new Error("Agent is still processing; wait for the current turn to finish");
-  }
-  if (session.status === "deploying") {
-    throw new Error("Deployment already in progress");
-  }
-
-  return session;
-}
-
-function assertSessionReadyForFinish(sessionId: string) {
-  const session = assertSessionReadyForPostAgentAction(sessionId);
-  const allowedStatuses: AgentSessionStatus[] = ["running", "completed", "failed"];
-  if (!allowedStatuses.includes(session.status)) {
-    throw new Error("Session is not ready to finish and deploy");
-  }
-  return session;
-}
-
-export async function commitAgentSessionChanges(
-  sessionId: string,
-  options?: { message?: string; workspacePath?: string },
-): Promise<{ commitSha: string | null; committed: boolean; pushed: boolean }> {
-  const session = assertSessionReadyForPostAgentAction(sessionId);
-
-  const project = db
-    .select()
-    .from(projects)
-    .where(eq(projects.id, session.projectId))
-    .get();
-
-  if (!project) throw new Error("Project not found");
-
-  const log = (msg: string) => appendSessionLog(sessionId, msg);
-  const workspacePath = options?.workspacePath ?? project.clonePath;
-
-  await prepareAgentWorkspace(
-    projectRemoteUrl(project),
-    project.branch,
-    workspacePath,
-    session.branch,
-    log,
-  );
-
-  const message =
-    options?.message?.trim() || buildAgentCommitMessage(session.initialPrompt);
-
-  const commitSha = await commitAllChanges(workspacePath, message, log);
-
-  const shouldPush =
-    commitSha !== null ||
-    (await hasUnpushedCommits(workspacePath, session.branch));
-
-  if (shouldPush) {
-    await pushBranch(workspacePath, session.branch, log);
-  }
-
-  if (commitSha) {
-    db.update(agentSessions)
-      .set({ commitSha })
-      .where(eq(agentSessions.id, sessionId))
-      .run();
-  }
-
-  return {
-    commitSha,
-    committed: commitSha !== null,
-    pushed: shouldPush,
-  };
-}
-
-export async function revertAgentSessionChanges(sessionId: string): Promise<void> {
-  const session = getAgentSession(sessionId);
-  if (!session) throw new Error("Session not found");
-  if (!session.commitSha) {
-    throw new Error("Session has no commit to revert");
-  }
-  if (ACTIVE_TURN_STATUSES.includes(session.status)) {
-    throw new Error("Cannot revert while the agent is active");
-  }
-
-  const project = db
-    .select()
-    .from(projects)
-    .where(eq(projects.id, session.projectId))
-    .get();
-  if (!project) throw new Error("Project not found");
-
-  const log = (msg: string) => appendSessionLog(sessionId, msg);
-  await prepareAgentWorkspace(
-    projectRemoteUrl(project),
-    project.branch,
-    project.clonePath,
-    session.branch,
-    log,
-  );
-
-  await revertPushedAgentCommit(
-    project.clonePath,
-    session.branch,
-    session.commitSha,
-    log,
-  );
-
-  db.update(agentSessions)
-    .set({ commitSha: null })
-    .where(eq(agentSessions.id, sessionId))
-    .run();
-}
-
-export async function deployAgentSession(sessionId: string): Promise<void> {
-  const session = assertSessionReadyForPostAgentAction(sessionId);
-
-  const project = db
-    .select()
-    .from(projects)
-    .where(eq(projects.id, session.projectId))
-    .get();
-
-  if (!project) throw new Error("Project not found");
-
-  const log = (msg: string) => appendSessionLog(sessionId, msg);
-
-  await prepareAgentWorkspace(
-    projectRemoteUrl(project),
-    project.branch,
-    project.clonePath,
-    session.branch,
-    log,
-  );
-
-  await deployAfterAgent(sessionId, session.projectId, session.branch);
-  await waitForDeploymentAndFinalize(sessionId, session.projectId);
-}
-
-export async function finishAgentSession(sessionId: string): Promise<void> {
-  const session = assertSessionReadyForFinish(sessionId);
-
-  await commitAgentSessionChanges(sessionId);
-  await deployAfterAgent(sessionId, session.projectId, session.branch);
-  await waitForDeploymentAndFinalize(sessionId, session.projectId);
-}
-
-export async function sendAgentMessage(
-  sessionId: string,
-  prompt: string,
-): Promise<void> {
-  if (!prompt.trim()) throw new Error("Prompt is required");
-
-  const session = db
-    .select()
-    .from(agentSessions)
-    .where(eq(agentSessions.id, sessionId))
-    .get();
-
-  if (!session) throw new Error("Session not found");
-  if (session.archivedAt) {
-    throw new Error("Archived sessions are read-only");
-  }
-  if (session.status === "idle") {
-    activeAgentProjects.add(session.projectId);
-    updateSessionStatus(sessionId, "pending");
-    void executeAgentTurn(sessionId, session.projectId, prompt.trim());
-    return;
-  }
-  if (TERMINAL_STATUSES.includes(session.status)) {
-    throw new Error("Session is no longer active");
-  }
-  if (session.status === "deploying") {
-    throw new Error("Session is deploying; wait for completion before sending more messages");
-  }
-  if (isAgentRuntimeActive(sessionId)) {
-    throw new Error("Agent is still processing the previous message");
-  }
-
-  const project = db
-    .select()
-    .from(projects)
-    .where(eq(projects.id, session.projectId))
-    .get();
-
-  if (!project) throw new Error("Project not found");
-
-  const log = (msg: string) => appendSessionLog(sessionId, msg);
-  try {
-    await prepareAgentWorkspace(
-      projectRemoteUrl(project),
-      project.branch,
-      project.clonePath,
-      session.branch,
-      log,
-    );
-    await runAgentTurn(sessionId, project, prompt.trim());
-    await finalizeSessionAfterSuccessfulTurn(sessionId, session.projectId);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    finalizeSessionAfterFailedTurn(sessionId, session.projectId, message);
-    throw err;
-  }
-}
-
-export async function retryAgentTurn(sessionId: string): Promise<string> {
-  const session = getAgentSession(sessionId);
-  if (!session) throw new Error("Session not found");
-  if (session.status !== "failed") {
-    throw new Error("Only failed agent turns can be retried");
-  }
-  if (isAgentRuntimeActive(sessionId)) {
-    throw new Error("Agent is still processing");
-  }
-
-  const events = getAllAgentEventsAfter(sessionId, 0);
-  const prompt = findFailedTurnPrompt(events, session.failedTurnStartSeq);
-  if (!prompt) {
-    throw new Error("Could not find the failed prompt to retry");
-  }
-
-  const fromSeq = failedTurnEventSeq(events, session.failedTurnStartSeq);
-  if (fromSeq == null) {
-    throw new Error("Could not find the failed turn to retry");
-  }
-
-  deleteEventsFromSeq(sessionId, fromSeq);
-  reactivateFailedSession(sessionId);
-  activeAgentProjects.add(session.projectId);
-  appendSessionLog(sessionId, `Retrying failed turn: ${prompt.slice(0, 80)}…`);
-  void executeAgentTurn(sessionId, session.projectId, prompt);
-  return prompt;
-}
-
-export async function stopAgentTurn(sessionId: string): Promise<void> {
-  const session = getAgentSession(sessionId);
-  if (!session) throw new Error("Session not found");
-  if (TERMINAL_STATUSES.includes(session.status)) return;
-  if (session.status === "deploying") {
-    await endAgentSession(sessionId);
-    return;
-  }
-  if (!isAgentRuntimeActive(sessionId)) {
-    await endAgentSession(sessionId);
-    return;
-  }
-
-  stoppingSessions.add(sessionId);
-  await stopAgentRuntime(sessionId);
-
-  appendSessionLog(sessionId, "Agent stopped by user.");
-}
-
-export function clearAgentSessionLogs(sessionId: string): void {
-  const session = getAgentSession(sessionId);
-  if (!session) throw new Error("Session not found");
-  if (isAgentProcessRunning(sessionId)) {
-    throw new Error("Cannot clear logs while the agent is running");
-  }
-
-  db.update(agentSessions)
-    .set({ logs: "" })
-    .where(eq(agentSessions.id, sessionId))
-    .run();
-}
-
-export async function endAgentSession(
-  sessionId: string,
-  options?: { revertChanges?: boolean },
-): Promise<void> {
-  const session = db
-    .select()
-    .from(agentSessions)
-    .where(eq(agentSessions.id, sessionId))
-    .get();
-
-  if (!session) throw new Error("Session not found");
-  if (session.status === "queued") {
-    appendSessionLog(sessionId, "Queued session cancelled by user.");
-    updateSessionStatus(sessionId, "cancelled", { completedAt: new Date() });
-    return;
-  }
-  if (session.status === "idle" || TERMINAL_STATUSES.includes(session.status)) {
-    return;
-  }
-
-  cancelDeploymentPoll(sessionId);
-
-  const project = db
-    .select()
-    .from(projects)
-    .where(eq(projects.id, session.projectId))
-    .get();
-  if (!project) throw new Error("Project not found");
-
-  if (isAgentRuntimeActive(sessionId)) {
-    endedSessions.add(sessionId);
-    stoppingSessions.delete(sessionId);
-    await stopAgentRuntime(sessionId);
-  }
-
-  cancelDeploymentPoll(sessionId);
-
-  const log = (msg: string) => appendSessionLog(sessionId, msg);
-
-  if (options?.revertChanges) {
-    try {
-      await revertAgentBranchWorkspace(project.clonePath, session.branch, log);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      throw new Error(`Failed to revert workspace: ${message}`);
-    }
-  }
-
-  updateSessionStatus(sessionId, "completed", {
-    completedAt: new Date(),
-    errorMessage: null,
-  });
-  log(
-    options?.revertChanges
-      ? "Session ended by user; uncommitted workspace changes were reverted."
-      : "Session ended by user.",
-  );
-  activeAgentProjects.delete(session.projectId);
-  drainAgentQueue(session.projectId);
-}
-
-export async function cancelAgentSession(sessionId: string): Promise<void> {
-  const session = db
-    .select()
-    .from(agentSessions)
-    .where(eq(agentSessions.id, sessionId))
-    .get();
-
-  if (!session) throw new Error("Session not found");
-  if (session.status === "queued") {
-    appendSessionLog(sessionId, "Queued session cancelled by user.");
-    updateSessionStatus(sessionId, "cancelled", { completedAt: new Date() });
-    return;
-  }
-  if (session.status === "idle" || TERMINAL_STATUSES.includes(session.status)) {
-    return;
-  }
-
-  cancelledSessions.add(sessionId);
-  cancelDeploymentPoll(sessionId);
-  if (isAgentRuntimeActive(sessionId)) {
-    await stopAgentRuntime(sessionId);
-  }
-
-  appendSessionLog(sessionId, "Session cancelled by user.");
-  updateSessionStatus(sessionId, "cancelled", { completedAt: new Date() });
-  activeAgentProjects.delete(session.projectId);
-  drainAgentQueue(session.projectId);
-}
-
 export function listAgentSessions(projectId: string) {
   return db
     .select()
@@ -1785,61 +943,6 @@ export function listArchivedAgentSessionsForClient(projectId: string) {
   );
 }
 
-/** End (if needed) and soft-archive a session so its branch can host a new live session. */
-export async function archiveAgentSession(
-  sessionId: string,
-  options?: { revertChanges?: boolean },
-): Promise<void> {
-  const session = getAgentSession(sessionId);
-  if (!session) throw new Error("Session not found");
-  if (session.archivedAt) return;
-
-  await endAgentSession(sessionId, options);
-
-  const now = new Date();
-  db.update(agentSessions)
-    .set({
-      archivedAt: now,
-      completedAt: session.completedAt ?? now,
-    })
-    .where(eq(agentSessions.id, sessionId))
-    .run();
-  appendSessionLog(sessionId, "Session archived.");
-}
-
-/** Archive the live session for a branch, if any. */
-export async function archiveLiveSessionForBranch(
-  projectId: string,
-  branch: string,
-): Promise<string | null> {
-  const existing = getSessionForBranch(projectId, branch);
-  if (!existing) return null;
-  await archiveAgentSession(existing.id);
-  return existing.id;
-}
-
-/**
- * Archive the live session on a branch (if any) and start a fresh agent with a new prompt.
- * Clears Cursor resume ids by creating a brand-new session row.
- */
-export async function recreateAgentSession(
-  projectId: string,
-  branch: string,
-  prompt: string,
-): Promise<{ sessionId: string; queued: boolean; archivedSessionId: string | null }> {
-  const trimmedBranch = branch.trim();
-  const trimmedPrompt = prompt.trim();
-  if (!trimmedBranch) throw new Error("Branch is required");
-  if (!trimmedPrompt) throw new Error("Prompt is required");
-
-  const archivedSessionId = await archiveLiveSessionForBranch(
-    projectId,
-    trimmedBranch,
-  );
-  const created = await createAgentSession(projectId, trimmedBranch, trimmedPrompt);
-  return { ...created, archivedSessionId };
-}
-
 export function getAgentSession(sessionId: string) {
   return db
     .select()
@@ -1856,3 +959,24 @@ export function getAllAgentEventsAfter(sessionId: string, afterSeq: number) {
     .orderBy(agentEvents.seq)
     .all();
 }
+
+export {
+  createAgentBranch,
+  createAgentSession,
+  waitForAgentSessionTerminal,
+  createRecoveryAgentSession,
+  createRebaseRecoveryAgentSession,
+  commitAgentSessionChanges,
+  revertAgentSessionChanges,
+  deployAgentSession,
+  finishAgentSession,
+  sendAgentMessage,
+  retryAgentTurn,
+  stopAgentTurn,
+  clearAgentSessionLogs,
+  endAgentSession,
+  cancelAgentSession,
+  archiveAgentSession,
+  archiveLiveSessionForBranch,
+  recreateAgentSession,
+} from "./agent-session-lifecycle";

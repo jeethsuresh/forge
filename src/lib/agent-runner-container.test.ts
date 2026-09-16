@@ -20,9 +20,9 @@ describe("agent-runner container runtime", () => {
     expect(agentRuntimeMode()).toBe("container");
   });
 
-  it("allows process runtime only when explicitly requested", () => {
+  it("is container-only (process runtime removed)", () => {
     process.env.FORGE_AGENT_RUNTIME = "process";
-    expect(agentRuntimeMode()).toBe("process");
+    expect(agentRuntimeMode()).toBe("container");
   });
 
   it("startAgentContainer path records container without docker.sock", async () => {

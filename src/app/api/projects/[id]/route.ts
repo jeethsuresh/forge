@@ -21,7 +21,7 @@ import {
 import { isForgeProject } from "@/lib/forge-project";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import { getForgeStatus } from "@/lib/self-update";
-import { listAvailableBranches } from "@/lib/github";
+import { listAvailableBranches } from "@/lib/git-workspace";
 import {
   getCachedProjectBranches,
   setCachedProjectBranches,
@@ -36,7 +36,7 @@ import {
   computeProjectDeployUpdate,
   deployedCommitShaForProjectBranch,
 } from "@/lib/project-deploy-update";
-import { getRemoteCommitSha } from "@/lib/github";
+import { getRemoteCommitSha } from "@/lib/git-workspace";
 import { projectRemoteUrl, getProjectGitRepository } from "@/lib/project-git-remote";
 import { forgeGitHttpsUrl, forgeGitSshUrl, gitRepositoryIsEmpty } from "@/lib/git-repo";
 import { ensureGitCloneToken } from "@/lib/git-clone-token";
@@ -318,7 +318,6 @@ export async function PATCH(
 
     const normalized = normalizeProjectRoutingUpdates(project, {
       hostPort: body.hostPort,
-      caddyRoute: body.caddyRoute,
       linkedRouteKeys: body.linkedRouteKeys,
     });
     updates.hostPort = normalized.hostPort;
@@ -326,9 +325,7 @@ export async function PATCH(
     routingToSync = {
       caddyRoute: normalized.caddyRoute,
       hostPort: normalized.hostPort,
-      syncManaged:
-        body.caddyRoute !== undefined ||
-        (body.hostPort !== undefined && normalized.caddyRoute?.enabled === true),
+      syncManaged: false,
     };
   }
 

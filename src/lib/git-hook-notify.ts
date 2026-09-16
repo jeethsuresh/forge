@@ -1,12 +1,13 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { gitRepositories, projects } from "@/lib/db/schema";
-import { cloneOrPull, getLocalCommitSha } from "@/lib/github";
+import { cloneOrPull, getLocalCommitSha } from "@/lib/git-workspace";
 import { projectForgefile } from "@/lib/forgefile-project";
 import { listAutoDeployTargetNames } from "@/lib/forgefile-run";
 import { resolveClonePath } from "@/lib/paths";
 import { runDeployment } from "@/lib/deployer";
 import { resolveGitHookSecret } from "@/lib/git-hooks";
+import { secretsEqual } from "@/lib/secrets-equal";
 
 export type PostReceiveRef = {
   old?: string;
@@ -24,7 +25,7 @@ export function verifyGitHookSecret(headerValue: string | null): boolean {
   const expected = resolveGitHookSecret();
   const presented = headerValue?.trim() ?? "";
   if (!presented || !expected) return false;
-  return presented === expected;
+  return secretsEqual(presented, expected);
 }
 
 function pickBranch(

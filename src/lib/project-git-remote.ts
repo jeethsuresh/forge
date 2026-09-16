@@ -6,7 +6,6 @@ import {
   type Project,
 } from "@/lib/db/schema";
 import { forgeGitHttpsUrl } from "@/lib/git-repo";
-import { githubCloneUrl } from "@/lib/github";
 
 export function getProjectGitRepository(
   project: Project,
@@ -22,15 +21,14 @@ export function getProjectGitRepository(
 }
 
 /**
- * Server-side fetch URL: Forge bare path when linked, else GitHub `owner/repo`
- * (expanded by cloneOrPull / getRemoteCommitSha).
+ * Server-side fetch URL. Requires a linked Forge bare repo.
+ * GitHub URLs belong only in `github-import` / origin migrate.
  */
 export function projectRemoteUrl(project: Project): string {
   const forge = getProjectGitRepository(project);
   if (forge?.barePath) return forge.barePath;
-  if (project.githubRepo?.trim()) return project.githubRepo.trim();
   throw new Error(
-    `Project "${project.name}" has no Forge git repository or GitHub origin`,
+    `Project "${project.name}" has no Forge git repository. Import GitHub or attach a Forge origin first.`,
   );
 }
 
@@ -38,11 +36,8 @@ export function projectRemoteUrl(project: Project): string {
 export function projectAgentCloneUrl(project: Project): string {
   const forge = getProjectGitRepository(project);
   if (forge) return forgeGitHttpsUrl(forge.slug);
-  if (project.githubRepo?.trim()) {
-    return githubCloneUrl(project.githubRepo.trim());
-  }
   throw new Error(
-    `Project "${project.name}" has no Forge git repository or GitHub origin`,
+    `Project "${project.name}" has no Forge git repository. Import GitHub or attach a Forge origin first.`,
   );
 }
 

@@ -1,9 +1,10 @@
-import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createHmac, randomBytes } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { agentSessions } from "@/lib/db/schema";
+import { secretsEqual } from "@/lib/secrets-equal";
 
 const MAC_PAYLOAD_PREFIX = "forge-ops-v1:";
 
@@ -70,13 +71,10 @@ function parseSessionOpsToken(
 }
 
 function macEqual(a: string, b: string): boolean {
-  const ba = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ba.length !== bb.length) return false;
-  return timingSafeEqual(ba, bb);
+  return secretsEqual(a, b);
 }
 
-function presentedOpsToken(request: Request): string | null {
+export function presentedOpsToken(request: Request): string | null {
   const authorization = request.headers.get("authorization");
   if (authorization?.startsWith("Bearer ")) {
     const bearer = authorization.slice("Bearer ".length).trim();
@@ -93,7 +91,7 @@ export function authenticateOpsRequest(request: Request): OpsAuth | null {
   if (presented.startsWith("fgc.")) return null;
 
   const global = process.env.FORGE_OPS_API_TOKEN?.trim();
-  if (global && presented === global) {
+  if (global && secretsEqual(presented, global)) {
     return { kind: "global" };
   }
 
