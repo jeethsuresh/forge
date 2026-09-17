@@ -3,6 +3,7 @@ import {
   getDiscoveredComposeContainers,
   groupComposeContainersByProject,
   normalizeDockerPsRecord,
+  parseComposeLabels,
   parseDockerPsJson,
   setDiscoveredComposeContainers,
 } from "@/lib/container-discovery";
@@ -23,6 +24,32 @@ const SAMPLE_CONTAINER = {
     },
   ],
 };
+
+describe("parseComposeLabels", () => {
+  it("parses Podman comma-separated label strings", () => {
+    expect(
+      parseComposeLabels(
+        "com.docker.compose.project.working_dir=/home/jeeth/js/forge,com.docker.compose.project=forge,com.docker.compose.service=app",
+      ),
+    ).toEqual({
+      "com.docker.compose.project.working_dir": "/home/jeeth/js/forge",
+      "com.docker.compose.project": "forge",
+      "com.docker.compose.service": "app",
+    });
+  });
+
+  it("keeps Docker Engine object labels", () => {
+    expect(
+      parseComposeLabels({
+        "com.docker.compose.project": "forge",
+        "com.docker.compose.service": "app",
+      }),
+    ).toEqual({
+      "com.docker.compose.project": "forge",
+      "com.docker.compose.service": "app",
+    });
+  });
+});
 
 describe("parseDockerPsJson", () => {
   it("parses a JSON array from docker ps", () => {
@@ -93,6 +120,30 @@ describe("groupComposeContainersByProject", () => {
       },
     ]);
     expect(grouped.size).toBe(0);
+  });
+
+  it("groups Podman docker-ps rows whose Labels are a comma-separated string", () => {
+    const grouped = groupComposeContainersByProject([
+      {
+        Names: "forge_app_1",
+        Name: null,
+        State: "running",
+        Status: "Up 41 hours",
+        Labels:
+          "com.docker.compose.project.working_dir=/home/jeeth/js/forge,io.podman.compose.config-hash=abc,io.podman.compose.service=app,com.docker.compose.service=app,io.podman.compose.project=forge,com.docker.compose.project=forge,com.docker.compose.container-number=1",
+        Ports: "",
+      },
+    ]);
+
+    expect(grouped.get("forge")).toEqual([
+      {
+        name: "forge_app_1",
+        service: "app",
+        state: "running",
+        status: "Up 41 hours",
+        ports: "",
+      },
+    ]);
   });
 });
 

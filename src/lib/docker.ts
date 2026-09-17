@@ -2,7 +2,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { existsSync } from "fs";
 import { join } from "path";
-import { getDiscoveredComposeContainers } from "@/lib/container-discovery";
+import { scanRunningComposeContainers } from "@/lib/container-discovery";
 import { dockerExecEnv } from "@/lib/docker-runtime";
 import { resolveClonePath } from "@/lib/paths";
 
@@ -152,6 +152,12 @@ export async function getComposeContainerStatus(
   repoPath: string,
   composeProjectSlug: string,
 ): Promise<ContainerInfo[]> {
+  const byProject = await scanRunningComposeContainers();
+  const live = byProject.get(composeProjectSlug) ?? [];
+  if (live.length > 0) {
+    return live;
+  }
+
   const resolvedPath = resolveClonePath(repoPath);
   const composeFile = existsSync(resolvedPath)
     ? findComposeFile(resolvedPath)
@@ -172,11 +178,11 @@ export async function getComposeContainerStatus(
         return fromCompose;
       }
     } catch {
-      // Fall back to the startup container scan.
+      // Podman ps is authoritative; compose ps is only a fallback.
     }
   }
 
-  return getDiscoveredComposeContainers(composeProjectSlug);
+  return live;
 }
 
 export async function stopComposeProject(
