@@ -14,27 +14,45 @@ type PsRecord = Record<string, unknown>;
 
 let discoveredByComposeProject = new Map<string, ContainerInfo[]>();
 
+const SCAN_TTL_MS = 3_000;
+let scanCache: { at: number; value: Map<string, ContainerInfo[]> } | null = null;
+
+/** Podman `docker ps --format json` emits Labels as `k=v,k=v`; Docker Engine uses an object. */
+export function parseComposeLabels(labels: unknown): Record<string, string> {
+  if (!labels) return {};
+  if (typeof labels === "string") {
+    const map: Record<string, string> = {};
+    for (const part of labels.split(",")) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const eq = trimmed.indexOf("=");
+      if (eq <= 0) continue;
+      map[trimmed.slice(0, eq)] = trimmed.slice(eq + 1);
+    }
+    return map;
+  }
+  if (typeof labels === "object" && !Array.isArray(labels)) {
+    const map: Record<string, string> = {};
+    for (const [key, value] of Object.entries(labels as Record<string, unknown>)) {
+      if (typeof value === "string") map[key] = value;
+    }
+    return map;
+  }
+  return {};
+}
+
 function composeProjectFromLabels(labels: unknown): string | null {
-  if (!labels || typeof labels !== "object") return null;
-  const map = labels as Record<string, string>;
-  return (
-    map["com.docker.compose.project"] ??
-    map["io.podman.compose.project"] ??
-    null
-  );
+  const map = parseComposeLabels(labels);
+  return map["com.docker.compose.project"] ?? map["io.podman.compose.project"] ?? null;
 }
 
 function composeServiceFromLabels(labels: unknown): string | null {
-  if (!labels || typeof labels !== "object") return null;
-  const map = labels as Record<string, string>;
-  return (
-    map["com.docker.compose.service"] ??
-    map["io.podman.compose.service"] ??
-    null
-  );
+  const map = parseComposeLabels(labels);
+  return map["com.docker.compose.service"] ?? map["io.podman.compose.service"] ?? null;
 }
 
 function formatPsPorts(ports: unknown): string {
+  if (typeof ports === "string") return ports;
   if (!Array.isArray(ports)) return "";
 
   return ports
@@ -58,12 +76,15 @@ export function normalizeDockerPsRecord(record: PsRecord): ContainerInfo | null 
   if (!composeProject) return null;
 
   const namesField = record.Names;
+  const nameField = record.Name;
   const name =
-    typeof record.Name === "string"
-      ? record.Name
-      : Array.isArray(namesField) && typeof namesField[0] === "string"
-        ? namesField[0]
-        : "unknown";
+    typeof nameField === "string" && nameField
+      ? nameField
+      : typeof namesField === "string" && namesField
+        ? namesField
+        : Array.isArray(namesField) && typeof namesField[0] === "string"
+          ? namesField[0]
+          : "unknown";
 
   const service =
     typeof record.Service === "string"
@@ -152,11 +173,17 @@ export function setDiscoveredComposeContainers(
   byProject: Map<string, ContainerInfo[]>,
 ): void {
   discoveredByComposeProject = new Map(byProject);
+  scanCache = null;
 }
 
 export async function scanRunningComposeContainers(): Promise<
   Map<string, ContainerInfo[]>
 > {
+  const now = Date.now();
+  if (scanCache && now - scanCache.at < SCAN_TTL_MS) {
+    return scanCache.value;
+  }
+
   await ensureDockerDaemon();
   try {
     const { stdout } = await execFileAsync(
@@ -164,8 +191,14 @@ export async function scanRunningComposeContainers(): Promise<
       ["ps", "-a", "--format", "json"],
       { maxBuffer: 10 * 1024 * 1024, env: dockerExecEnv() },
     );
-    return groupComposeContainersByProject(parseDockerPsJson(stdout));
+    const grouped = groupComposeContainersByProject(parseDockerPsJson(stdout));
+    discoveredByComposeProject = grouped;
+    scanCache = { at: now, value: grouped };
+    return grouped;
   } catch {
+    if (discoveredByComposeProject.size > 0) {
+      return discoveredByComposeProject;
+    }
     return new Map();
   }
 }
