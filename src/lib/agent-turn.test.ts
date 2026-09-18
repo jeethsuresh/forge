@@ -220,16 +220,16 @@ describe("isAgentTurnComplete", () => {
 });
 
 describe("isStuckActiveSession", () => {
-  it("detects a turn left incomplete in running state", () => {
+  it("does not fail a running turn just because the per-turn container is gone", () => {
     expect(
       isStuckActiveSession({
         status: "running",
         failedTurnStartSeq: 3,
         hasActiveRuntime: false,
-        projectMarkedActive: true,
+        projectMarkedActive: false,
         turnIncomplete: true,
       }),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("allows idle running sessions between turns", () => {

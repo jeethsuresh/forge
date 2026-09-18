@@ -6,6 +6,7 @@ import {
   type AgentKillReason,
 } from "@/lib/db/schema";
 import {
+  inspectAgentContainerState,
   removeAgentContainer,
   setAgentContainerKillReason,
   stopAgentContainer,
@@ -194,6 +195,13 @@ export async function evaluateAgentKillPolicy(
 
     const reason = reasonForAgentKill(container, now);
     if (!reason) continue;
+
+    if (reason === "heartbeat_miss" || reason === "idle_timeout") {
+      const state = await inspectAgentContainerState(container.sessionId);
+      // Only kill when inspect confirms the container is gone. Unknown/up means
+      // Ops or Podman blipped, not that the agent died.
+      if (state.running !== false) continue;
+    }
 
     verdicts.push({ sessionId: container.sessionId, reason });
     await applyAgentKill(container.sessionId, reason);

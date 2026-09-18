@@ -85,6 +85,10 @@ describe("agent-runner container runtime", () => {
       .where(eq(agentContainers.sessionId, sessionId))
       .get();
     expect(row?.containerId).toBe("containercid");
-    expect(isAgentProcessRunning(sessionId)).toBe(false);
+    expect(isAgentProcessRunning(sessionId)).toBe(true);
+
+    db.delete(agentContainers).where(eq(agentContainers.sessionId, sessionId)).run();
+    db.delete(agentSessions).where(eq(agentSessions.id, sessionId)).run();
+    db.delete(projects).where(eq(projects.id, projectId)).run();
   });
 });

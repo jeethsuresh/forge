@@ -26,7 +26,7 @@ import {
   isForgeUpdateTerminalStatus,
 } from "@/lib/ops-session-deploy";
 import {
-  agentContainerIsRunning,
+  inspectAgentContainerState,
   removeAgentContainer,
   setAgentContainerKillReason,
 } from "@/lib/agent-container";
@@ -324,8 +324,8 @@ export async function reconcileMissingAgentContainers(
     }
     if (session.archivedAt || session.completedAt) continue;
 
-    const running = await agentContainerIsRunning(session.id);
-    if (running) continue;
+    const state = await inspectAgentContainerState(session.id);
+    if (state.running !== false) continue;
 
     const message =
       "Agent container missing from runtime; session failed by reconcile";

@@ -171,8 +171,7 @@ export function shouldFailStoppedContainer(input: {
   }
   if (input.killReason) return true;
   if (input.sessionStatus === "deploying") return false;
-  if (input.sessionStatus === "running" && !input.turnIncomplete) return false;
+  if (input.sessionStatus === "running") return false;
   if (input.sessionStatus === "pending") return true;
-  if (input.sessionStatus === "running" && input.turnIncomplete) return true;
   return false;
 }

@@ -152,6 +152,55 @@ describe("agent heartbeat kill policy", () => {
     );
   });
 
+  it("does not kill a heartbeat-miss container that is still running", async () => {
+    const startedAt = new Date(Date.now() - 60_000);
+    const { sessionId } = seedRunningContainer({
+      startedAt,
+      lastHeartbeatAt: startedAt,
+      lastActivityAt: new Date(),
+      deadlineAt: new Date(Date.now() + AGENT_WALL_CLOCK_MS),
+    });
+
+    setAgentContainerDockerRunner(async () => ({ stdout: "true 0\n", stderr: "" }));
+
+    const verdicts = await evaluateAgentKillPolicy(new Date());
+    expect(verdicts.some((v) => v.sessionId === sessionId)).toBe(false);
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    expect(session?.status).toBe("running");
+    expect(session?.errorMessage).toBeNull();
+  });
+
+  it("does not kill when docker inspect cannot determine liveness", async () => {
+    const startedAt = new Date(Date.now() - 60_000);
+    const { sessionId } = seedRunningContainer({
+      startedAt,
+      lastHeartbeatAt: startedAt,
+      lastActivityAt: new Date(),
+      deadlineAt: new Date(Date.now() + AGENT_WALL_CLOCK_MS),
+    });
+
+    setAgentContainerDockerRunner(async () => {
+      throw new Error("Cannot connect to Podman");
+    });
+
+    const verdicts = await evaluateAgentKillPolicy(new Date());
+    expect(verdicts.some((v) => v.sessionId === sessionId && v.reason === "heartbeat_miss")).toBe(
+      false,
+    );
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    expect(session?.status).toBe("running");
+  });
+
   it("evaluateAgentKillPolicy fails session on heartbeat miss", async () => {
     const startedAt = new Date(Date.now() - 60_000);
     const { sessionId } = seedRunningContainer({
