@@ -33,7 +33,7 @@ describe("shouldFailStoppedContainer", () => {
     ).toBe(false);
   });
 
-  it("fails incomplete running turns and killReason stops", () => {
+  it("does not fail an incomplete running turn whose container exited without a kill reason", () => {
     expect(
       shouldFailStoppedContainer({
         sessionStatus: "running",
@@ -41,7 +41,10 @@ describe("shouldFailStoppedContainer", () => {
         killReason: null,
         turnIncomplete: true,
       }),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("fails when the kill policy actually stopped the container", () => {
     expect(
       shouldFailStoppedContainer({
         sessionStatus: "deploying",

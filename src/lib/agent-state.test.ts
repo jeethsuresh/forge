@@ -50,7 +50,7 @@ describe("reconcileProjectAgentSessions", () => {
     db.delete(projects).where(eq(projects.id, projectId)).run();
   });
 
-  it("marks incomplete running turns failed when no in-memory agent is active", () => {
+  it("keeps incomplete running turns alive when the per-turn container is gone", () => {
     const now = new Date();
     const startedAt = new Date(now.getTime() - 10 * 60 * 1000);
     db.insert(agentSessions)
@@ -76,18 +76,17 @@ describe("reconcileProjectAgentSessions", () => {
       .run();
 
     const count = reconcileProjectAgentSessions(projectId);
-    expect(count).toBe(1);
+    expect(count).toBe(0);
 
     const session = db
       .select()
       .from(agentSessions)
       .where(eq(agentSessions.id, sessionId))
       .get();
-    expect(session?.status).toBe("failed");
-    expect(session?.errorMessage).toBe("Agent session interrupted");
-    expect(session?.completedAt).not.toBeNull();
-    expect(isAgentSessionActive(projectId)).toBe(false);
-    expect(getBlockingAgentSession(projectId)).toBeNull();
+    expect(session?.status).toBe("running");
+    expect(session?.errorMessage).toBeNull();
+    expect(isAgentSessionActive(projectId)).toBe(true);
+    expect(getBlockingAgentSession(projectId)?.id).toBe(sessionId);
   });
 
   it("completes finished running sessions so deploys are not blocked", () => {
@@ -188,7 +187,7 @@ describe("reconcileProjectAgentSessions", () => {
     expect(getBlockingAgentSession(projectId)).toBeNull();
   });
 
-  it("still fails incomplete recovery turns when no in-memory agent is active", () => {
+  it("keeps incomplete recovery turns running so a follow-up message can continue", () => {
     const now = new Date();
     const startedAt = new Date(now.getTime() - 10 * 60 * 1000);
     db.insert(agentSessions)
@@ -215,16 +214,16 @@ describe("reconcileProjectAgentSessions", () => {
       .run();
 
     const count = reconcileProjectAgentSessions(projectId);
-    expect(count).toBe(1);
+    expect(count).toBe(0);
 
     const session = db
       .select()
       .from(agentSessions)
       .where(eq(agentSessions.id, sessionId))
       .get();
-    expect(session?.status).toBe("failed");
-    expect(session?.errorMessage).toBe("Agent session interrupted");
-    expect(isAgentSessionActive(projectId)).toBe(false);
+    expect(session?.status).toBe("running");
+    expect(session?.errorMessage).toBeNull();
+    expect(isAgentSessionActive(projectId)).toBe(true);
   });
 
   it("does not overwrite a reactivated session when applying an old deployment outcome", () => {
@@ -464,7 +463,7 @@ describe("reconcileProjectAgentSessions", () => {
     expect(session?.errorMessage).toBeNull();
   });
 
-  it("keeps a live-container session running when a sibling on the same project is orphaned", () => {
+  it("does not fail a sibling just because its per-turn container is gone", () => {
     const now = new Date();
     const siblingId = randomUUID();
     const staleStart = new Date(now.getTime() - 10 * 60 * 1000);
@@ -515,26 +514,28 @@ describe("reconcileProjectAgentSessions", () => {
       .run();
 
     const count = reconcileProjectAgentSessions(projectId);
-    expect(count).toBe(1);
+    expect(count).toBe(0);
 
     const live = db
       .select()
       .from(agentSessions)
       .where(eq(agentSessions.id, sessionId))
       .get();
-    const orphan = db
+    const sibling = db
       .select()
       .from(agentSessions)
       .where(eq(agentSessions.id, siblingId))
       .get();
     expect(live?.status).toBe("running");
-    expect(orphan?.status).toBe("failed");
-    expect(orphan?.errorMessage).toBe("Agent session interrupted");
+    expect(sibling?.status).toBe("running");
+    expect(sibling?.errorMessage).toBeNull();
     expect(isAgentSessionActive(projectId)).toBe(true);
-    expect(getBlockingAgentSession(projectId)?.id).toBe(sessionId);
+
+    db.delete(agentEvents).where(eq(agentEvents.sessionId, siblingId)).run();
+    db.delete(agentSessions).where(eq(agentSessions.id, siblingId)).run();
   });
 
-  it("fails incomplete running sessions whose agent container is already stopped", () => {
+  it("does not fail incomplete running sessions whose turn container already stopped", () => {
     const now = new Date();
     db.insert(agentSessions)
       .values({
@@ -572,22 +573,15 @@ describe("reconcileProjectAgentSessions", () => {
       .run();
 
     const count = reconcileProjectAgentSessions(projectId);
-    expect(count).toBeGreaterThanOrEqual(1);
+    expect(count).toBe(0);
 
     const session = db
       .select()
       .from(agentSessions)
       .where(eq(agentSessions.id, sessionId))
       .get();
-    expect(session?.status).toBe("failed");
-    expect(session?.errorMessage).toMatch(/container/i);
-
-    const container = db
-      .select()
-      .from(agentContainers)
-      .where(eq(agentContainers.sessionId, sessionId))
-      .get();
-    expect(container?.killReason).toBe("reconcile_missing");
+    expect(session?.status).toBe("running");
+    expect(session?.errorMessage).toBeNull();
   });
 
   it("does not fail deploying sessions whose container was removed after a successful turn", () => {

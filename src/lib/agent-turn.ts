@@ -123,18 +123,14 @@ export function sessionHasLiveRuntime(input: LiveRuntimeInput): boolean {
 
 /** Detect sessions stuck active in DB after the agent runtime has ended. */
 export function isStuckActiveSession(input: StuckSessionInput): boolean {
-  const {
-    status,
-    projectMarkedActive,
-    turnIncomplete = false,
-  } = input;
+  const { status, projectMarkedActive } = input;
   const hasActiveRuntime = input.hasActiveRuntime ?? input.hasActiveProcess ?? false;
 
   if (hasActiveRuntime) return false;
 
-  if (status === "running" && turnIncomplete) {
-    return true;
-  }
+  // Per-turn containers exit on purpose (question, CLI finish, Forge restart).
+  // Running sessions stay running so the user can send a follow-up.
+  if (status === "running") return false;
 
   if (status === "pending" && !projectMarkedActive) {
     return true;

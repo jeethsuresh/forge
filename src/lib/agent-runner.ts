@@ -16,7 +16,7 @@ import {
   canRetryFailedAgentTurn,
   failedTurnEventSeq,
   isAgentTurnComplete,
-  isStuckActiveSession,
+  sessionHasLiveRuntime,
 } from "@/lib/agent-turn";
 import {
   activeAgentProjects,
@@ -77,7 +77,16 @@ export function agentRuntimeMode(): "container" {
 }
 
 export function isAgentRuntimeActive(sessionId: string): boolean {
-  return activeAgentContainers.has(sessionId);
+  if (activeAgentContainers.has(sessionId)) return true;
+  const session = getAgentSession(sessionId);
+  if (!session) return false;
+  const container = getAgentContainer(sessionId);
+  return sessionHasLiveRuntime({
+    containerStatus: container?.status ?? null,
+    lastHeartbeatAt: container?.lastHeartbeatAt ?? null,
+    lastActivityAt: container?.lastActivityAt ?? null,
+    sessionStartedAt: session.startedAt,
+  });
 }
 
 export async function stopAgentRuntime(sessionId: string): Promise<void> {
@@ -393,6 +402,9 @@ export async function finalizeSessionAfterSuccessfulTurn(
   const afterTurn = getAgentSession(sessionId);
   if (!afterTurn || TERMINAL_STATUSES.includes(afterTurn.status)) return;
 
+  const events = getAllAgentEventsAfter(sessionId, 0);
+  if (!isAgentTurnComplete(events)) return;
+
   await maybeAutoFinishSessionIfNoEdits(sessionId, projectId);
   const refreshed = getAgentSession(sessionId);
   if (!refreshed || TERMINAL_STATUSES.includes(refreshed.status)) {
@@ -431,50 +443,8 @@ export async function finalizeSessionAfterSuccessfulTurn(
 }
 
 export function reconcileStuckAgentSession(sessionId: string) {
-  const session = getAgentSession(sessionId);
-  if (!session) return undefined;
-
-  const events = getAllAgentEventsAfter(sessionId, 0);
-  const turnIncomplete =
-    session.status === "running" && !isAgentTurnComplete(events);
-
-  const stuck = isStuckActiveSession({
-    status: session.status,
-    failedTurnStartSeq: session.failedTurnStartSeq,
-    hasActiveRuntime: isAgentRuntimeActive(sessionId),
-    projectMarkedActive: activeAgentProjects.has(session.projectId),
-    turnIncomplete,
-  });
-
-  if (!stuck) return session;
-
-  const message =
-    session.status === "pending"
-      ? "Agent session did not start (server may have restarted)"
-      : "Agent process ended unexpectedly";
-
-  appendSessionLog(sessionId, `ERROR: ${message}`);
-
-  let failedTurnStartSeq = session.failedTurnStartSeq;
-  if (failedTurnStartSeq == null) {
-    for (let i = events.length - 1; i >= 0; i--) {
-      if (events[i]!.eventType === "user") {
-        failedTurnStartSeq = events[i]!.seq;
-        break;
-      }
-    }
-  }
-
-  db.update(agentSessions)
-    .set({
-      status: "failed",
-      errorMessage: message,
-      completedAt: new Date(),
-      failedTurnStartSeq,
-    })
-    .where(eq(agentSessions.id, sessionId))
-    .run();
-  activeAgentProjects.delete(session.projectId);
+  // Read-only. GET/SSE/list used to fail sessions here from an in-memory Set
+  // and produced "Agent process ended unexpectedly" while the agent was working.
   return getAgentSession(sessionId);
 }
 

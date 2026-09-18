@@ -369,20 +369,68 @@ export async function startAgentContainer(
 export async function waitForAgentContainerExit(
   sessionId: string,
 ): Promise<number> {
+  const name = agentContainerName(sessionId);
+
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const row = db
+      .select()
+      .from(agentContainers)
+      .where(eq(agentContainers.sessionId, sessionId))
+      .get();
+    const target = row?.containerId || name;
+
+    try {
+      const { stdout } = await runDocker(["wait", target]);
+      const code = Number.parseInt(stdout.trim(), 10);
+      return Number.isFinite(code) ? code : 0;
+    } catch {
+      const state = await inspectAgentContainerState(sessionId);
+      if (state.running === true) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        continue;
+      }
+      if (typeof state.exitCode === "number") return state.exitCode;
+      if (state.running === false) return 0;
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+  }
+
+  return 0;
+}
+
+export type AgentContainerInspectState = {
+  running: boolean | null;
+  exitCode: number | null;
+};
+
+export async function inspectAgentContainerState(
+  sessionId: string,
+): Promise<AgentContainerInspectState> {
   const row = db
     .select()
     .from(agentContainers)
     .where(eq(agentContainers.sessionId, sessionId))
     .get();
-  const name = agentContainerName(sessionId);
-  const target = row?.containerId || name;
+  if (!row || row.status === "removed" || row.status === "stopped") {
+    return { running: false, exitCode: null };
+  }
 
+  const name = agentContainerName(sessionId);
   try {
-    const { stdout } = await runDocker(["wait", target]);
-    const code = Number.parseInt(stdout.trim(), 10);
-    return Number.isFinite(code) ? code : 1;
+    const { stdout } = await runDocker([
+      "inspect",
+      "-f",
+      "{{.State.Running}} {{.State.ExitCode}}",
+      row.containerId || name,
+    ]);
+    const [runningStr, codeStr] = stdout.trim().split(/\s+/);
+    const exitCode = Number.parseInt(codeStr ?? "", 10);
+    return {
+      running: runningStr?.toLowerCase() === "true",
+      exitCode: Number.isFinite(exitCode) ? exitCode : null,
+    };
   } catch {
-    return 1;
+    return { running: null, exitCode: null };
   }
 }
 
@@ -445,27 +493,8 @@ export async function removeAgentContainer(sessionId: string): Promise<void> {
 export async function agentContainerIsRunning(
   sessionId: string,
 ): Promise<boolean> {
-  const row = db
-    .select()
-    .from(agentContainers)
-    .where(eq(agentContainers.sessionId, sessionId))
-    .get();
-  if (!row || row.status === "removed" || row.status === "stopped") {
-    return false;
-  }
-
-  const name = agentContainerName(sessionId);
-  try {
-    const { stdout } = await runDocker([
-      "inspect",
-      "-f",
-      "{{.State.Running}}",
-      row.containerId || name,
-    ]);
-    return stdout.trim().toLowerCase() === "true";
-  } catch {
-    return false;
-  }
+  const state = await inspectAgentContainerState(sessionId);
+  return state.running === true;
 }
 
 export function setAgentContainerKillReason(

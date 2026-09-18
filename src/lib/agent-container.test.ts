@@ -12,6 +12,7 @@ import {
   startAgentContainer,
   stopAgentContainer,
   removeAgentContainer,
+  waitForAgentContainerExit,
 } from "@/lib/agent-container";
 
 function seedSession(): { projectId: string; sessionId: string } {
@@ -364,5 +365,36 @@ describe("agent container lifecycle", () => {
       .where(eq(agentContainers.sessionId, sessionId))
       .get();
     expect(row?.status).toBe("removed");
+  });
+
+  it("does not treat a docker wait CLI failure as exit code 1 while the container is running", async () => {
+    const { projectId, sessionId } = seedSession();
+    db.insert(agentContainers)
+      .values({
+        sessionId,
+        containerId: "cid-wait",
+        image: "forge-agent:latest",
+        status: "running",
+        startedAt: new Date(),
+        deadlineAt: new Date(Date.now() + 60_000),
+      })
+      .run();
+
+    let waits = 0;
+    setAgentContainerDockerRunner(async (args) => {
+      if (args[0] === "wait") {
+        waits += 1;
+        if (waits === 1) throw new Error("wait: connection reset");
+        return { stdout: "0\n", stderr: "" };
+      }
+      if (args[0] === "inspect") return { stdout: "true 0\n", stderr: "" };
+      return { stdout: "", stderr: "" };
+    });
+
+    await expect(waitForAgentContainerExit(sessionId)).resolves.toBe(0);
+
+    db.delete(agentContainers).where(eq(agentContainers.sessionId, sessionId)).run();
+    db.delete(agentSessions).where(eq(agentSessions.id, sessionId)).run();
+    db.delete(projects).where(eq(projects.id, projectId)).run();
   });
 });
