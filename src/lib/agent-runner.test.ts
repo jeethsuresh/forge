@@ -96,3 +96,24 @@ describe("reconcileStuckAgentSession", () => {
     expect(listed[0]?.errorMessage).toBeNull();
   });
 });
+
+describe("joinOrRunAgentTurn", () => {
+  it("joins a second caller onto the in-flight turn instead of starting another", async () => {
+    const { joinOrRunAgentTurn } = await import("@/lib/agent-runner");
+    let runs = 0;
+    const sessionId = randomUUID();
+    const run = async () => {
+      runs += 1;
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    };
+
+    const [a, b] = await Promise.all([
+      joinOrRunAgentTurn(sessionId, run),
+      joinOrRunAgentTurn(sessionId, run),
+    ]);
+
+    expect(runs).toBe(1);
+    expect(a).toBe("ran");
+    expect(b).toBe("joined");
+  });
+});

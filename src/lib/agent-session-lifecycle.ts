@@ -37,6 +37,7 @@ import {
   finalizeSessionAfterFailedTurn,
   finalizeSessionAfterSuccessfulTurn,
   isAgentRuntimeActive,
+  joinOrRunAgentTurn,
   reactivateFailedSession,
   reactivateSession,
   runAgentTurn,
@@ -554,15 +555,18 @@ export async function sendAgentMessage(
 
   const log = (msg: string) => appendSessionLog(sessionId, msg);
   try {
-    await prepareAgentWorkspace(
-      projectRemoteUrl(project),
-      project.branch,
-      project.clonePath,
-      session.branch,
-      log,
-    );
-    await runAgentTurn(sessionId, project, prompt.trim());
-    await finalizeSessionAfterSuccessfulTurn(sessionId, session.projectId);
+    const outcome = await joinOrRunAgentTurn(sessionId, async () => {
+      await prepareAgentWorkspace(
+        projectRemoteUrl(project),
+        project.branch,
+        project.clonePath,
+        session.branch,
+        log,
+      );
+      await runAgentTurn(sessionId, project, prompt.trim());
+      await finalizeSessionAfterSuccessfulTurn(sessionId, session.projectId);
+    });
+    if (outcome === "joined") return;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     finalizeSessionAfterFailedTurn(sessionId, session.projectId, message);
