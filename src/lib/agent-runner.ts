@@ -84,8 +84,7 @@ export async function joinOrRunAgentTurn(
     return "joined";
   }
 
-  let pending: Promise<void>;
-  pending = run().finally(() => {
+  const pending = run().finally(() => {
     if (agentTurnsInFlight.get(sessionId) === pending) {
       agentTurnsInFlight.delete(sessionId);
     }

@@ -462,8 +462,7 @@ export async function startAgentContainer(
   const existing = startAgentContainerInflight.get(opts.sessionId);
   if (existing) return existing;
 
-  let started: Promise<{ containerId: string }>;
-  started = startAgentContainerUnlocked(opts).finally(() => {
+  const started = startAgentContainerUnlocked(opts).finally(() => {
     if (startAgentContainerInflight.get(opts.sessionId) === started) {
       startAgentContainerInflight.delete(opts.sessionId);
     }
