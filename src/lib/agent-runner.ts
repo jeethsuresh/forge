@@ -71,6 +71,29 @@ export const cancelledSessions = new Set<string>();
 export const endedSessions = new Set<string>();
 const deploymentPollTimers = new Map<string, NodeJS.Timeout>();
 const deploymentPollActive = new Set<string>();
+const agentTurnsInFlight = new Map<string, Promise<void>>();
+
+/** Join an in-flight turn for this session instead of starting a second container. */
+export async function joinOrRunAgentTurn(
+  sessionId: string,
+  run: () => Promise<void>,
+): Promise<"ran" | "joined"> {
+  const existing = agentTurnsInFlight.get(sessionId);
+  if (existing) {
+    await existing;
+    return "joined";
+  }
+
+  let pending: Promise<void>;
+  pending = run().finally(() => {
+    if (agentTurnsInFlight.get(sessionId) === pending) {
+      agentTurnsInFlight.delete(sessionId);
+    }
+  });
+  agentTurnsInFlight.set(sessionId, pending);
+  await pending;
+  return "ran";
+}
 
 export function agentRuntimeMode(): "container" {
   return "container";
@@ -855,21 +878,23 @@ export async function executeAgentTurn(
 
   const log = (msg: string) => appendSessionLog(sessionId, msg);
 
-  try {
-    await prepareAgentWorkspace(
-      projectRemoteUrl(project),
-      project.branch,
-      options?.workspacePath ?? project.clonePath,
-      session.branch,
-      log,
-    );
+  await joinOrRunAgentTurn(sessionId, async () => {
+    try {
+      await prepareAgentWorkspace(
+        projectRemoteUrl(project),
+        project.branch,
+        options?.workspacePath ?? project.clonePath,
+        session.branch,
+        log,
+      );
 
-    await runAgentTurn(sessionId, project, prompt, options?.workspacePath);
-    await finalizeSessionAfterSuccessfulTurn(sessionId, projectId);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    finalizeSessionAfterFailedTurn(sessionId, projectId, message);
-  }
+      await runAgentTurn(sessionId, project, prompt, options?.workspacePath);
+      await finalizeSessionAfterSuccessfulTurn(sessionId, projectId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      finalizeSessionAfterFailedTurn(sessionId, projectId, message);
+    }
+  });
 }
 
 export function listAgentSessions(projectId: string) {

@@ -97,6 +97,44 @@ function runDocker(args: string[]): Promise<DockerRunResult> {
   });
 }
 
+const startAgentContainerInflight = new Map<
+  string,
+  Promise<{ containerId: string }>
+>();
+
+type NamedContainerState = {
+  id: string;
+  running: boolean;
+  exitCode: number;
+};
+
+async function inspectNamedContainer(
+  name: string,
+): Promise<NamedContainerState | null> {
+  try {
+    const { stdout } = await runDocker([
+      "inspect",
+      "-f",
+      "{{.Id}} {{.State.Running}} {{.State.ExitCode}}",
+      name,
+    ]);
+    const parts = stdout.trim().split(/\s+/);
+    if (parts.length < 2) return null;
+    const [idRaw, runningStr, codeStr] = parts;
+    const runningToken = runningStr.toLowerCase();
+    if (runningToken !== "true" && runningToken !== "false") return null;
+    if (!idRaw) return null;
+    const exitCode = Number.parseInt(codeStr ?? "", 10);
+    return {
+      id: idRaw.replace(/^sha256:/, "").slice(0, 64),
+      running: runningToken === "true",
+      exitCode: Number.isFinite(exitCode) ? exitCode : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function resolveCursorAgentBinInMount(agentDir: string): string {
   const cursorAgent = join(agentDir, "cursor-agent");
   if (existsSync(cursorAgent)) return "/opt/cursor-agent/cursor-agent";
@@ -353,7 +391,7 @@ function upsertContainerRow(input: {
     .run();
 }
 
-export async function startAgentContainer(
+async function startAgentContainerUnlocked(
   opts: StartAgentContainerOpts,
 ): Promise<{ containerId: string }> {
   const image = opts.image?.trim() || DEFAULT_AGENT_IMAGE;
@@ -366,14 +404,43 @@ export async function startAgentContainer(
   assertNoDockerSockMount(args);
 
   const name = agentContainerName(opts.sessionId);
-  try {
-    await runDocker(["rm", "-f", name]);
-  } catch {
-    // Missing leftover is fine; name collisions are not.
+  const live = await inspectNamedContainer(name);
+  if (live?.running) {
+    const existing = getAgentContainer(opts.sessionId);
+    if (existing) {
+      db.update(agentContainers)
+        .set({
+          containerId: live.id,
+          image,
+          status: "running",
+        })
+        .where(eq(agentContainers.sessionId, opts.sessionId))
+        .run();
+    } else {
+      const startedAt = new Date();
+      upsertContainerRow({
+        sessionId: opts.sessionId,
+        containerId: live.id,
+        image,
+        status: "running",
+        startedAt,
+        deadlineAt: new Date(startedAt.getTime() + AGENT_WALL_CLOCK_MS),
+      });
+    }
+    return { containerId: live.id };
+  }
+
+  if (live) {
+    try {
+      await runDocker(["rm", "-f", name]);
+    } catch {
+      // Stopped leftover must not block a new run.
+    }
   }
 
   const { stdout } = await runDocker(args);
-  const containerId = stdout.trim().slice(0, 64) || agentContainerName(opts.sessionId);
+  const containerId =
+    stdout.trim().slice(0, 64) || agentContainerName(opts.sessionId);
   const startedAt = new Date();
   const deadlineAt = new Date(startedAt.getTime() + AGENT_WALL_CLOCK_MS);
 
@@ -387,6 +454,22 @@ export async function startAgentContainer(
   });
 
   return { containerId };
+}
+
+export async function startAgentContainer(
+  opts: StartAgentContainerOpts,
+): Promise<{ containerId: string }> {
+  const existing = startAgentContainerInflight.get(opts.sessionId);
+  if (existing) return existing;
+
+  let started: Promise<{ containerId: string }>;
+  started = startAgentContainerUnlocked(opts).finally(() => {
+    if (startAgentContainerInflight.get(opts.sessionId) === started) {
+      startAgentContainerInflight.delete(opts.sessionId);
+    }
+  });
+  startAgentContainerInflight.set(opts.sessionId, started);
+  return started;
 }
 
 export async function waitForAgentContainerExit(
@@ -405,7 +488,23 @@ export async function waitForAgentContainerExit(
     try {
       const { stdout } = await runDocker(["wait", target]);
       const code = Number.parseInt(stdout.trim(), 10);
-      return Number.isFinite(code) ? code : 0;
+      const exitCode = Number.isFinite(code) ? code : 0;
+      // SIGTERM (143) is how docker rm -f / stop kills a container. If a
+      // replacement for this session is already running, wait on that instead
+      // of failing the turn.
+      if (exitCode === 143) {
+        const live = await inspectNamedContainer(name);
+        if (live?.running) {
+          try {
+            const waited = await runDocker(["wait", live.id]);
+            const next = Number.parseInt(waited.stdout.trim(), 10);
+            return Number.isFinite(next) ? next : 0;
+          } catch {
+            continue;
+          }
+        }
+      }
+      return exitCode;
     } catch {
       const state = await inspectAgentContainerState(sessionId);
       if (state.running === true) {

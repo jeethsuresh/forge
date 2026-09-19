@@ -337,7 +337,7 @@ describe("agent container lifecycle", () => {
     expect(row?.killReason).toBeNull();
   });
 
-  it("removes a leftover container with the same name before docker run", async () => {
+  it("reuses a running container with the same name instead of docker rm -f", async () => {
     const { sessionId, projectId } = seedSession();
     const name = agentContainerName(sessionId);
     const seen: string[][] = [];
@@ -345,6 +345,51 @@ describe("agent container lifecycle", () => {
     setAgentContainerDockerRunner(async (args) => {
       seen.push([...args]);
       if (args[0] === "image") return { stdout: "[]\n", stderr: "" };
+      if (args[0] === "inspect" && args.includes("-f")) {
+        return { stdout: "livecid123 true 0\n", stderr: "" };
+      }
+      if (args[0] === "rm") {
+        throw new Error("docker rm -f on a running agent sends SIGTERM (exit 143)");
+      }
+      if (args[0] === "run") {
+        throw new Error("should not docker run while the session container is live");
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    const result = await startAgentContainer({
+      sessionId,
+      projectId,
+      branch: "agent/feat",
+      cloneUrl: "https://github.com/owner/repo.git",
+      opsBaseUrl: "http://127.0.0.1:3456",
+      opsToken: "fos.test.token",
+    });
+
+    expect(result.containerId).toBe("livecid123");
+    expect(seen.some((a) => a[0] === "rm")).toBe(false);
+    expect(seen.some((a) => a[0] === "run")).toBe(false);
+    expect(seen.some((a) => a[0] === "inspect" && a.includes(name))).toBe(true);
+    const row = db
+      .select()
+      .from(agentContainers)
+      .where(eq(agentContainers.sessionId, sessionId))
+      .get();
+    expect(row?.containerId).toBe("livecid123");
+    expect(row?.status).toBe("running");
+  });
+
+  it("removes a leftover stopped container with the same name before docker run", async () => {
+    const { sessionId, projectId } = seedSession();
+    const name = agentContainerName(sessionId);
+    const seen: string[][] = [];
+
+    setAgentContainerDockerRunner(async (args) => {
+      seen.push([...args]);
+      if (args[0] === "image") return { stdout: "[]\n", stderr: "" };
+      if (args[0] === "inspect" && args.includes("-f")) {
+        return { stdout: "oldcid false 143\n", stderr: "" };
+      }
       if (args[0] === "rm") return { stdout: "", stderr: "" };
       if (args[0] === "run") {
         if (!seen.some((a) => a[0] === "rm" && a.includes(name))) {
@@ -373,6 +418,45 @@ describe("agent container lifecycle", () => {
     const runAt = seen.findIndex((a) => a[0] === "run");
     expect(rmAt).toBeGreaterThanOrEqual(0);
     expect(runAt).toBeGreaterThan(rmAt);
+  });
+
+  it("joins concurrent startAgentContainer calls so only one docker run happens", async () => {
+    const { sessionId, projectId } = seedSession();
+    let runs = 0;
+    let inspectAfterRun = false;
+
+    setAgentContainerDockerRunner(async (args) => {
+      if (args[0] === "image") return { stdout: "[]\n", stderr: "" };
+      if (args[0] === "inspect" && args.includes("-f")) {
+        if (inspectAfterRun) return { stdout: "cid-once true 0\n", stderr: "" };
+        throw new Error("Error: no such container");
+      }
+      if (args[0] === "rm") return { stdout: "", stderr: "" };
+      if (args[0] === "run") {
+        runs += 1;
+        await new Promise((resolve) => setTimeout(resolve, 40));
+        inspectAfterRun = true;
+        return { stdout: "cid-once\n", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    const opts = {
+      sessionId,
+      projectId,
+      branch: "agent/feat",
+      cloneUrl: "https://github.com/owner/repo.git",
+      opsBaseUrl: "http://127.0.0.1:3456",
+      opsToken: "fos.test.token",
+    };
+    const [a, b] = await Promise.all([
+      startAgentContainer(opts),
+      startAgentContainer(opts),
+    ]);
+
+    expect(runs).toBe(1);
+    expect(a.containerId).toBe("cid-once");
+    expect(b.containerId).toBe("cid-once");
   });
 
   it("does not leak agent env secrets when docker run fails", async () => {
@@ -438,7 +522,7 @@ describe("agent container lifecycle", () => {
     await stopAgentContainer(sessionId);
     await removeAgentContainer(sessionId);
 
-    expect(commands).toEqual(["image", "rm", "run", "stop", "rm"]);
+    expect(commands).toEqual(["image", "inspect", "run", "stop", "rm"]);
     const row = db
       .select()
       .from(agentContainers)
@@ -472,6 +556,40 @@ describe("agent container lifecycle", () => {
     });
 
     await expect(waitForAgentContainerExit(sessionId)).resolves.toBe(0);
+
+    db.delete(agentContainers).where(eq(agentContainers.sessionId, sessionId)).run();
+    db.delete(agentSessions).where(eq(agentSessions.id, sessionId)).run();
+    db.delete(projects).where(eq(projects.id, projectId)).run();
+  });
+
+  it("keeps waiting after exit 143 when the session container is still running", async () => {
+    const { projectId, sessionId } = seedSession();
+    db.insert(agentContainers)
+      .values({
+        sessionId,
+        containerId: "cid-old",
+        image: "forge-agent:latest",
+        status: "running",
+        startedAt: new Date(),
+        deadlineAt: new Date(Date.now() + 60_000),
+      })
+      .run();
+
+    let waits = 0;
+    setAgentContainerDockerRunner(async (args) => {
+      if (args[0] === "wait") {
+        waits += 1;
+        if (waits === 1) return { stdout: "143\n", stderr: "" };
+        return { stdout: "0\n", stderr: "" };
+      }
+      if (args[0] === "inspect" && args.includes("-f")) {
+        return { stdout: "cid-new true 0\n", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    await expect(waitForAgentContainerExit(sessionId)).resolves.toBe(0);
+    expect(waits).toBeGreaterThanOrEqual(2);
 
     db.delete(agentContainers).where(eq(agentContainers.sessionId, sessionId)).run();
     db.delete(agentSessions).where(eq(agentSessions.id, sessionId)).run();
