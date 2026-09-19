@@ -77,8 +77,24 @@ async function defaultDockerRunner(args: string[]): Promise<DockerRunResult> {
   });
 }
 
+function sanitizeDockerExecError(err: unknown, args: string[]): Error {
+  const raw = err instanceof Error ? err.message : String(err);
+  const verb = args[0] ?? "command";
+  if (/already in use/i.test(raw)) {
+    return new Error(
+      "Failed to start agent container: that name is already in use",
+    );
+  }
+  if (verb === "run") {
+    return new Error("Failed to start agent container");
+  }
+  return new Error(`docker ${verb} failed`);
+}
+
 function runDocker(args: string[]): Promise<DockerRunResult> {
-  return (dockerRunner ?? defaultDockerRunner)(args);
+  return (dockerRunner ?? defaultDockerRunner)(args).catch((err: unknown) => {
+    throw sanitizeDockerExecError(err, args);
+  });
 }
 
 function resolveCursorAgentBinInMount(agentDir: string): string {
@@ -348,6 +364,13 @@ export async function startAgentContainer(
     : opts.workspaceBind;
   const args = buildAgentContainerRunArgs({ ...opts, workspaceBind });
   assertNoDockerSockMount(args);
+
+  const name = agentContainerName(opts.sessionId);
+  try {
+    await runDocker(["rm", "-f", name]);
+  } catch {
+    // Missing leftover is fine; name collisions are not.
+  }
 
   const { stdout } = await runDocker(args);
   const containerId = stdout.trim().slice(0, 64) || agentContainerName(opts.sessionId);
