@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { agentContainers, agentSessions, projects } from "@/lib/db/schema";
 import {
+  agentContainerName,
   assertNoDockerSockMount,
   buildAgentContainerRunArgs,
   mountArgTargetsDockerSock,
@@ -336,6 +337,85 @@ describe("agent container lifecycle", () => {
     expect(row?.killReason).toBeNull();
   });
 
+  it("removes a leftover container with the same name before docker run", async () => {
+    const { sessionId, projectId } = seedSession();
+    const name = agentContainerName(sessionId);
+    const seen: string[][] = [];
+
+    setAgentContainerDockerRunner(async (args) => {
+      seen.push([...args]);
+      if (args[0] === "image") return { stdout: "[]\n", stderr: "" };
+      if (args[0] === "rm") return { stdout: "", stderr: "" };
+      if (args[0] === "run") {
+        if (!seen.some((a) => a[0] === "rm" && a.includes(name))) {
+          throw new Error(
+            `the container name "${name}" is already in use by 0137aaa`,
+          );
+        }
+        return { stdout: "cid-reused\n", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    const result = await startAgentContainer({
+      sessionId,
+      projectId,
+      branch: "agent/feat",
+      cloneUrl: "https://github.com/owner/repo.git",
+      opsBaseUrl: "http://127.0.0.1:3456",
+      opsToken: "fos.test.token",
+    });
+
+    expect(result.containerId).toBe("cid-reused");
+    const rm = seen.find((a) => a[0] === "rm");
+    expect(rm).toEqual(["rm", "-f", name]);
+    const rmAt = seen.findIndex((a) => a[0] === "rm");
+    const runAt = seen.findIndex((a) => a[0] === "run");
+    expect(rmAt).toBeGreaterThanOrEqual(0);
+    expect(runAt).toBeGreaterThan(rmAt);
+  });
+
+  it("does not leak agent env secrets when docker run fails", async () => {
+    const { sessionId, projectId } = seedSession();
+    setAgentContainerDockerRunner(async (args) => {
+      if (args[0] === "image") return { stdout: "[]\n", stderr: "" };
+      if (args[0] === "rm") return { stdout: "", stderr: "" };
+      throw new Error(
+        `Command failed: docker run -d --name x -e FORGE_OPS_API_TOKEN=fos.secret.token -e CURSOR_API_KEY=crsr_secret forge-agent:latest`,
+      );
+    });
+
+    await expect(
+      startAgentContainer({
+        sessionId,
+        projectId,
+        branch: "agent/feat",
+        cloneUrl: "https://github.com/owner/repo.git",
+        opsBaseUrl: "http://127.0.0.1:3456",
+        opsToken: "fos.test.token",
+        cursorApiKey: "crsr_secret",
+      }),
+    ).rejects.toThrow(/Failed to start agent container/);
+
+    try {
+      await startAgentContainer({
+        sessionId,
+        projectId,
+        branch: "agent/feat",
+        cloneUrl: "https://github.com/owner/repo.git",
+        opsBaseUrl: "http://127.0.0.1:3456",
+        opsToken: "fos.test.token",
+        cursorApiKey: "crsr_secret",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      expect(message).not.toMatch(/fos\.secret/);
+      expect(message).not.toMatch(/crsr_secret/);
+      expect(message).not.toMatch(/FORGE_OPS_API_TOKEN=/);
+      expect(message).not.toMatch(/CURSOR_API_KEY=/);
+    }
+  });
+
   it("stop and remove update status via runner", async () => {
     const { projectId, sessionId } = seedSession();
     const commands: string[] = [];
@@ -358,7 +438,7 @@ describe("agent container lifecycle", () => {
     await stopAgentContainer(sessionId);
     await removeAgentContainer(sessionId);
 
-    expect(commands).toEqual(["image", "run", "stop", "rm"]);
+    expect(commands).toEqual(["image", "rm", "run", "stop", "rm"]);
     const row = db
       .select()
       .from(agentContainers)
