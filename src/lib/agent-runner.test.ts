@@ -117,3 +117,61 @@ describe("joinOrRunAgentTurn", () => {
     expect(b).toBe("joined");
   });
 });
+
+describe("reactivateFailedSession", () => {
+  it("clears a leftover reconcile_missing killReason so retry is not failed immediately", async () => {
+    const { reactivateFailedSession } = await import("@/lib/agent-runner");
+    const projectId = randomUUID();
+    const sessionId = randomUUID();
+    const now = new Date();
+    db.insert(projects)
+      .values({
+        id: projectId,
+        name: "retry",
+        githubRepo: "acme/retry",
+        branch: "main",
+        clonePath: "/tmp/retry",
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "main",
+        status: "failed",
+        initialPrompt: "fix",
+        logs: "",
+        startedAt: now,
+        completedAt: now,
+        errorMessage: "Agent container stopped (reconcile_missing)",
+      })
+      .run();
+    db.insert(agentContainers)
+      .values({
+        sessionId,
+        containerId: "old",
+        image: "forge-agent:latest",
+        status: "removed",
+        startedAt: now,
+        deadlineAt: new Date(now.getTime() + AGENT_WALL_CLOCK_MS),
+        killReason: "reconcile_missing",
+      })
+      .run();
+
+    reactivateFailedSession(sessionId);
+
+    const container = db
+      .select()
+      .from(agentContainers)
+      .where(eq(agentContainers.sessionId, sessionId))
+      .get();
+    expect(container?.killReason).toBeNull();
+
+    db.delete(agentContainers).where(eq(agentContainers.sessionId, sessionId)).run();
+    db.delete(agentSessions).where(eq(agentSessions.id, sessionId)).run();
+    db.delete(projects).where(eq(projects.id, projectId)).run();
+  });
+});

@@ -628,6 +628,13 @@ export function setAgentContainerKillReason(
     .run();
 }
 
+export function clearAgentContainerKillReason(sessionId: string): void {
+  db.update(agentContainers)
+    .set({ killReason: null })
+    .where(eq(agentContainers.sessionId, sessionId))
+    .run();
+}
+
 export function getAgentContainer(sessionId: string) {
   return db
     .select()

@@ -633,4 +633,93 @@ describe("reconcileProjectAgentSessions", () => {
       .get();
     expect(session?.status).toBe("deploying");
   });
+
+  it("does not fail a pending retry when the previous container row is removed", () => {
+    const now = new Date();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "agent/test",
+        status: "pending",
+        initialPrompt: "retry me",
+        logs: "",
+        startedAt: now,
+      })
+      .run();
+    db.insert(agentContainers)
+      .values({
+        sessionId,
+        containerId: "oldcid",
+        image: "forge-agent:latest",
+        status: "removed",
+        lastHeartbeatAt: now,
+        lastActivityAt: now,
+        startedAt: now,
+        deadlineAt: new Date(now.getTime() + AGENT_WALL_CLOCK_MS),
+        killReason: null,
+      })
+      .run();
+
+    const count = reconcileProjectAgentSessions(projectId);
+    expect(count).toBe(0);
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    expect(session?.status).toBe("pending");
+    expect(session?.errorMessage).toBeNull();
+    expect(isAgentSessionActive(projectId)).toBe(true);
+  });
+
+  it("does not fail a running turn after reconcile_missing was stamped on a leftover row", () => {
+    const now = new Date();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "agent/test",
+        status: "running",
+        initialPrompt: "do work",
+        logs: "",
+        startedAt: now,
+      })
+      .run();
+    db.insert(agentEvents)
+      .values({
+        id: randomUUID(),
+        sessionId,
+        seq: 1,
+        eventType: "user",
+        payload: JSON.stringify({ type: "user", text: "do work" }),
+        createdAt: now,
+      })
+      .run();
+    db.insert(agentContainers)
+      .values({
+        sessionId,
+        containerId: "oldcid",
+        image: "forge-agent:latest",
+        status: "removed",
+        lastHeartbeatAt: now,
+        lastActivityAt: now,
+        startedAt: now,
+        deadlineAt: new Date(now.getTime() + AGENT_WALL_CLOCK_MS),
+        killReason: "reconcile_missing",
+      })
+      .run();
+
+    reconcileProjectAgentSessions(projectId);
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    expect(session?.status).toBe("running");
+    expect(session?.errorMessage).toBeNull();
+    expect(session?.errorMessage ?? "").not.toMatch(/reconcile_missing/);
+  });
 });

@@ -54,6 +54,28 @@ describe("shouldFailStoppedContainer", () => {
       }),
     ).toBe(true);
   });
+
+  it("does not fail a pending retry whose previous turn container is already removed", () => {
+    expect(
+      shouldFailStoppedContainer({
+        sessionStatus: "pending",
+        containerStatus: "removed",
+        killReason: null,
+        turnIncomplete: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not fail when killReason is the synthetic reconcile_missing stamp", () => {
+    expect(
+      shouldFailStoppedContainer({
+        sessionStatus: "running",
+        containerStatus: "removed",
+        killReason: "reconcile_missing",
+        turnIncomplete: true,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("transition", () => {
