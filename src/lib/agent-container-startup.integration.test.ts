@@ -145,6 +145,7 @@ describe("agent container startup integration (Layer A)", () => {
       "utf8",
     );
     expect(lifecycle).toMatch(/ensureLocalBranchForAgent/);
+    expect(lifecycle).toMatch(/ensureBranchWorkspace/);
     expect(container).toMatch(/resolveHostBindPath/);
     expect(container).toMatch(/ensureAgentImage/);
   });

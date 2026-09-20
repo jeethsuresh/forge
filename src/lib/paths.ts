@@ -14,6 +14,18 @@ export function resolveClonePath(clonePath: string): string {
   return resolve(clonePath);
 }
 
+/** Disk root for per-branch editor/agent checkouts. */
+export function resolveBranchWorkspacesRoot(): string {
+  const override = process.env.FORGE_BRANCH_WORKSPACES_DIR?.trim();
+  if (override) return resolve(override);
+
+  const dbPath = process.env.FORGE_DB_PATH ?? "./data/forge.db";
+  if (dbPath === ":memory:") {
+    return resolve("/tmp/forge-branch-workspaces-test");
+  }
+  return join(dirname(resolve(dbPath)), "branch-workspaces");
+}
+
 /** Disk root for artifact blobs: `{dirname(FORGE_DB_PATH)|/data}/artifacts`. */
 export function resolveArtifactsRoot(): string {
   const override = process.env.FORGE_ARTIFACTS_DIR?.trim();

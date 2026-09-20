@@ -5,6 +5,7 @@ import { projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
 import { branchOpsBlockedResponse } from "@/lib/git-tree-branch-ops";
 import { rebaseProjectBranch } from "@/lib/project-git-tree";
+import { destroyProjectBranchWorkspaces } from "@/lib/branch-workspace";
 import { invalidateProjectBranches } from "@/lib/project-branches-cache";
 import { startRebaseRecovery } from "@/lib/rebase-recovery";
 
@@ -38,6 +39,7 @@ export async function POST(
 
   try {
     await rebaseProjectBranch(project.clonePath, branch, onto);
+    await destroyProjectBranchWorkspaces(id);
     invalidateProjectBranches(id);
     return NextResponse.json({ success: true, branch, onto });
   } catch (err) {
@@ -47,6 +49,7 @@ export async function POST(
       invalidateProjectBranches(id);
 
       if (recovery.autoFinalized) {
+        await destroyProjectBranchWorkspaces(id);
         return NextResponse.json({
           success: true,
           branch,

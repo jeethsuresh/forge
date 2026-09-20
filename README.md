@@ -28,7 +28,7 @@ Modes live under the active project in the sidebar (and as first-class routes):
 | Overview | `/projects/[id]` | Health / attention narrative |
 | Deploy | `/projects/[id]/deploy` | Deploy/redeploy, live logs as hero when busy |
 | Agents | `/projects/[id]/agents` | Sessions + chat (transcript owns the viewport) |
-| Changes | `/projects/[id]/changes` | Diff / commit / edit (editor owns the viewport) |
+| Changes | `/projects/[id]/changes` | Per-branch file tree + Monaco editor (commit and push) |
 | Settings | `/projects/[id]/settings` | Rename, branches, routing, env, history |
 
 Legacy `?tab=` URLs redirect to these paths.

@@ -42,7 +42,6 @@ export function agentSessionUncommittedDiffHref(
   sessionId: string,
 ): string {
   return buildProjectDiffHref(projectId, {
-    mode: "uncommitted",
     session: sessionId,
   });
 }
@@ -52,7 +51,6 @@ export function branchVsMainDiffHref(
   branch: string,
 ): string {
   return buildProjectDiffHref(projectId, {
-    mode: "branch-vs-main",
     branch,
   });
 }
@@ -60,24 +58,20 @@ export function branchVsMainDiffHref(
 export function rebasePreviewDiffHref(
   projectId: string,
   source: string,
-  onto: string,
+  _onto: string,
 ): string {
   return buildProjectDiffHref(projectId, {
-    mode: "rebase",
-    source,
-    onto,
+    branch: source,
   });
 }
 
 export function mergePreviewDiffHref(
   projectId: string,
   source: string,
-  target: string,
+  _target: string,
 ): string {
   return buildProjectDiffHref(projectId, {
-    mode: "merge",
-    source,
-    target,
+    branch: source,
   });
 }
 

@@ -317,6 +317,29 @@ export type AgentKillReason =
   | "reconcile_missing"
   | "error";
 
+export type BranchWorkspaceStatus = "running" | "paused" | "stopped";
+
+export const branchWorkspaces = sqliteTable(
+  "branch_workspaces",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    branch: text("branch").notNull(),
+    workspacePath: text("workspace_path").notNull(),
+    containerName: text("container_name").notNull(),
+    status: text("status").$type<BranchWorkspaceStatus>().notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_branch_workspaces_project_branch").on(
+      table.projectId,
+      table.branch,
+    ),
+  ],
+);
+
 export const agentContainers = sqliteTable("agent_containers", {
   sessionId: text("session_id")
     .primaryKey()
@@ -396,6 +419,7 @@ export type Deployment = typeof deployments.$inferSelect;
 export type AgentSession = typeof agentSessions.$inferSelect;
 export type AgentEvent = typeof agentEvents.$inferSelect;
 export type AgentContainer = typeof agentContainers.$inferSelect;
+export type BranchWorkspace = typeof branchWorkspaces.$inferSelect;
 export type Secret = typeof secrets.$inferSelect;
 export type SecretRequest = typeof secretRequests.$inferSelect;
 export type ForgeUpdate = typeof forgeUpdates.$inferSelect;

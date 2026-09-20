@@ -6,6 +6,7 @@ import { getSession } from "@/lib/auth/session";
 import { isDeploymentActive } from "@/lib/deployer";
 import { invalidateProjectBranches } from "@/lib/project-branches-cache";
 import { finalizeRebaseRecovery } from "@/lib/rebase-recovery";
+import { destroyProjectBranchWorkspaces } from "@/lib/branch-workspace";
 
 export async function POST(
   request: Request,
@@ -46,6 +47,7 @@ export async function POST(
     await finalizeRebaseRecovery(project.clonePath, recoveryBranch, sourceBranch, {
       watchBranch: project.branch,
     });
+    await destroyProjectBranchWorkspaces(id);
     invalidateProjectBranches(id);
     return NextResponse.json({
       success: true,
