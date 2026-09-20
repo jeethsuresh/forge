@@ -30,6 +30,7 @@ export function modeStatuses(signals: ModeStatusSignals): ModeStatusMap {
         ? "success"
         : runtimeTone(signals.runtimeStatus),
     deploy: deployModeTone(signals),
+    compose: "neutral",
     agents: signals.agentLive ? "info" : "neutral",
     changes: signals.workingTreeDirty ? "warning" : "neutral",
     settings: "neutral",

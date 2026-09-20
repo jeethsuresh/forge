@@ -47,13 +47,16 @@ Set `FORGE_GIT_SSH_HOST` (or `FORGE_PUBLIC_HOST`) so the UI shows the correct `g
 
 Smart HTTP is the supported path in unit tests; SSH is optional host infrastructure.
 
-## Create vs import vs local
+## Create vs import vs image
 
-- **Create empty** — seed README + minimal `Forgefile`, Forge is origin.
+- **New project** — seed README + minimal `Forgefile` as the first commit. Optional absolute **host folder**: copy everything except `.git` as a second migratory commit, then start a bootstrap agent (Forgefile, compose, README). `mode=local` is an alias of this (also seeded).
 - **Import GitHub** — one-shot `git clone --mirror` into Forge bare store; no ongoing dual-remote sync in v1.
-- **Add local** — empty bare repo (no seed commit). The UI shows GitHub-style commands:
-  - no `origin`: `git remote add origin <https-url>` then push
-  - existing `origin`: `git remote add forge <https-url>` and `git config remote.pushDefault forge`
-  - always `cat >> AGENTS.md` to append (or create) a note that agents push to Forge
+- **From image** — seed Forgefile, compose, `build.sh`/`test.sh`/`deploy.sh`/`teardown.sh`, and `.env` around a registry image; store registry secrets in deploy env; deploy immediately; open Compose studio.
+
+Settings still shows clone URLs and GitHub-style push recipes for operators who push from an existing checkout:
+
+- no `origin`: `git remote add origin <https-url>` then push
+- existing `origin`: `git remote add forge <https-url>` and `git config remote.pushDefault forge`
+- always `cat >> AGENTS.md` to append (or create) a note that agents push to Forge
 
 Existing GitHub-only projects: Forge migrates them into `/data/git/<slug>.git` on startup (`migrateGithubOriginProjects`). After that, deploy and agent paths require a Forge repo — GitHub remains import-only.

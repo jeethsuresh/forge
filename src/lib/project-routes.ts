@@ -3,11 +3,13 @@ export type ProjectMode =
   | "deploy"
   | "agents"
   | "changes"
-  | "settings";
+  | "settings"
+  | "compose";
 
 export const PROJECT_MODES: readonly ProjectMode[] = [
   "overview",
   "deploy",
+  "compose",
   "agents",
   "changes",
   "settings",
@@ -16,6 +18,7 @@ export const PROJECT_MODES: readonly ProjectMode[] = [
 export const PROJECT_MODE_LABELS: Record<ProjectMode, string> = {
   overview: "Overview",
   deploy: "Deploy",
+  compose: "Compose",
   agents: "Agents",
   changes: "Changes",
   settings: "Settings",
@@ -38,6 +41,8 @@ export function legacyTabToMode(tab: string | null | undefined): ProjectMode {
     case undefined:
     case "":
       return "overview";
+    case "compose":
+      return "compose";
     default:
       return "overview";
   }
@@ -50,6 +55,8 @@ export function projectModePath(projectId: string, mode: ProjectMode): string {
       return base;
     case "deploy":
       return `${base}/deploy`;
+    case "compose":
+      return `${base}/compose`;
     case "agents":
       return `${base}/agents`;
     case "changes":
@@ -82,7 +89,7 @@ export function resolveProjectModeFromPath(
   pathname: string,
 ): { projectId: string; mode: ProjectMode } | null {
   const match = pathname.match(
-    /^\/projects\/([^/]+)(?:\/(deploy|agents|changes|settings))?\/?$/,
+    /^\/projects\/([^/]+)(?:\/(deploy|agents|changes|settings|compose))?\/?$/,
   );
   if (!match) return null;
   const projectId = match[1];

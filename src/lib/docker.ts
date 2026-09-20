@@ -16,7 +16,7 @@ export interface ContainerInfo {
   ports: string;
 }
 
-const COMPOSE_FILES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml"];
+export const COMPOSE_FILES = ["docker-compose.yml", "docker-compose.yaml", "compose.yml"];
 
 export { composeProjectName } from "@/lib/compose-project-name";
 
@@ -35,7 +35,7 @@ export function composeDockerArgs(
   ];
 }
 
-function findComposeFile(repoPath: string): string | null {
+export function findComposeFile(repoPath: string): string | null {
   return COMPOSE_FILES.find((f) => existsSync(join(repoPath, f))) ?? null;
 }
 

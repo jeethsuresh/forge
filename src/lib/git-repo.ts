@@ -1,6 +1,13 @@
 import { execFile, execFileSync } from "child_process";
 import { promisify } from "util";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  existsSync,
+} from "fs";
 import { dirname, join } from "path";
 import { tmpdir } from "os";
 import { randomUUID } from "crypto";
@@ -14,6 +21,10 @@ import {
   assertSeedForgefileValid,
   buildSeedForgefile,
 } from "@/lib/git-seed-forgefile";
+import {
+  buildImageProjectSeed,
+  type ImageProjectSeedOpts,
+} from "@/lib/git-seed-image-project";
 import { opsApiBaseUrl } from "@/lib/ops-api-auth";
 import { composeNameConflict, validateProjectName } from "@/lib/projects";
 import { resolveClonePath } from "@/lib/paths";
@@ -106,8 +117,10 @@ export type CreateForgeGitRepositoryOpts = {
   name: string;
   slug?: string;
   defaultBranch?: string;
-  /** When false, empty bare repo for Add local (no seed commit, no working clone). */
+  /** When false, empty bare repo (no seed commit, no working clone). */
   seed?: boolean;
+  /** When set, seed a registry-image project pack instead of README + Forgefile. */
+  imageSeed?: ImageProjectSeedOpts;
 };
 
 export type CreateForgeGitRepositoryResult = {
@@ -164,15 +177,30 @@ export async function createForgeGitRepository(
       await execGit(["clone", barePath, seedDir]);
       await execGit(["checkout", "-B", defaultBranch], { cwd: seedDir });
 
-      writeFileSync(
-        join(seedDir, "README.md"),
-        `# ${trimmedName}\n\nHosted by Forge. Clone via HTTPS or SSH from the project Settings page.\n`,
-      );
-      const forgefile = buildSeedForgefile(trimmedName);
-      assertSeedForgefileValid(forgefile);
-      writeFileSync(join(seedDir, "Forgefile"), forgefile);
+      if (opts.imageSeed) {
+        const pack = buildImageProjectSeed({
+          ...opts.imageSeed,
+          projectName: opts.imageSeed.projectName.trim() || trimmedName,
+        });
+        for (const [rel, content] of Object.entries(pack.files)) {
+          const dest = join(seedDir, rel);
+          mkdirSync(dirname(dest), { recursive: true });
+          writeFileSync(dest, content);
+          if (pack.executable.includes(rel)) {
+            chmodSync(dest, 0o755);
+          }
+        }
+      } else {
+        writeFileSync(
+          join(seedDir, "README.md"),
+          `# ${trimmedName}\n\nHosted by Forge. Clone via HTTPS or SSH from the project Settings page.\n`,
+        );
+        const forgefile = buildSeedForgefile(trimmedName);
+        assertSeedForgefileValid(forgefile);
+        writeFileSync(join(seedDir, "Forgefile"), forgefile);
+      }
 
-      await execGit(["add", "README.md", "Forgefile"], { cwd: seedDir });
+      await execGit(["add", "-A"], { cwd: seedDir });
       await execGit(["commit", "-m", "Initial commit (Forge seed)"], {
         cwd: seedDir,
       });

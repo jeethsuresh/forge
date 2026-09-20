@@ -142,6 +142,42 @@ describe("createForgeGitRepository", () => {
     expect(project?.githubRepo).toBe("");
   });
 
+  it("seeds an image project pack with an app compose service", async () => {
+    const unique = `img-${Date.now()}`;
+    const result = await createForgeGitRepository({
+      name: unique,
+      slug: unique,
+      defaultBranch: "main",
+      imageSeed: {
+        projectName: unique,
+        image: "nginx:latest",
+        containerPort: 80,
+        hostPort: 3456,
+      },
+    });
+    createdProjectId = result.projectId;
+    createdRepoId = result.repositoryId;
+
+    const work = mkdtempSync(join(tmpdir(), "forge-img-check-"));
+    try {
+      execFileSync("git", ["clone", result.barePath, work], {
+        env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+      });
+      expect(readFileSync(join(work, "docker-compose.yml"), "utf8")).toContain(
+        "app:",
+      );
+      expect(readFileSync(join(work, ".env"), "utf8")).toContain("IMAGE=nginx:latest");
+      expect(readFileSync(join(work, "build.sh"), "utf8")).toContain("docker pull");
+      const listing = execFileSync("git", ["ls-files"], {
+        cwd: work,
+        encoding: "utf8",
+      });
+      expect(listing).not.toMatch(/PASSWORD/);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+  });
+
   it("imports from a local bare GitHub stand-in", async () => {
     const standIn = mkdtempSync(join(tmpdir(), "gh-standin-"));
     const seed = mkdtempSync(join(tmpdir(), "gh-seed-"));

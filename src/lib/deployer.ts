@@ -23,6 +23,7 @@ import {
   runProjectRollbackDeploy,
 } from "@/lib/deploy-rollback";
 import { isForgeProjectId } from "@/lib/forge-project";
+import { prepareRegistryDockerConfig } from "@/lib/docker-registry-auth";
 import {
   getProjectForgefile,
   listDeployTargets,
@@ -355,8 +356,13 @@ async function executeDeployment(
   const { env: scriptEnv, composeProjectName: composeSlug } =
     buildProjectScriptEnv(project.name, project.deployEnvJson, project.hostPort);
   const scriptArgs = projectScriptArgs(composeSlug, scriptEnv);
+  let registryCleanup: (() => void) | null = null;
 
   try {
+    const registryAuth = await prepareRegistryDockerConfig(scriptEnv);
+    registryCleanup = registryAuth.cleanup;
+    Object.assign(scriptEnv, registryAuth.extraEnv);
+
     const repoPath = resolveClonePath(project.clonePath);
 
     if (deployGuardsApplyForTrigger(trigger) && !options?.skipPull) {
@@ -596,6 +602,8 @@ async function executeDeployment(
       errorMessage: message,
       logs: failedRow?.logs ?? "",
     });
+  } finally {
+    registryCleanup?.();
   }
 }
 

@@ -7,7 +7,7 @@ import { composeProjectName } from "@/lib/compose-project-name";
 import { GitLocalPushRecipes } from "@/components/GitLocalPushRecipes";
 import { Button, Input, PageHeader } from "@/components/ui";
 
-type Mode = "create" | "import" | "local";
+type Mode = "create" | "import" | "image";
 
 type CreatedProject = {
   id: string;
@@ -15,6 +15,10 @@ type CreatedProject = {
   sshCloneUrl?: string | null;
   gitSlug?: string | null;
   gitCloneToken?: string | null;
+  agentSessionId?: string | null;
+  deploymentId?: string | null;
+  importError?: string | null;
+  agentError?: string | null;
 };
 
 export default function NewProjectPage() {
@@ -24,10 +28,15 @@ export default function NewProjectPage() {
   const [slug, setSlug] = useState("");
   const [githubRepo, setGithubRepo] = useState("");
   const [branch, setBranch] = useState("main");
+  const [hostPath, setHostPath] = useState("");
+  const [image, setImage] = useState("");
+  const [containerPort, setContainerPort] = useState("");
+  const [hostPort, setHostPort] = useState("");
+  const [registryUser, setRegistryUser] = useState("");
+  const [registryPassword, setRegistryPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [created, setCreated] = useState<CreatedProject | null>(null);
-  const [createdMode, setCreatedMode] = useState<Mode | null>(null);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -44,24 +53,42 @@ export default function NewProjectPage() {
           slug: slug.trim() || undefined,
           githubRepo: mode === "import" ? githubRepo : undefined,
           branch,
+          hostPath: mode === "create" ? hostPath.trim() || undefined : undefined,
+          image: mode === "image" ? image.trim() : undefined,
+          containerPort:
+            mode === "image" && containerPort.trim()
+              ? Number(containerPort)
+              : undefined,
+          hostPort:
+            mode === "image" && hostPort.trim() ? Number(hostPort) : undefined,
+          registryUser: mode === "image" ? registryUser.trim() || undefined : undefined,
+          registryPassword:
+            mode === "image" ? registryPassword || undefined : undefined,
         }),
       });
 
-      const data = await res.json();
+      const data = (await res.json()) as CreatedProject & { error?: string };
       if (!res.ok) {
         setError(data.error ?? "Failed to create project");
+        if (data.id) {
+          setCreated(data);
+        }
         return;
       }
 
-      if (mode === "local" || mode === "create") {
-        setCreated({
-          id: data.id,
-          httpsCloneUrl: data.httpsCloneUrl,
-          sshCloneUrl: data.sshCloneUrl,
-          gitSlug: data.gitSlug,
-          gitCloneToken: data.gitCloneToken,
-        });
-        setCreatedMode(mode);
+      if (mode === "image") {
+        router.push(`/projects/${data.id}/compose`);
+        router.refresh();
+        return;
+      }
+
+      if (mode === "create") {
+        if (data.agentSessionId) {
+          router.push(`/projects/${data.id}/agents?session=${data.agentSessionId}`);
+          router.refresh();
+          return;
+        }
+        setCreated(data);
         router.refresh();
         return;
       }
@@ -78,22 +105,16 @@ export default function NewProjectPage() {
   const submitLabel =
     mode === "import"
       ? "Import project"
-      : mode === "local"
-        ? "Create empty Forge repo"
+      : mode === "image"
+        ? "Create and deploy image"
         : "Create project";
-  const loadingLabel =
-    mode === "import"
-      ? "Importing…"
-      : mode === "local"
-        ? "Creating…"
-        : "Creating…";
 
   return (
     <div className="forge-app-bg min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 sm:px-7 sm:py-8 lg:px-10">
       <div className="mx-auto max-w-lg">
         <PageHeader
           title="Add project"
-          subtitle="Create a Forge-hosted repo, import once from GitHub, or push an existing local checkout"
+          subtitle="New Forge repo (optional host folder), import GitHub, or run a registry image"
         />
 
         {created ? (
@@ -103,15 +124,9 @@ export default function NewProjectPage() {
               <code className="text-[var(--forge-bright)]">
                 {created.gitSlug}
               </code>{" "}
-              is ready
-              {createdMode === "local"
-                ? " (empty — push from your checkout)"
-                : ""}
-              . Git HTTPS username and password are listed below. Recipes append
-              to{" "}
-              <code className="text-[var(--forge-muted)]">AGENTS.md</code> with{" "}
-              <code className="text-[var(--forge-muted)]">cat &gt;&gt;</code>
-              .
+              is ready.
+              {created.importError ? ` Import failed: ${created.importError}` : ""}
+              {created.agentError ? ` Agent: ${created.agentError}` : ""}
             </p>
             {created.httpsCloneUrl ? (
               <GitLocalPushRecipes
@@ -141,7 +156,7 @@ export default function NewProjectPage() {
                 variant={mode === "create" ? "primary" : "secondary"}
                 onClick={() => setMode("create")}
               >
-                Create empty
+                New project
               </Button>
               <Button
                 type="button"
@@ -152,10 +167,10 @@ export default function NewProjectPage() {
               </Button>
               <Button
                 type="button"
-                variant={mode === "local" ? "primary" : "secondary"}
-                onClick={() => setMode("local")}
+                variant={mode === "image" ? "primary" : "secondary"}
+                onClick={() => setMode("image")}
               >
-                Add local
+                From image
               </Button>
             </div>
 
@@ -174,8 +189,14 @@ export default function NewProjectPage() {
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder={mode === "import" ? "Optional (defaults from repo)" : "My App"}
-                  required={mode !== "import"}
+                  placeholder={
+                    mode === "import"
+                      ? "Optional (defaults from repo)"
+                      : mode === "image"
+                        ? "Optional (defaults from image)"
+                        : "My App"
+                  }
+                  required={mode === "create"}
                 />
                 {name.trim() ? (
                   <p className="mt-1.5 font-mono text-xs text-[var(--forge-faint)]">
@@ -217,20 +238,85 @@ export default function NewProjectPage() {
                     One-shot import into Forge. GitHub is not kept as a dual remote.
                   </p>
                 </label>
-              ) : mode === "local" ? (
-                <p className="text-xs text-[var(--forge-faint)]">
-                  Creates an empty Forge-hosted repo (no seed commit). After
-                  create you will get copy-paste git commands to add{" "}
-                  <code className="text-[var(--forge-muted)]">origin</code> or{" "}
-                  <code className="text-[var(--forge-muted)]">forge</code> and
-                  push.
-                </p>
+              ) : mode === "image" ? (
+                <>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
+                      Image
+                    </span>
+                    <Input
+                      type="text"
+                      value={image}
+                      onChange={(e) => setImage(e.target.value)}
+                      placeholder="nginx:latest or ghcr.io/org/app:1.2"
+                      className="font-mono text-sm"
+                      required
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
+                      Container port (optional)
+                    </span>
+                    <Input
+                      type="number"
+                      value={containerPort}
+                      onChange={(e) => setContainerPort(e.target.value)}
+                      placeholder="Inspect ExposedPorts or 8080"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
+                      Host port (optional)
+                    </span>
+                    <Input
+                      type="number"
+                      value={hostPort}
+                      onChange={(e) => setHostPort(e.target.value)}
+                      placeholder="Picks a free port if empty"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
+                      Registry username (optional)
+                    </span>
+                    <Input
+                      type="text"
+                      value={registryUser}
+                      onChange={(e) => setRegistryUser(e.target.value)}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
+                      Registry password / token
+                    </span>
+                    <Input
+                      type="password"
+                      value={registryPassword}
+                      onChange={(e) => setRegistryPassword(e.target.value)}
+                      autoComplete="new-password"
+                    />
+                  </label>
+                </>
               ) : (
-                <p className="text-xs text-[var(--forge-faint)]">
-                  Seeds a README and a minimal{" "}
-                  <code className="text-[var(--forge-muted)]">Forgefile</code>. Clone
-                  URLs appear on the project Settings tab.
-                </p>
+                <>
+                  <label className="block">
+                    <span className="mb-1.5 block text-sm font-medium text-[var(--forge-muted)]">
+                      Host folder (optional)
+                    </span>
+                    <Input
+                      type="text"
+                      value={hostPath}
+                      onChange={(e) => setHostPath(e.target.value)}
+                      placeholder="/home/you/src/my-app"
+                      className="font-mono text-sm"
+                    />
+                    <p className="mt-1.5 text-xs text-[var(--forge-faint)]">
+                      Seeds README + Forgefile, then copies this absolute host path
+                      (except .git) as a second commit and starts a bootstrap agent.
+                    </p>
+                  </label>
+                </>
               )}
 
               <label className="block">
@@ -252,7 +338,7 @@ export default function NewProjectPage() {
                   Cancel
                 </Button>
                 <Button type="submit" variant="primary" disabled={loading}>
-                  {loading ? loadingLabel : submitLabel}
+                  {loading ? "Working…" : submitLabel}
                 </Button>
               </div>
             </form>

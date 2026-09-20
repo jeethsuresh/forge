@@ -170,7 +170,7 @@ export function buildStaticPaletteItems(): PaletteItem[] {
       title: "Add project",
       keywords: ["new", "add", "create", "project", "local", "import"],
       href: "/projects/new",
-      docs: "Create empty, import GitHub, or add a local checkout as a Forge remote.",
+      docs: "New project, import GitHub, or run a registry image.",
     },
     {
       id: "help:shortcuts",
@@ -227,6 +227,16 @@ export function projectPaletteItems(project: {
       keywords: [label, "agent", "session", "chat"],
       href: projectModeHref(project.id, "agents"),
       docs: `Open agent sessions for ${label}.`,
+      projectId: project.id,
+    },
+    {
+      id: `project:${project.id}:compose`,
+      kind: "action",
+      title: `Compose · ${label}`,
+      subtitle: "Open Compose",
+      keywords: [label, "compose", "docker", "yaml"],
+      href: projectModeHref(project.id, "compose"),
+      docs: `Edit docker-compose.yml for ${label}.`,
       projectId: project.id,
     },
     {

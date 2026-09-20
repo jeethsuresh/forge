@@ -35,9 +35,9 @@ describe("resolveProjectModeFromPath", () => {
       projectId: "abc",
       mode: "deploy",
     });
-    expect(resolveProjectModeFromPath("/projects/abc/changes")).toEqual({
+    expect(resolveProjectModeFromPath("/projects/abc/compose")).toEqual({
       projectId: "abc",
-      mode: "changes",
+      mode: "compose",
     });
     expect(resolveProjectModeFromPath("/settings")).toBeNull();
   });

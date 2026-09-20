@@ -25,6 +25,7 @@ import { DeployTargetPorts } from "@/components/DeployTargetPorts";
 import { ProjectArtifacts } from "@/components/ProjectArtifacts";
 import { ProjectStudioSettings } from "@/components/ProjectStudioSettings";
 import { ProjectStudioOverview } from "@/components/ProjectStudioOverview";
+import { ComposeStudio } from "@/components/ComposeStudio";
 import {
   DEPLOYMENTS_PER_PAGE,
   projectPollIntervalMs,
@@ -909,6 +910,10 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
       ) : activeTab === "changes" ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ProjectBranchEditor projectId={id} watchBranch={project.branch} />
+        </div>
+      ) : activeTab === "compose" ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <ComposeStudio projectId={id} />
         </div>
       ) : (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

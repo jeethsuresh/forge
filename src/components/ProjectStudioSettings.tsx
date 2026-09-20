@@ -171,7 +171,7 @@ export function ProjectStudioSettings({
               href="/projects/new"
               className="text-[var(--forge-accent-hot)]"
             >
-              Add local
+              New project
             </Link>{" "}
             to make Forge the primary origin.
           </div>
