@@ -19,7 +19,7 @@ import { resolveActiveDeployLogView } from "@/lib/active-deploy-logs";
 import type { ProjectCaddySettings } from "@/lib/project-routing-shared";
 import { type DeployEnvVarRow } from "@/components/DeployEnvVarsEditor";
 import { ProjectGitTreePanel } from "@/components/ProjectGitTreePanel";
-import { ProjectDiffPanel } from "@/components/ProjectDiffPanel";
+import { ProjectBranchEditor } from "@/components/ProjectBranchEditor";
 import { ForgefileStatusBanner } from "@/components/ForgefileStatusBanner";
 import { DeployTargetPorts } from "@/components/DeployTargetPorts";
 import { ProjectArtifacts } from "@/components/ProjectArtifacts";
@@ -908,7 +908,7 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
         />
       ) : activeTab === "changes" ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <ProjectDiffPanel projectId={id} watchBranch={project.branch} />
+          <ProjectBranchEditor projectId={id} watchBranch={project.branch} />
         </div>
       ) : (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

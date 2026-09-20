@@ -22,6 +22,7 @@ import {
   validateBranchName,
 } from "@/lib/git-workspace";
 import { projectRemoteUrl } from "@/lib/project-git-remote";
+import { ensureBranchWorkspace } from "@/lib/branch-workspace";
 import { transition } from "@/lib/agent-session-machine";
 import {
   ACTIVE_TURN_STATUSES,
@@ -404,7 +405,9 @@ export async function commitAgentSessionChanges(
   if (!project) throw new Error("Project not found");
 
   const log = (msg: string) => appendSessionLog(sessionId, msg);
-  const workspacePath = options?.workspacePath ?? project.clonePath;
+  const workspacePath =
+    options?.workspacePath ??
+    (await ensureBranchWorkspace(project, session.branch)).workspacePath;
 
   await prepareAgentWorkspace(
     projectRemoteUrl(project),
@@ -459,16 +462,19 @@ export async function revertAgentSessionChanges(sessionId: string): Promise<void
   if (!project) throw new Error("Project not found");
 
   const log = (msg: string) => appendSessionLog(sessionId, msg);
+  const workspacePath = (
+    await ensureBranchWorkspace(project, session.branch)
+  ).workspacePath;
   await prepareAgentWorkspace(
     projectRemoteUrl(project),
     project.branch,
-    project.clonePath,
+    workspacePath,
     session.branch,
     log,
   );
 
   await revertPushedAgentCommit(
-    project.clonePath,
+    workspacePath,
     session.branch,
     session.commitSha,
     log,
@@ -496,7 +502,7 @@ export async function deployAgentSession(sessionId: string): Promise<void> {
   await prepareAgentWorkspace(
     projectRemoteUrl(project),
     project.branch,
-    project.clonePath,
+    (await ensureBranchWorkspace(project, session.branch)).workspacePath,
     session.branch,
     log,
   );
@@ -559,7 +565,7 @@ export async function sendAgentMessage(
       await prepareAgentWorkspace(
         projectRemoteUrl(project),
         project.branch,
-        project.clonePath,
+        (await ensureBranchWorkspace(project, session.branch)).workspacePath,
         session.branch,
         log,
       );
@@ -676,7 +682,11 @@ export async function endAgentSession(
 
   if (options?.revertChanges) {
     try {
-      await revertAgentBranchWorkspace(project.clonePath, session.branch, log);
+      await revertAgentBranchWorkspace(
+        (await ensureBranchWorkspace(project, session.branch)).workspacePath,
+        session.branch,
+        log,
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to revert workspace: ${message}`);

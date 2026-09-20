@@ -11,6 +11,7 @@ import { getActiveSessionForProject } from "@/lib/agent-state";
 import { listLocalBranches } from "@/lib/git-workspace";
 import { branchOpsBlockedResponse } from "@/lib/git-tree-branch-ops";
 import { invalidateProjectBranches } from "@/lib/project-branches-cache";
+import { destroyBranchWorkspace } from "@/lib/branch-workspace";
 import {
   LocalBranchOpError,
   deleteLocalBranch,
@@ -96,6 +97,7 @@ export async function DELETE(
       watchBranch: project.branch,
       force: Boolean(body.force),
     });
+    await destroyBranchWorkspace(id, branch);
     invalidateProjectBranches(id);
     return NextResponse.json({
       ok: true,
@@ -139,6 +141,7 @@ export async function PATCH(
     const renamed = await renameLocalBranch(project.clonePath, branch, newName, {
       watchBranch: project.branch,
     });
+    await destroyBranchWorkspace(id, branch);
     const liveSession = getSessionForBranch(id, branch);
     if (liveSession) {
       db.update(agentSessions)

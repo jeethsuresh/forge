@@ -271,6 +271,21 @@ CREATE TABLE IF NOT EXISTS release_pins (
   image_tag TEXT,
   updated_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS branch_workspaces (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  branch TEXT NOT NULL,
+  workspace_path TEXT NOT NULL,
+  container_name TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_branch_workspaces_project_branch
+  ON branch_workspaces(project_id, branch);
+CREATE INDEX IF NOT EXISTS idx_branch_workspaces_project_id
+  ON branch_workspaces(project_id);
 `;
 
 sqlite.exec(INIT_SQL);

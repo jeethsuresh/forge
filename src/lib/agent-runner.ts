@@ -34,6 +34,13 @@ import {
   prepareAgentWorkspace,
   hasUncommittedChanges,
 } from "@/lib/git-workspace";
+import {
+  ensureBranchWorkspace,
+  getBranchWorkspace,
+  pauseBranchWorkspace,
+  resolveBranchWorkspacePath,
+  resumeBranchWorkspace,
+} from "@/lib/branch-workspace";
 import { gitHubCredentials } from "@/lib/github-import";
 import {
   projectAgentCloneUrl,
@@ -368,7 +375,7 @@ async function maybeAutoFinishSessionIfNoEdits(
     await prepareAgentWorkspace(
       projectRemoteUrl(project),
       project.branch,
-      project.clonePath,
+      (await ensureBranchWorkspace(project, session.branch)).workspacePath,
       session.branch,
       log,
     );
@@ -376,7 +383,8 @@ async function maybeAutoFinishSessionIfNoEdits(
     return;
   }
 
-  if (await hasUncommittedChanges(project.clonePath)) return;
+  const workspace = getBranchWorkspace(project.id, session.branch);
+  if (await hasUncommittedChanges(workspace?.workspacePath ?? project.clonePath)) return;
 
   log("No file edits in this session. Marking as finished.");
   updateSessionStatus(sessionId, "completed", { completedAt: new Date() });
@@ -604,7 +612,7 @@ function resolveAgentPackagesJson(projectId: string): string | undefined {
 export async function runAgentTurnContainer(
   sessionId: string,
   project: Project,
-  prompt: string,
+  _prompt: string,
   effectivePrompt: string,
   turnStartSeq: number,
   workspacePath?: string,
@@ -616,7 +624,10 @@ export async function runAgentTurnContainer(
     .get();
   if (!session) throw new Error("Session not found");
 
-  const workspace = resolveClonePath(workspacePath ?? project.clonePath);
+  const bindPath = resolveClonePath(
+    await resolveBranchWorkspacePath(project, session.branch, workspacePath),
+  );
+  await pauseBranchWorkspace(project.id, session.branch);
   const creds = gitHubCredentials();
   const apiKey = process.env.FORGE_CURSOR_API_KEY ?? process.env.CURSOR_API_KEY;
 
@@ -639,7 +650,7 @@ export async function runAgentTurnContainer(
       agentPrompt: effectivePrompt,
       cursorApiKey: apiKey,
       packagesJson: resolveAgentPackagesJson(project.id),
-      workspaceBind: existsSync(workspace) ? workspace : undefined,
+      workspaceBind: existsSync(bindPath) ? bindPath : undefined,
       cursorSessionId:
         session.resumeCursorSessionId ?? session.cursorSessionId ?? undefined,
     });
@@ -684,6 +695,7 @@ export async function runAgentTurnContainer(
     } catch {
       // already removed
     }
+    await resumeBranchWorkspace(project.id, session.branch).catch(() => {});
   }
 }
 
@@ -881,15 +893,19 @@ export async function executeAgentTurn(
 
   await joinOrRunAgentTurn(sessionId, async () => {
     try {
+      const workspace = await resolveBranchWorkspacePath(
+        project,
+        session.branch,
+        options?.workspacePath,
+      );
       await prepareAgentWorkspace(
         projectRemoteUrl(project),
         project.branch,
-        options?.workspacePath ?? project.clonePath,
+        workspace,
         session.branch,
         log,
       );
-
-      await runAgentTurn(sessionId, project, prompt, options?.workspacePath);
+      await runAgentTurn(sessionId, project, prompt, workspace);
       await finalizeSessionAfterSuccessfulTurn(sessionId, projectId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

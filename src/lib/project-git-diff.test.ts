@@ -44,7 +44,7 @@ describe("project diff URL helpers", () => {
 
   it("builds rebase preview links", () => {
     expect(rebasePreviewDiffHref("proj-1", "feature", "main")).toBe(
-      "/projects/proj-1/changes?mode=rebase&source=feature&onto=main",
+      "/projects/proj-1/changes?branch=feature",
     );
   });
 });

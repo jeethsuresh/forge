@@ -14,6 +14,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Cloned project workspaces — not part of Forge source
     "data/**",
+    ".worktrees/**",
   ]),
 ]);
 
