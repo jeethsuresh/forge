@@ -56,6 +56,7 @@ import {
   stopAgentContainer,
   waitForAgentContainerExit,
   getAgentContainer,
+  clearAgentContainerKillReason,
 } from "@/lib/agent-container";
 import { AGENT_HEARTBEAT_INTERVAL_SEC } from "@/lib/agent-heartbeat";
 import { getProjectForgefile } from "@/lib/forgefile-project";
@@ -308,6 +309,7 @@ export function reactivateFailedSession(sessionId: string): void {
     })
     .where(eq(agentSessions.id, sessionId))
     .run();
+  clearAgentContainerKillReason(sessionId);
 }
 
 export function isAgentProcessRunning(sessionId: string): boolean {
