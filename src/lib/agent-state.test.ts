@@ -11,6 +11,7 @@ import {
 } from "@/lib/db/schema";
 import {
   activeAgentProjects,
+  activeAgentSessions,
   applyAgentDeploymentOutcome,
   getBlockingAgentSession,
   isAgentSessionActive,
@@ -43,6 +44,7 @@ describe("reconcileProjectAgentSessions", () => {
 
   afterEach(() => {
     activeAgentProjects.delete(projectId);
+    activeAgentSessions.clear();
     db.delete(agentContainers).where(eq(agentContainers.sessionId, sessionId)).run();
     db.delete(agentEvents).where(eq(agentEvents.sessionId, sessionId)).run();
     db.delete(agentSessions).where(eq(agentSessions.projectId, projectId)).run();
@@ -331,7 +333,7 @@ describe("reconcileProjectAgentSessions", () => {
       })
       .run();
 
-    activeAgentProjects.add(projectId);
+    activeAgentSessions.add(sessionId);
 
     const count = reconcileProjectAgentSessions(projectId);
     expect(count).toBe(0);

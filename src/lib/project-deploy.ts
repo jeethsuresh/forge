@@ -12,8 +12,6 @@ import {
 } from "@/lib/deployer";
 import {
   getActiveSessionForProject,
-  getBlockingAgentSession,
-  isAgentSessionActive,
 } from "@/lib/agent-state";
 import { isForgeProject } from "@/lib/forge-project";
 import { validateBranchName } from "@/lib/git-workspace";
@@ -90,27 +88,6 @@ export async function deployProject(input: {
       authorizeActiveSessionDeploy: true,
       blockingSessionId: activeSession?.id,
     });
-
-  if (
-    isAgentSessionActive(input.projectId) &&
-    !sessionAuthorized &&
-    input.trigger !== "agent"
-  ) {
-    const blocking = getBlockingAgentSession(input.projectId);
-    throw new DeployProjectError(
-      "An agent session is active. End it before deploying.",
-      409,
-      {
-        blockingAgentSession: blocking
-          ? {
-              id: blocking.id,
-              branch: blocking.branch,
-              status: blocking.status,
-            }
-          : null,
-      },
-    );
-  }
 
   const branch = input.branch?.trim() || project.branch;
   const validationError = validateBranchName(branch);

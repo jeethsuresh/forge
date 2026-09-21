@@ -16,7 +16,7 @@ describe("deployProject façade", () => {
     db.delete(projects).where(eq(projects.id, projectId)).run();
   });
 
-  it("rejects deploys while an agent session is active unless authorized", async () => {
+  it("does not 409 deploys while an agent session is active", async () => {
     const now = new Date();
     db.insert(projects)
       .values({
@@ -43,12 +43,13 @@ describe("deployProject façade", () => {
       .run();
     activeAgentProjects.add(projectId);
 
-    await expect(deployProject({ projectId, trigger: "manual" })).rejects.toMatchObject({
-      status: 409,
-    });
-    await expect(deployProject({ projectId, trigger: "manual" })).rejects.toBeInstanceOf(
-      DeployProjectError,
-    );
+    try {
+      await deployProject({ projectId, trigger: "manual" });
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).not.toMatch(/agent session is active/i);
+      expect((err as DeployProjectError).status).not.toBe(409);
+    }
   });
 
   it("does not treat an active agent as blocking when trigger is agent", async () => {

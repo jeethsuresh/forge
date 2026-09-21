@@ -28,8 +28,10 @@ export function ProjectStudioOverview({
   deployedAt,
   runtimeStatus,
   blockingAgentSession,
+  liveBranches,
   containers,
   openAgentSession,
+  openChanges,
   selectTab,
 }: {
   project: ProjectDetail["project"];
@@ -39,9 +41,11 @@ export function ProjectStudioOverview({
   deployedAt: string | null | undefined;
   runtimeStatus: RuntimeStatus;
   blockingAgentSession: ProjectDetail["blockingAgentSession"];
+  liveBranches: NonNullable<ProjectDetail["liveBranches"]>;
   containers: ContainerInfo[];
   openAgentSession: (sessionId: string) => void;
-  selectTab: (mode: ProjectMode) => void;
+  openChanges: (branch: string) => void;
+  selectTab: (tab: ProjectMode) => void;
 }) {
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-5">
@@ -83,13 +87,43 @@ export function ProjectStudioOverview({
         </div>
       </div>
 
-      {blockingAgentSession ? (
+      {liveBranches.length > 0 ? (
+        <div className="forge-surface p-4">
+          <div className="forge-section-label mb-3">Live branches</div>
+          <ul className="divide-y divide-[var(--forge-line)]">
+            {liveBranches.map((branch) => (
+              <li key={branch.name} className="flex items-center justify-between gap-2 py-2">
+                <div className="min-w-0">
+                  <p className="font-mono text-sm text-[var(--forge-bright)]">{branch.name}</p>
+                  <p className="text-xs text-[var(--forge-muted)]">
+                    {branch.sessionStatus ? `agent ${branch.sessionStatus}` : "checkout only"}
+                    {branch.containerStatus ? ` · container ${branch.containerStatus}` : ""}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    if (branch.sessionId) {
+                      openAgentSession(branch.sessionId);
+                      return;
+                    }
+                    openChanges(branch.name);
+                  }}
+                >
+                  {branch.sessionId ? "Open agent" : "Open changes"}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : blockingAgentSession ? (
         <div className="forge-attention-row justify-between">
           <div className="min-w-0">
             <p className="text-sm font-medium text-[var(--forge-bright)]">
               Agent on{" "}
               <span className="font-mono">{blockingAgentSession.branch}</span>{" "}
-              is blocking deploys
+              is running
             </p>
             <p className="text-xs capitalize text-[var(--forge-warning)]">
               {blockingAgentSession.status}

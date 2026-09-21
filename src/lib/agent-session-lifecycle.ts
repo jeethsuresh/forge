@@ -6,7 +6,7 @@ import {
   failedTurnEventSeq,
   findFailedTurnPrompt,
 } from "@/lib/agent-turn";
-import { activeAgentProjects } from "@/lib/agent-state";
+import { markAgentSessionIdle, markAgentSessionLive } from "@/lib/agent-state";
 import { isInactiveAgentSessionStatus } from "@/lib/agent-session-source";
 import {
   listLocalBranches,
@@ -18,11 +18,12 @@ import {
   pushBranch,
   revertAgentBranchWorkspace,
   revertAgentSessionCommit as revertPushedAgentCommit,
-  createLocalBranchFromBase,
   validateBranchName,
+  fetchTrackingBranch,
 } from "@/lib/git-workspace";
 import { projectRemoteUrl } from "@/lib/project-git-remote";
-import { ensureBranchWorkspace } from "@/lib/branch-workspace";
+import { createBranchWorkspace, destroyBranchWorkspace, ensureBranchWorkspace } from "@/lib/branch-workspace";
+import { setAgentContainerKillReason } from "@/lib/agent-container";
 import { transition } from "@/lib/agent-session-machine";
 import {
   ACTIVE_TURN_STATUSES,
@@ -81,13 +82,8 @@ export async function createAgentBranch(
     throw new Error(`Branch "${trimmedBranch}" already exists`);
   }
 
-  await createLocalBranchFromBase(
-    projectRemoteUrl(project),
-    project.branch,
-    project.clonePath,
-    trimmedBranch,
-    () => {},
-  );
+  await createBranchWorkspace(project, trimmedBranch);
+  await fetchTrackingBranch(project.clonePath, trimmedBranch);
 }
 
 async function startAgentWithUserMessage(
@@ -123,7 +119,7 @@ async function startAgentWithUserMessage(
     if (TERMINAL_STATUSES.includes(session.status)) {
       reactivateSession(sessionId);
     }
-    activeAgentProjects.add(session.projectId);
+    markAgentSessionLive(sessionId, session.projectId);
     updateSessionStatus(sessionId, "pending");
     void executeAgentTurn(sessionId, session.projectId, trimmedPrompt);
     return;
@@ -266,13 +262,13 @@ export async function createRecoveryAgentSession(
       })
       .where(eq(agentSessions.id, existing.id))
       .run();
-    activeAgentProjects.add(project.id);
+    markAgentSessionLive(existing.id, project.id);
     void executeAgentTurn(existing.id, project.id, prompt.trim(), options);
     return existing.id;
   }
 
   const sessionId = randomUUID();
-  activeAgentProjects.add(project.id);
+  markAgentSessionLive(sessionId, project.id);
 
   db.insert(agentSessions)
     .values({
@@ -332,13 +328,13 @@ export async function createRebaseRecoveryAgentSession(
       })
       .where(eq(agentSessions.id, existing.id))
       .run();
-    activeAgentProjects.add(project.id);
+    markAgentSessionLive(existing.id, project.id);
     void executeAgentTurn(existing.id, project.id, prompt.trim());
     return existing.id;
   }
 
   const sessionId = randomUUID();
-  activeAgentProjects.add(project.id);
+  markAgentSessionLive(sessionId, project.id);
 
   db.insert(agentSessions)
     .values({
@@ -536,7 +532,7 @@ export async function sendAgentMessage(
     throw new Error("Archived sessions are read-only");
   }
   if (session.status === "idle") {
-    activeAgentProjects.add(session.projectId);
+    markAgentSessionLive(sessionId, session.projectId);
     updateSessionStatus(sessionId, "pending");
     void executeAgentTurn(sessionId, session.projectId, prompt.trim());
     return;
@@ -603,7 +599,7 @@ export async function retryAgentTurn(sessionId: string): Promise<string> {
 
   deleteEventsFromSeq(sessionId, fromSeq);
   reactivateFailedSession(sessionId);
-  activeAgentProjects.add(session.projectId);
+  markAgentSessionLive(sessionId, session.projectId);
   appendSessionLog(sessionId, `Retrying failed turn: ${prompt.slice(0, 80)}…`);
   void executeAgentTurn(sessionId, session.projectId, prompt);
   return prompt;
@@ -699,7 +695,7 @@ export async function endAgentSession(
       ? "Session ended by user; uncommitted workspace changes were reverted."
       : "Session ended by user.",
   );
-  activeAgentProjects.delete(session.projectId);
+  markAgentSessionIdle(sessionId, session.projectId);
   drainAgentQueue(session.projectId);
 }
 
@@ -728,8 +724,41 @@ export async function cancelAgentSession(sessionId: string): Promise<void> {
 
   appendSessionLog(sessionId, "Session cancelled by user.");
   updateSessionStatus(sessionId, "cancelled", { completedAt: new Date() });
-  activeAgentProjects.delete(session.projectId);
+  markAgentSessionIdle(sessionId, session.projectId);
   drainAgentQueue(session.projectId);
+}
+
+export async function endAgentAndDestroyBranchWorkspace(
+  projectId: string,
+  branch: string,
+  reason: "branch_merged" | "branch_deleted",
+): Promise<void> {
+  const session = getSessionForBranch(projectId, branch);
+  if (session && !session.archivedAt) {
+    const live =
+      session.status === "queued" ||
+      session.status === "idle" ||
+      ACTIVE_TURN_STATUSES.includes(session.status);
+    if (live) {
+      endedSessions.add(session.id);
+      appendSessionLog(
+        session.id,
+        reason === "branch_merged"
+          ? `Agent ended because branch "${branch}" was merged.`
+          : `Agent ended because branch "${branch}" was deleted.`,
+      );
+      if (isAgentRuntimeActive(session.id)) {
+        await stopAgentRuntime(session.id);
+      }
+      setAgentContainerKillReason(session.id, reason);
+      transition(session.id, { type: "kill", reason });
+      markAgentSessionIdle(session.id, projectId);
+    }
+    if (!session.archivedAt) {
+      transition(session.id, { type: "archive" });
+    }
+  }
+  await destroyBranchWorkspace(projectId, branch);
 }
 
 /** End (if needed) and soft-archive a session so its branch can host a new live session. */

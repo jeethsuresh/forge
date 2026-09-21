@@ -315,6 +315,8 @@ addColumnIfMissing("agent_sessions", "resume_cursor_session_id", "TEXT");
 addColumnIfMissing("agent_sessions", "failed_turn_start_seq", "INTEGER");
 addColumnIfMissing("agent_sessions", "source", "TEXT NOT NULL DEFAULT 'manual'");
 addColumnIfMissing("agent_sessions", "archived_at", "INTEGER");
+addColumnIfMissing("agent_sessions", "restart_count", "INTEGER NOT NULL DEFAULT 0");
+addColumnIfMissing("agent_sessions", "last_exit_code", "INTEGER");
 addColumnIfMissing("projects", "deploy_env_json", "TEXT NOT NULL DEFAULT '[]'");
 addColumnIfMissing("projects", "host_port", "INTEGER");
 addColumnIfMissing("projects", "caddy_route_json", "TEXT");

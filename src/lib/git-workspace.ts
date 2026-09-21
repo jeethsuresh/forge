@@ -615,6 +615,28 @@ export async function revertAgentSessionCommit(
   log(`Reverted and pushed ${branch}.`);
 }
 
+export async function fetchTrackingBranch(
+  clonePath: string,
+  branch: string,
+): Promise<void> {
+  const resolvedPath = resolveClonePath(clonePath);
+  if (!existsSync(resolvedPath) || !existsSync(join(resolvedPath, ".git"))) {
+    return;
+  }
+  const trimmed = branch.trim();
+  try {
+    await execGit(["fetch", "origin", `${trimmed}:${trimmed}`], {
+      cwd: resolvedPath,
+    });
+  } catch {
+    try {
+      await execGit(["fetch", "--prune", "origin"], { cwd: resolvedPath });
+    } catch {
+      // graph lag is non-fatal
+    }
+  }
+}
+
 /**
  * Ensure the working clone exists and `branch` is a local ref.
  * Used before starting agents (e.g. Add-local projects whose clone lags the
@@ -634,6 +656,12 @@ export async function ensureLocalBranchForAgent(
   const cloneBranch =
     trimmed === defaultBranch.trim() ? trimmed : defaultBranch.trim();
   await ensureRepoCloned(repo, cloneBranch || trimmed, clonePath, onLog);
+
+  try {
+    await execGit(["fetch", "--prune", "origin"], { cwd: resolvedPath });
+  } catch {
+    // lookup below still runs against whatever origin refs we have
+  }
 
   let locals = await listLocalBranches(clonePath);
   if (locals.includes(trimmed)) return;

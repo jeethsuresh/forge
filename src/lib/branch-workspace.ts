@@ -214,6 +214,96 @@ async function ensureGitCheckout(
   await checkoutRequestedBranch(workspacePath, branch);
 }
 
+async function remoteHasBranch(
+  workspacePath: string,
+  branch: string,
+): Promise<boolean> {
+  try {
+    await execGit(["rev-parse", "--verify", `origin/${branch}`], {
+      cwd: workspacePath,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function cloneWatchBranch(
+  project: Project,
+  workspacePath: string,
+): Promise<void> {
+  const url = projectRemoteUrl(project);
+  mkdirSync(join(workspacePath, ".."), { recursive: true });
+  if (!existsSync(join(workspacePath, ".git"))) {
+    if (existsSync(workspacePath)) {
+      rmSync(workspacePath, { recursive: true, force: true });
+    }
+    await execGit(["clone", "--branch", project.branch, url, workspacePath]);
+  }
+  try {
+    await execGit(["fetch", "--prune", "origin"], { cwd: workspacePath });
+  } catch (err) {
+    throw new Error(`Failed to fetch origin: ${formatGitError(err)}`);
+  }
+  await execGit(["checkout", project.branch], { cwd: workspacePath });
+}
+
+async function recordWorkspaceRow(
+  projectId: string,
+  branch: string,
+  workspacePath: string,
+  status: BranchWorkspaceStatus,
+): Promise<BranchWorkspace> {
+  const name = branchContainerName(projectId, branch);
+  const existing = getBranchWorkspace(projectId, branch);
+  return upsertWorkspaceRow({
+    id: existing?.id ?? randomUUID(),
+    projectId,
+    branch,
+    workspacePath,
+    containerName: name,
+    status,
+    createdAt: existing?.createdAt ?? new Date(),
+  });
+}
+
+export async function createBranchWorkspace(
+  project: Project,
+  branch: string,
+): Promise<BranchWorkspace> {
+  const trimmed = branch.trim();
+  if (!trimmed) throw new Error("Branch is required");
+  if (trimmed === project.branch) {
+    throw new Error(
+      `Cannot create a branch named "${trimmed}" — that is the deploy branch`,
+    );
+  }
+  if (getBranchWorkspace(project.id, trimmed)) {
+    throw new Error(`Branch "${trimmed}" already exists`);
+  }
+
+  const workspacePath = branchWorkspacePath(project.id, trimmed);
+  try {
+    await cloneWatchBranch(project, workspacePath);
+    if (await remoteHasBranch(workspacePath, trimmed)) {
+      throw new Error(`Branch "${trimmed}" already exists`);
+    }
+    await execGit(["checkout", "-b", trimmed], { cwd: workspacePath });
+    await execGit(["push", "-u", "origin", trimmed], { cwd: workspacePath });
+
+    let status: BranchWorkspaceStatus = "running";
+    try {
+      await startOrReuseContainer(project.id, trimmed, workspacePath);
+    } catch {
+      status = "stopped";
+    }
+    return recordWorkspaceRow(project.id, trimmed, workspacePath, status);
+  } catch (err) {
+    await destroyBranchWorkspace(project.id, trimmed);
+    throw err;
+  }
+}
+
 function buildBranchContainerRunArgs(input: {
   name: string;
   projectId: string;
@@ -296,7 +386,6 @@ async function ensureBranchWorkspaceUnlocked(
   const workspacePath = branchWorkspacePath(project.id, trimmed);
   await ensureGitCheckout(project, trimmed, workspacePath);
 
-  const name = branchContainerName(project.id, trimmed);
   let status: BranchWorkspaceStatus = "running";
   try {
     await startOrReuseContainer(project.id, trimmed, workspacePath);
@@ -304,16 +393,7 @@ async function ensureBranchWorkspaceUnlocked(
     status = "stopped";
   }
 
-  const existing = getBranchWorkspace(project.id, trimmed);
-  return upsertWorkspaceRow({
-    id: existing?.id ?? randomUUID(),
-    projectId: project.id,
-    branch: trimmed,
-    workspacePath,
-    containerName: name,
-    status,
-    createdAt: existing?.createdAt ?? new Date(),
-  });
+  return recordWorkspaceRow(project.id, trimmed, workspacePath, status);
 }
 
 export async function ensureBranchWorkspace(

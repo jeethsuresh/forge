@@ -11,7 +11,7 @@ import {
   setAgentContainerKillReason,
   stopAgentContainer,
 } from "@/lib/agent-container";
-import { activeAgentProjects } from "@/lib/agent-state";
+import { markAgentSessionIdle } from "@/lib/agent-state";
 import { transition } from "@/lib/agent-session-machine";
 
 /** Spec defaults for agent container kill policy (design §3). */
@@ -87,6 +87,27 @@ function appendSessionLog(sessionId: string, message: string): void {
     .run();
 }
 
+export function agentKillLogMessage(reason: AgentKillReason): string {
+  switch (reason) {
+    case "heartbeat_miss":
+      return "Agent container killed: heartbeat miss threshold exceeded";
+    case "idle_timeout":
+      return "Agent container killed: idle timeout exceeded";
+    case "wall_clock":
+      return "Agent container killed: wall-clock max exceeded";
+    case "user_stop":
+    case "reconcile_missing":
+    case "error":
+    case "branch_merged":
+    case "branch_deleted":
+      return `Agent container killed: ${reason}`;
+    default: {
+      const _exhaustive: never = reason;
+      return _exhaustive;
+    }
+  }
+}
+
 export function reasonForAgentKill(
   container: {
     lastHeartbeatAt: Date | null;
@@ -131,14 +152,7 @@ async function applyAgentKill(
     return;
   }
 
-  const message =
-    reason === "heartbeat_miss"
-      ? "Agent container killed: heartbeat miss threshold exceeded"
-      : reason === "idle_timeout"
-        ? "Agent container killed: idle timeout exceeded"
-        : reason === "wall_clock"
-          ? "Agent container killed: wall-clock max exceeded"
-          : `Agent container killed: ${reason}`;
+  const message = agentKillLogMessage(reason);
 
   setAgentContainerKillReason(sessionId, reason);
   try {
@@ -155,7 +169,7 @@ async function applyAgentKill(
   appendSessionLog(sessionId, message);
   transition(sessionId, { type: "kill", reason });
 
-  activeAgentProjects.delete(session.projectId);
+  markAgentSessionIdle(sessionId, session.projectId);
 }
 
 /**

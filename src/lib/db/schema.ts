@@ -265,6 +265,8 @@ export const agentSessions = sqliteTable("agent_sessions", {
   completedAt: integer("completed_at", { mode: "timestamp" }),
   /** Soft-archive timestamp; null means the session is the live session for its branch. */
   archivedAt: integer("archived_at", { mode: "timestamp" }),
+  restartCount: integer("restart_count").notNull().default(0),
+  lastExitCode: integer("last_exit_code"),
 });
 
 export const forgeUpdates = sqliteTable("forge_updates", {
@@ -315,7 +317,9 @@ export type AgentKillReason =
   | "wall_clock"
   | "user_stop"
   | "reconcile_missing"
-  | "error";
+  | "error"
+  | "branch_merged"
+  | "branch_deleted";
 
 export type BranchWorkspaceStatus = "running" | "paused" | "stopped";
 

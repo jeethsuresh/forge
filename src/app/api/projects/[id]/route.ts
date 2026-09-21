@@ -7,6 +7,7 @@ import { getComposeContainerStatus, projectHasComposeFile } from "@/lib/docker";
 import { isDeploymentActive } from "@/lib/deployer";
 import { deriveRuntimeStatus } from "@/lib/project-status";
 import { composeProjectName } from "@/lib/compose-project-name";
+import { listLiveBranches } from "@/lib/agent-runner";
 import { getBlockingAgentSession } from "@/lib/agent-state";
 import { composeNameConflict, projectComposeSlug, validateProjectName } from "@/lib/projects";
 import {
@@ -241,6 +242,7 @@ export async function GET(
     hasComposeFile,
   });
   const blockingAgentSession = getBlockingAgentSession(id);
+  const liveBranches = listLiveBranches(id);
 
   return NextResponse.json({
     project: {
@@ -267,6 +269,7 @@ export async function GET(
           sessionSource: blockingAgentSession.sessionSource,
         }
       : null,
+    liveBranches,
   });
 }
 

@@ -14,6 +14,7 @@ import {
   branchContainerName,
   branchWorkspacePath,
   branchWorkspaceSlug,
+  createBranchWorkspace,
   destroyBranchWorkspace,
   destroyProjectBranchWorkspaces,
   ensureBranchWorkspace,
@@ -236,6 +237,53 @@ describe("ensureBranchWorkspace", () => {
           .all(),
       ).toEqual([]);
 
+      db.delete(projects).where(eq(projects.id, projectId)).run();
+      db.delete(gitRepositories).where(eq(gitRepositories.id, repoId)).run();
+    } finally {
+      delete process.env.FORGE_BRANCH_WORKSPACES_DIR;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("creates a new branch from watch, pushes to origin, and starts a container", async () => {
+    const root = await mkdtemp(join(tmpdir(), "forge-branch-create-"));
+    process.env.FORGE_BRANCH_WORKSPACES_DIR = join(root, "workspaces");
+    mockDocker();
+    try {
+      const { bareDir } = await seedRemote(root);
+      const { projectId, repoId } = seedProject(bareDir);
+      const workspace = await createBranchWorkspace(
+        loadProject(projectId),
+        "agent/deploy-tools-instead",
+      );
+      expect(workspace.branch).toBe("agent/deploy-tools-instead");
+      const { stdout: head } = await execFileAsync(
+        "git",
+        ["rev-parse", "--abbrev-ref", "HEAD"],
+        { cwd: workspace.workspacePath },
+      );
+      expect(head.trim()).toBe("agent/deploy-tools-instead");
+      const { stdout: refs } = await execFileAsync(
+        "git",
+        ["show-ref", "--heads", "agent/deploy-tools-instead"],
+        { cwd: bareDir },
+      );
+      expect(refs).toContain("refs/heads/agent/deploy-tools-instead");
+      expect(seen.some((a) => a[0] === "run")).toBe(true);
+
+      await expect(
+        createBranchWorkspace(loadProject(projectId), "agent/deploy-tools-instead"),
+      ).rejects.toThrow(/already exists/);
+
+      const opened = await ensureBranchWorkspace(
+        loadProject(projectId),
+        "agent/deploy-tools-instead",
+      );
+      expect(opened.id).toBe(workspace.id);
+
+      db.delete(branchWorkspaces)
+        .where(eq(branchWorkspaces.projectId, projectId))
+        .run();
       db.delete(projects).where(eq(projects.id, projectId)).run();
       db.delete(gitRepositories).where(eq(gitRepositories.id, repoId)).run();
     } finally {

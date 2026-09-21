@@ -1,7 +1,10 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { agentSessions } from "@/lib/db/schema";
-import { activeAgentProjects, isAgentSessionActive } from "@/lib/agent-state";
+import {
+  isAgentSessionActiveOnBranch,
+  markAgentSessionLive,
+} from "@/lib/agent-state";
 import { transition } from "@/lib/agent-session-machine";
 import { isQueuedAgentSessionStatus } from "@/lib/agent-session-source";
 
@@ -22,12 +25,17 @@ export function listQueuedAgentSessions(projectId: string) {
 }
 
 export function getNextQueuedAgentSession(projectId: string) {
-  return listQueuedAgentSessions(projectId)[0] ?? null;
+  return (
+    listQueuedAgentSessions(projectId).find(
+      (session) => !isAgentSessionActiveOnBranch(projectId, session.branch),
+    ) ?? null
+  );
 }
 
 export function isProjectAgentPipelineBusy(projectId: string): boolean {
-  if (activeAgentProjects.has(projectId)) return true;
-  return isAgentSessionActive(projectId);
+  return listQueuedAgentSessions(projectId).every((session) =>
+    isAgentSessionActiveOnBranch(projectId, session.branch),
+  ) && listQueuedAgentSessions(projectId).length > 0;
 }
 
 export function countQueuedAgentSessions(projectId: string): number {
@@ -68,13 +76,10 @@ export function processAgentQueue(
   projectId: string,
   startTurn: StartQueuedAgentTurn,
 ): void {
-  if (isProjectAgentPipelineBusy(projectId)) return;
-
-  const next = getNextQueuedAgentSession(projectId);
-  if (!next) return;
-
-  activeAgentProjects.add(projectId);
-  transition(next.id, { type: "start" });
-
-  startTurn(next.id, projectId, next.initialPrompt);
+  for (const next of listQueuedAgentSessions(projectId)) {
+    if (isAgentSessionActiveOnBranch(projectId, next.branch)) continue;
+    markAgentSessionLive(next.id, projectId);
+    transition(next.id, { type: "start" });
+    startTurn(next.id, projectId, next.initialPrompt);
+  }
 }

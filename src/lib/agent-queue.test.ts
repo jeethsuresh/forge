@@ -98,33 +98,37 @@ describe("agent-queue", () => {
     expect(session?.status).toBe("pending");
   });
 
-  it("does not start queued sessions while another agent is active", () => {
-    const sessionId = randomUUID();
+  it("starts a queued session on a free branch while another branch is live", () => {
+    const liveId = randomUUID();
+    const queuedId = randomUUID();
     const now = new Date();
     db.insert(agentSessions)
-      .values({
-        id: sessionId,
-        projectId,
-        branch: "agent/a",
-        status: "queued",
-        initialPrompt: "queued task",
-        logs: "",
-        startedAt: now,
-      })
+      .values([
+        {
+          id: liveId,
+          projectId,
+          branch: "agent/a",
+          status: "running",
+          initialPrompt: "live",
+          logs: "",
+          startedAt: now,
+        },
+        {
+          id: queuedId,
+          projectId,
+          branch: "agent/b",
+          status: "queued",
+          initialPrompt: "queued task",
+          logs: "",
+          startedAt: now,
+        },
+      ])
       .run();
 
-    activeAgentProjects.add(projectId);
     const startTurn = vi.fn();
     processAgentQueue(projectId, startTurn);
 
-    expect(startTurn).not.toHaveBeenCalled();
-    expect(
-      db
-        .select()
-        .from(agentSessions)
-        .where(eq(agentSessions.id, sessionId))
-        .get()?.status,
-    ).toBe("queued");
+    expect(startTurn).toHaveBeenCalledWith(queuedId, projectId, "queued task");
   });
 
   it("updates an existing queued session prompt", () => {

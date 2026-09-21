@@ -5,7 +5,7 @@ import { projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
 import { branchOpsBlockedResponse } from "@/lib/git-tree-branch-ops";
 import { mergeProjectBranch } from "@/lib/project-git-tree";
-import { destroyProjectBranchWorkspaces } from "@/lib/branch-workspace";
+import { endAgentAndDestroyBranchWorkspace } from "@/lib/agent-runner";
 import { invalidateProjectBranches } from "@/lib/project-branches-cache";
 
 export async function POST(
@@ -46,7 +46,7 @@ export async function POST(
       deleteLocal,
       watchBranch: project.branch,
     });
-    await destroyProjectBranchWorkspaces(id);
+    await endAgentAndDestroyBranchWorkspace(id, branch, "branch_merged");
     invalidateProjectBranches(id);
     return NextResponse.json({ success: true, branch, into, deleteLocal });
   } catch (err) {

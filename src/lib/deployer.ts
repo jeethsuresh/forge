@@ -15,7 +15,6 @@ import {
   isCommitAncestor,
 } from "@/lib/git-workspace";
 import { projectRemoteUrl } from "@/lib/project-git-remote";
-import { isAgentSessionActive } from "@/lib/agent-state";
 import { handleProjectDeployFailure } from "@/lib/deploy-recovery";
 import {
   projectSupportsRollback,
@@ -618,7 +617,6 @@ export async function checkProjectForChanges(projectId: string): Promise<boolean
 
   if (!project || !project.enabled) return false;
   if (activeDeployments.has(projectId)) return false;
-  if (isAgentSessionActive(projectId)) return false;
 
   try {
     const autoBranch = resolveAutoDeployBranch(

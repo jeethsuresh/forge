@@ -11,6 +11,7 @@ import {
   type AgentSessionStatus,
   type Project,
 } from "@/lib/db/schema";
+import { listLiveBranches } from "@/lib/agent-live-branches";
 import { sessionEventsHaveFileEdits } from "@/lib/agent-stream";
 import {
   canRetryFailedAgentTurn,
@@ -19,10 +20,8 @@ import {
   sessionHasLiveRuntime,
 } from "@/lib/agent-turn";
 import {
-  activeAgentProjects,
   applyAgentDeploymentOutcome,
-  getActiveSessionForProject,
-  isAgentSessionActive,
+  markAgentSessionIdle,
 } from "@/lib/agent-state";
 import {
   agentSessionSourceLabel,
@@ -53,7 +52,6 @@ import { prependForgeOpsInstructions, buildForgeOpsAgentInstructions } from "@/l
 import { isForgeUpdateTerminalStatus } from "@/lib/ops-session-deploy";
 import { mintSessionOpsToken, opsApiBaseUrl } from "@/lib/ops-api-auth";
 import {
-  isProjectAgentPipelineBusy,
   markAgentSessionQueued,
   processAgentQueue,
 } from "@/lib/agent-queue";
@@ -65,6 +63,7 @@ import {
   getAgentContainer,
   clearAgentContainerKillReason,
 } from "@/lib/agent-container";
+import { runAgentContainerWithRestart } from "@/lib/agent-exit-restart";
 import { AGENT_HEARTBEAT_INTERVAL_SEC } from "@/lib/agent-heartbeat";
 import { getProjectForgefile } from "@/lib/forgefile-project";
 import type { Forgefile } from "@/lib/forgefile-types";
@@ -292,6 +291,17 @@ export function deleteEventsFromSeq(sessionId: string, fromSeq: number): void {
     .run();
 }
 
+export function persistAgentRestartState(
+  sessionId: string,
+  restartCount: number,
+  lastExitCode: number | null,
+): void {
+  db.update(agentSessions)
+    .set({ restartCount, lastExitCode })
+    .where(eq(agentSessions.id, sessionId))
+    .run();
+}
+
 export function reactivateSession(sessionId: string): void {
   db.update(agentSessions)
     .set({
@@ -301,6 +311,8 @@ export function reactivateSession(sessionId: string): void {
       deploymentId: null,
       commitSha: null,
       failedTurnStartSeq: null,
+      restartCount: 0,
+      lastExitCode: null,
     })
     .where(eq(agentSessions.id, sessionId))
     .run();
@@ -313,6 +325,8 @@ export function reactivateFailedSession(sessionId: string): void {
       errorMessage: null,
       completedAt: null,
       failedTurnStartSeq: null,
+      restartCount: 0,
+      lastExitCode: null,
     })
     .where(eq(agentSessions.id, sessionId))
     .run();
@@ -388,7 +402,7 @@ async function maybeAutoFinishSessionIfNoEdits(
 
   log("No file edits in this session. Marking as finished.");
   updateSessionStatus(sessionId, "completed", { completedAt: new Date() });
-  activeAgentProjects.delete(projectId);
+  markAgentSessionIdle(sessionId, projectId);
 }
 
 export function finalizeSessionAfterFailedTurn(
@@ -423,7 +437,7 @@ export function finalizeSessionAfterFailedTurn(
     errorMessage: message,
     completedAt: new Date(),
   });
-  activeAgentProjects.delete(projectId);
+  markAgentSessionIdle(sessionId, projectId);
   drainAgentQueue(projectId);
 }
 
@@ -470,7 +484,7 @@ export async function finalizeSessionAfterSuccessfulTurn(
       completedAt: new Date(),
     });
   }
-  activeAgentProjects.delete(projectId);
+  markAgentSessionIdle(sessionId, projectId);
   drainAgentQueue(projectId);
 }
 
@@ -499,6 +513,9 @@ export function getSessionForBranch(projectId: string, branch: string) {
     )
     .get();
 }
+
+export type { LiveBranchInfo } from "@/lib/agent-live-branches";
+export { listLiveBranches };
 
 export async function getBranchAgentOverview(
   projectId: string,
@@ -533,23 +550,18 @@ export async function getBranchAgentOverview(
 }
 
 export function assertNoConflictingActiveSession(
-  projectId: string,
-  branch: string,
+  _projectId: string,
+  _branch: string,
 ): void {
-  if (!isAgentSessionActive(projectId)) return;
-
-  const active = getActiveSessionForProject(projectId);
-  if (active && active.branch !== branch) {
-    throw new Error(
-      `An agent is active on branch "${active.branch}". Queue another branch or wait for it to finish.`,
-    );
-  }
+  // Other branches may run in parallel. Same-branch attach is handled by
+  // createAgentSession / sendAgentMessage.
 }
 
-export function shouldQueueAgentSession(projectId: string, branch: string): boolean {
-  if (!isProjectAgentPipelineBusy(projectId)) return false;
-  const active = getActiveSessionForProject(projectId);
-  return Boolean(active && active.branch !== branch);
+export function shouldQueueAgentSession(
+  _projectId: string,
+  _branch: string,
+): boolean {
+  return false;
 }
 
 export function queueAgentSession(
@@ -635,59 +647,107 @@ export async function runAgentTurnContainer(
   appendSessionLog(sessionId, "Starting agent container (no docker.sock)…");
 
   try {
-    const { containerId } = await startAgentContainer({
-      sessionId,
-      projectId: project.id,
-      branch: session.branch,
-      cloneUrl: projectAgentCloneUrl(project),
-      opsBaseUrl: opsApiBaseUrl(),
-      opsToken: mintSessionOpsToken(sessionId, project.id),
-      gitUsername: projectUsesForgeGit(project) ? "forge" : creds?.username,
-      gitPassword: projectUsesForgeGit(project)
-        ? mintSessionOpsToken(sessionId, project.id)
-        : creds?.password,
-      heartbeatIntervalSec: AGENT_HEARTBEAT_INTERVAL_SEC,
-      agentPrompt: effectivePrompt,
-      cursorApiKey: apiKey,
-      packagesJson: resolveAgentPackagesJson(project.id),
-      workspaceBind: existsSync(bindPath) ? bindPath : undefined,
-      cursorSessionId:
-        session.resumeCursorSessionId ?? session.cursorSessionId ?? undefined,
+    const result = await runAgentContainerWithRestart({
+      initialRestartCount: session.restartCount ?? 0,
+      start: async () => {
+        const latest = db
+          .select()
+          .from(agentSessions)
+          .where(eq(agentSessions.id, sessionId))
+          .get();
+        const { containerId } = await startAgentContainer({
+          sessionId,
+          projectId: project.id,
+          branch: session.branch,
+          cloneUrl: projectAgentCloneUrl(project),
+          opsBaseUrl: opsApiBaseUrl(),
+          opsToken: mintSessionOpsToken(sessionId, project.id),
+          gitUsername: projectUsesForgeGit(project) ? "forge" : creds?.username,
+          gitPassword: projectUsesForgeGit(project)
+            ? mintSessionOpsToken(sessionId, project.id)
+            : creds?.password,
+          heartbeatIntervalSec: AGENT_HEARTBEAT_INTERVAL_SEC,
+          agentPrompt: effectivePrompt,
+          cursorApiKey: apiKey,
+          packagesJson: resolveAgentPackagesJson(project.id),
+          workspaceBind: existsSync(bindPath) ? bindPath : undefined,
+          cursorSessionId:
+            latest?.resumeCursorSessionId ??
+            latest?.cursorSessionId ??
+            session.resumeCursorSessionId ??
+            session.cursorSessionId ??
+            undefined,
+        });
+        appendSessionLog(
+          sessionId,
+          `Agent container ${containerId.slice(0, 12)} started; events via Ops ingest.`,
+        );
+      },
+      waitForExit: () => waitForAgentContainerExit(sessionId),
+      getKillReason: () => getAgentContainer(sessionId)?.killReason ?? null,
+      onExit: ({ exitCode, attempt, recoverable }) => {
+        const note = recoverable
+          ? `Agent container exited with code ${exitCode}; restarting (attempt ${attempt}).`
+          : `Agent container exited with code ${exitCode} (unrecoverable).`;
+        appendSessionLog(sessionId, note);
+        recordEvent(
+          sessionId,
+          "system",
+          JSON.stringify({
+            type: "system",
+            subtype: "agent-exit",
+            exitCode,
+            attempt,
+            recoverable,
+          }),
+        );
+      },
+      persistRestart: (restartCount, lastExitCode) => {
+        persistAgentRestartState(sessionId, restartCount, lastExitCode);
+      },
+      remove: async () => {
+        try {
+          await removeAgentContainer(sessionId);
+        } catch {
+          // already removed
+        }
+      },
+      isCancelled: () => cancelledSessions.has(sessionId),
+      isEnded: () => endedSessions.has(sessionId),
+      isStopping: () => stoppingSessions.has(sessionId),
     });
 
-    appendSessionLog(
-      sessionId,
-      `Agent container ${containerId.slice(0, 12)} started; events via Ops ingest.`,
-    );
-
-    const code = await waitForAgentContainerExit(sessionId);
-
-    if (cancelledSessions.has(sessionId)) {
+    if (result.outcome === "cancel") {
       cancelledSessions.delete(sessionId);
       return;
     }
 
-    if (endedSessions.has(sessionId)) {
+    if (result.outcome === "end") {
       endedSessions.delete(sessionId);
       stoppingSessions.delete(sessionId);
       return;
     }
 
-    if (stoppingSessions.has(sessionId)) {
+    if (result.outcome === "stop") {
       stoppingSessions.delete(sessionId);
       markTurnFailed(sessionId, turnStartSeq);
       transition(sessionId, { type: "operator_stop", reason: "stop" });
       appendSessionLog(sessionId, "Agent stopped by user.");
-      activeAgentProjects.delete(project.id);
+      markAgentSessionIdle(sessionId, project.id);
       drainAgentQueue(project.id);
       return;
     }
 
-    if (code !== 0) {
+    if (result.outcome === "fail") {
       markTurnFailed(sessionId, turnStartSeq);
-      throw new Error(`Agent container exited with code ${code}`);
+      throw new Error(`Agent container exited with code ${result.exitCode}`);
     }
-    markTurnSucceeded(sessionId);
+    if (result.outcome === "success") {
+      markTurnSucceeded(sessionId);
+      return;
+    }
+    const _exhaustive: never = result.outcome;
+    void _exhaustive;
   } finally {
     activeAgentContainers.delete(sessionId);
     try {
@@ -781,7 +841,7 @@ export async function deployAfterAgent(
       errorMessage: message,
       completedAt: new Date(),
     });
-    activeAgentProjects.delete(projectId);
+    markAgentSessionIdle(sessionId, projectId);
     throw err;
   }
 }
@@ -800,7 +860,7 @@ export async function waitForDeploymentAndFinalize(
 
   if (!session?.deploymentId) {
     updateSessionStatus(sessionId, "completed", { completedAt: new Date() });
-    activeAgentProjects.delete(projectId);
+    markAgentSessionIdle(sessionId, projectId);
     return;
   }
 
@@ -876,7 +936,7 @@ export async function executeAgentTurn(
       errorMessage: "Project not found",
       completedAt: new Date(),
     });
-    activeAgentProjects.delete(projectId);
+    markAgentSessionIdle(sessionId, projectId);
     drainAgentQueue(projectId);
     return;
   }
@@ -987,6 +1047,7 @@ export {
   stopAgentTurn,
   clearAgentSessionLogs,
   endAgentSession,
+  endAgentAndDestroyBranchWorkspace,
   cancelAgentSession,
   archiveAgentSession,
   archiveLiveSessionForBranch,

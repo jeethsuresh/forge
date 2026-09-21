@@ -36,8 +36,47 @@ import {
 } from "@/lib/agent-session-machine";
 
 export const activeAgentProjects = new Set<string>();
+export const activeAgentSessions = new Set<string>();
 
 const ACTIVE_STATUSES = ["pending", "running", "deploying"] as const;
+
+export function markAgentSessionLive(sessionId: string, projectId: string): void {
+  activeAgentSessions.add(sessionId);
+  activeAgentProjects.add(projectId);
+}
+
+export function markAgentSessionIdle(sessionId: string, projectId: string): void {
+  activeAgentSessions.delete(sessionId);
+  const remaining = db
+    .select({ id: agentSessions.id })
+    .from(agentSessions)
+    .where(
+      and(
+        eq(agentSessions.projectId, projectId),
+        inArray(agentSessions.status, [...ACTIVE_STATUSES]),
+        isNull(agentSessions.completedAt),
+        isNull(agentSessions.archivedAt),
+      ),
+    )
+    .all()
+    .some((row) => row.id !== sessionId);
+  const remainingInMemory = [...activeAgentSessions].some((id) => {
+    if (id === sessionId) return false;
+    const session = db
+      .select({ projectId: agentSessions.projectId })
+      .from(agentSessions)
+      .where(eq(agentSessions.id, id))
+      .get();
+    return session?.projectId === projectId;
+  });
+  if (!remaining && !remainingInMemory) {
+    activeAgentProjects.delete(projectId);
+  }
+}
+
+export function syncProjectAgentLock(projectId: string): void {
+  markAgentSessionIdle("", projectId);
+}
 
 function appendSessionLog(sessionId: string, message: string): void {
   const row = db
@@ -93,7 +132,7 @@ function finalizeDeployingSessionFromForgeUpdate(
     transition(session.id, { type: "deploy_fail", errorMessage: message });
   }
 
-  activeAgentProjects.delete(session.projectId);
+  syncProjectAgentLock(session.projectId);
   return true;
 }
 
@@ -123,7 +162,7 @@ function finalizeDeployingSessionFromDeployment(
     transition(session.id, { type: "deploy_fail", errorMessage: message });
   }
 
-  activeAgentProjects.delete(session.projectId);
+  syncProjectAgentLock(session.projectId);
   return true;
 }
 
@@ -150,8 +189,6 @@ export function applyAgentDeploymentOutcome(
 }
 
 function reconcileStaleActiveSessions(projectId: string): number {
-  if (activeAgentProjects.has(projectId)) return 0;
-
   const sessions = db
     .select()
     .from(agentSessions)
@@ -167,6 +204,7 @@ function reconcileStaleActiveSessions(projectId: string): number {
 
   let reconciled = 0;
   for (const session of sessions) {
+    if (activeAgentSessions.has(session.id)) continue;
     if (session.status === "deploying") {
       if (finalizeDeployingSessionFromDeployment(session)) {
         reconciled += 1;
@@ -225,7 +263,7 @@ function reconcileStaleActiveSessions(projectId: string): number {
   }
 
   if (reconciled > 0) {
-    activeAgentProjects.delete(projectId);
+    syncProjectAgentLock(projectId);
   }
 
   return reconciled;
@@ -288,7 +326,7 @@ function reconcileStoppedContainerSessions(projectId: string): number {
     } else {
       transition(session.id, { type: "fail", errorMessage: message });
     }
-    activeAgentProjects.delete(projectId);
+    syncProjectAgentLock(projectId);
     reconciled += 1;
   }
   return reconciled;
@@ -337,7 +375,7 @@ export async function reconcileMissingAgentContainers(
     }
     appendSessionLog(session.id, message);
     transition(session.id, { type: "fail", errorMessage: message });
-    activeAgentProjects.delete(session.projectId);
+    syncProjectAgentLock(session.projectId);
     reconciled += 1;
   }
   return reconciled;
@@ -374,8 +412,6 @@ export function reconcileProjectAgentSessions(projectId: string): number {
 export function isAgentSessionActive(projectId: string): boolean {
   reconcileProjectAgentSessions(projectId);
 
-  if (activeAgentProjects.has(projectId)) return true;
-
   const row = db
     .select({ id: agentSessions.id })
     .from(agentSessions)
@@ -389,7 +425,60 @@ export function isAgentSessionActive(projectId: string): boolean {
     )
     .get();
 
-  return Boolean(row);
+  if (row) return true;
+  return [...activeAgentSessions].some((id) => {
+    const session = db
+      .select({ projectId: agentSessions.projectId })
+      .from(agentSessions)
+      .where(eq(agentSessions.id, id))
+      .get();
+    return session?.projectId === projectId;
+  });
+}
+
+export function isAgentSessionActiveOnBranch(
+  projectId: string,
+  branch: string,
+): boolean {
+  return Boolean(getActiveSessionForBranch(projectId, branch));
+}
+
+export function getActiveSessionForBranch(projectId: string, branch: string) {
+  reconcileProjectAgentSessions(projectId);
+
+  return db
+    .select()
+    .from(agentSessions)
+    .where(
+      and(
+        eq(agentSessions.projectId, projectId),
+        eq(agentSessions.branch, branch),
+        inArray(agentSessions.status, [...ACTIVE_STATUSES]),
+        isNull(agentSessions.completedAt),
+        isNull(agentSessions.archivedAt),
+      ),
+    )
+    .orderBy(desc(agentSessions.startedAt))
+    .limit(1)
+    .get();
+}
+
+export function listActiveSessionsForProject(projectId: string) {
+  reconcileProjectAgentSessions(projectId);
+
+  return db
+    .select()
+    .from(agentSessions)
+    .where(
+      and(
+        eq(agentSessions.projectId, projectId),
+        inArray(agentSessions.status, [...ACTIVE_STATUSES]),
+        isNull(agentSessions.completedAt),
+        isNull(agentSessions.archivedAt),
+      ),
+    )
+    .orderBy(desc(agentSessions.startedAt))
+    .all();
 }
 
 export function getActiveSessionForProject(projectId: string) {

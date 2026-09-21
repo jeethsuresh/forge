@@ -33,10 +33,6 @@ import {
   type ForgefileStatus,
   type ProjectDetail,
 } from "@/components/project-studio-types";
-import {
-  agentSessionSourceBadgeClass,
-  agentSessionSourceLabel,
-} from "@/lib/agent-session-source";
 import { projectSwatch } from "@/lib/project-swatch";
 import { Button } from "@/components/ui";
 import {
@@ -257,37 +253,6 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
     });
   }
 
-  async function endBlockingAgentSession() {
-    const blocking = dataRef.current?.blockingAgentSession;
-    if (!blocking) return;
-    if (
-      !confirm(
-        "Stop this agent session? Deploys for this project will be unblocked.",
-      )
-    ) {
-      return;
-    }
-    setActionLoading(true);
-    try {
-      const res = await fetch(
-        `/api/projects/${id}/agent-sessions/${blocking.id}/end`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ revertChanges: false }),
-        },
-      );
-      if (!res.ok) {
-        const json = (await res.json()) as { error?: string };
-        alert(json.error ?? "Failed to stop agent session");
-        return;
-      }
-      await fetchData();
-    } finally {
-      setActionLoading(false);
-    }
-  }
-
   function selectTab(tab: ProjectMode) {
     if (tab === "agents") {
       const session = searchParams.get("session");
@@ -449,6 +414,7 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
     hasRollbackImage,
     forgeStatus,
     blockingAgentSession,
+    liveBranches = [],
   } = data;
 
   const isForge = project.isForge === true;
@@ -573,8 +539,14 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
           deployedAt={deployedAt}
           runtimeStatus={runtimeStatus}
           blockingAgentSession={blockingAgentSession}
+          liveBranches={liveBranches}
           containers={containers}
           openAgentSession={openAgentSession}
+          openChanges={(branch) => {
+            router.replace(projectModeHref(id, "changes", { branch }), {
+              scroll: false,
+            });
+          }}
           selectTab={selectTab}
         />
       ) : activeTab === "deploy" ? (
@@ -597,43 +569,27 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
               />
             </div>
           ) : null}
-          {blockingAgentSession && (
+          {liveBranches.length > 0 && (
             <div className="forge-attention-row mb-6 justify-between">
               <div className="min-w-0 space-y-1">
                 <p className="text-sm text-[var(--forge-bright)]">
-                  Deploy is blocked by a{" "}
-                  <span
-                    className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${agentSessionSourceBadgeClass(blockingAgentSession.sessionSource)}`}
-                  >
-                    {agentSessionSourceLabel(blockingAgentSession.sessionSource)}
-                  </span>{" "}
-                  agent on{" "}
+                  Agents are running on{" "}
                   <span className="font-mono">
-                    {blockingAgentSession.branch}
-                  </span>{" "}
-                  <span className="capitalize text-[var(--forge-warning)]">
-                    ({blockingAgentSession.status})
+                    {liveBranches.map((b) => b.name).join(", ")}
                   </span>
-                  .
+                  . Deploy is not blocked.
                 </p>
               </div>
-              <div className="flex shrink-0 flex-wrap gap-2">
-                <Button
-                  size="sm"
-                  variant="warning"
-                  onClick={() => void endBlockingAgentSession()}
-                  disabled={actionLoading || deployBusy}
-                >
-                  End session
-                </Button>
-                <Button
-                  size="sm"
-                  variant="warning"
-                  onClick={() => openAgentSession(blockingAgentSession.id)}
-                >
-                  Open agent
-                </Button>
-              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  const first = liveBranches.find((b) => b.sessionId);
+                  if (first?.sessionId) openAgentSession(first.sessionId);
+                }}
+              >
+                Open agent
+              </Button>
             </div>
           )}
 
@@ -681,7 +637,6 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
               disabled={
                 actionLoading ||
                 deployBusy ||
-                Boolean(blockingAgentSession) ||
                 deployUpdate?.deployAllowed === false
               }
             >

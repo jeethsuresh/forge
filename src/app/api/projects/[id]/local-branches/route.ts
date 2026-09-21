@@ -4,10 +4,9 @@ import { db } from "@/lib/db";
 import { agentSessions, projects } from "@/lib/db/schema";
 import { getSession } from "@/lib/auth/session";
 import {
-  archiveLiveSessionForBranch,
+  endAgentAndDestroyBranchWorkspace,
   getSessionForBranch,
 } from "@/lib/agent-runner";
-import { getActiveSessionForProject } from "@/lib/agent-state";
 import { listLocalBranches } from "@/lib/git-workspace";
 import { branchOpsBlockedResponse } from "@/lib/git-tree-branch-ops";
 import { invalidateProjectBranches } from "@/lib/project-branches-cache";
@@ -82,27 +81,19 @@ export async function DELETE(
     return NextResponse.json({ error: "Branch is required" }, { status: 400 });
   }
 
-  // Allow delete when the only active agent is on this branch (we archive it).
   const blocked = branchOpsBlockedResponse(id);
-  if (blocked) {
-    const active = getActiveSessionForProject(id);
-    if (!active || active.branch !== branch) {
-      return blocked;
-    }
-  }
+  if (blocked) return blocked;
 
   try {
-    const archivedSessionId = await archiveLiveSessionForBranch(id, branch);
     await deleteLocalBranch(project.clonePath, branch, {
       watchBranch: project.branch,
       force: Boolean(body.force),
     });
-    await destroyBranchWorkspace(id, branch);
+    await endAgentAndDestroyBranchWorkspace(id, branch, "branch_deleted");
     invalidateProjectBranches(id);
     return NextResponse.json({
       ok: true,
       deleted: branch,
-      archivedSessionId,
     });
   } catch (err) {
     return errorResponse(err);

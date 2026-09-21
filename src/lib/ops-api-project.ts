@@ -25,6 +25,7 @@ import {
 import {
   getBranchAgentOverview,
   listAgentSessionsForClient,
+  listLiveBranches,
 } from "@/lib/agent-runner";
 import { projectRoutingView } from "@/lib/project-routing";
 
@@ -194,6 +195,7 @@ export async function buildOpsProjectDetail(project: typeof projects.$inferSelec
     hasRollbackImage: rollbackAvailable,
     blockingAgentSession: getBlockingAgentSession(project.id),
     hasActiveAgentSession: isAgentSessionActive(project.id),
+    liveBranches: listLiveBranches(project.id),
     agentSessions: sessions,
     agentBranches: branchOverview,
   };

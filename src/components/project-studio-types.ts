@@ -93,6 +93,12 @@ export interface ProjectDetail {
     status: string;
     sessionSource: "manual" | "recovery" | "rebase-recovery";
   } | null;
+  liveBranches?: Array<{
+    name: string;
+    sessionId: string | null;
+    sessionStatus: string | null;
+    containerStatus: "running" | "paused" | "stopped" | null;
+  }>;
   deployUpdate: {
     branch: string;
     deployedCommitSha: string | null;
