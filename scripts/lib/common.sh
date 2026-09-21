@@ -18,6 +18,17 @@ PID_FILE="${PID_FILE:-./data/forge.pid}"
 PODMAN_API_PID_FILE="${PODMAN_API_PID_FILE:-./data/podman-api.pid}"
 FORGE_PODMAN_API_PORT="${FORGE_PODMAN_API_PORT:-18765}"
 FORGE_HOST_MOUNTS_FILE="${FORGE_HOST_MOUNTS_FILE:-/data/forge-host-mounts.json}"
+FORGE_RUNTIME_ENV_FILE="${FORGE_RUNTIME_ENV_FILE:-/data/forge-runtime.env}"
+
+load_forge_runtime_env() {
+  local f="${FORGE_RUNTIME_ENV_FILE:-/data/forge-runtime.env}"
+  if [[ -f "$f" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$f"
+    set +a
+  fi
+}
 
 if [[ -d /data ]] && [[ -w /data ]]; then
   PODMAN_API_PID_FILE="${PODMAN_API_PID_FILE:-/data/podman-api.pid}"
@@ -119,6 +130,7 @@ has_compose_file() {
 }
 
 export_compose_env() {
+  load_forge_runtime_env || true
   export_docker_socket
   local tcp_host="tcp://127.0.0.1:${FORGE_PODMAN_API_PORT}"
   if DOCKER_HOST="$tcp_host" docker info >/dev/null 2>&1; then

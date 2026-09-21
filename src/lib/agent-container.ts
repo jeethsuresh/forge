@@ -282,6 +282,7 @@ export function buildAgentContainerRunArgs(
     FORGE_AGENT_BRANCH: opts.branch,
     FORGE_AGENT_CLONE_URL: opts.cloneUrl,
     FORGE_AGENT_HEARTBEAT_INTERVAL_SEC: String(heartbeat),
+    HOME: "/home/agent",
   };
 
   if (opts.gitUsername) env.FORGE_GIT_USERNAME = opts.gitUsername;
@@ -335,6 +336,16 @@ export function buildAgentContainerRunArgs(
       );
     }
     args.push("-v", agentBind);
+  }
+
+  if (hostMounts.cursorConfigDir) {
+    const configBind = `${hostMounts.cursorConfigDir}:/home/agent/.config/cursor:ro,z`;
+    if (mountArgTargetsDockerSock(configBind)) {
+      throw new Error(
+        `Refusing Cursor config bind that looks like a container socket: ${configBind}`,
+      );
+    }
+    args.push("-v", configBind);
   }
 
   // Intentionally no -v docker.sock / podman.sock mounts.

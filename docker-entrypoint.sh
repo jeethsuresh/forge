@@ -53,6 +53,44 @@ if [[ -f /opt/cursor-config/auth.json ]]; then
   chmod 600 /data/agent-home/.config/cursor/auth.json
 fi
 
+python3 - <<'PY'
+import os
+from shlex import quote
+
+path = os.environ.get("FORGE_RUNTIME_ENV_FILE", "/data/forge-runtime.env")
+keys = (
+    "FORGE_CURSOR_API_KEY",
+    "CURSOR_API_KEY",
+    "FORGE_OPS_API_TOKEN",
+    "FORGE_OPS_SESSION_SECRET",
+    "FORGE_SESSION_SECRET",
+    "FORGE_ADMIN_PASSWORD",
+    "FORGE_GITHUB_TOKEN",
+    "GITHUB_TOKEN",
+    "FORGE_GIT_PASSWORD",
+)
+existing: dict[str, str] = {}
+if os.path.exists(path):
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            raw = line.strip()
+            if not raw or raw.startswith("#") or "=" not in raw:
+                continue
+            key, value = raw.split("=", 1)
+            existing[key] = value
+for key in keys:
+    value = os.environ.get(key, "").strip()
+    if value:
+        existing[key] = quote(value)
+if existing:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        for key in keys:
+            if key in existing:
+                f.write(f"{key}={existing[key]}\n")
+    os.chmod(path, 0o600)
+PY
+
 chown_forge_data_paths() {
   local path
   for path in /data/repos /data/agent-home /data/forge-source; do

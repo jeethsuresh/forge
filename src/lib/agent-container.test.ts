@@ -302,6 +302,32 @@ describe("agent container lifecycle", () => {
     }
   });
 
+  it("mounts the host Cursor config directory into the agent home", () => {
+    const prevAgent = process.env.FORGE_CURSOR_AGENT_DIR;
+    const prevConfig = process.env.FORGE_CURSOR_CONFIG_DIR;
+    process.env.FORGE_CURSOR_AGENT_DIR =
+      "/home/test/.local/share/cursor-agent/versions/x";
+    process.env.FORGE_CURSOR_CONFIG_DIR = "/home/test/.config/cursor";
+    try {
+      const args = buildAgentContainerRunArgs({
+        sessionId: "sess-1",
+        projectId: "proj-1",
+        branch: "main",
+        cloneUrl: "https://github.com/owner/repo.git",
+        opsBaseUrl: "http://127.0.0.1:3456",
+        opsToken: "fos.x",
+      });
+      expect(args).toContain(
+        "/home/test/.config/cursor:/home/agent/.config/cursor:ro,z",
+      );
+    } finally {
+      if (prevAgent === undefined) delete process.env.FORGE_CURSOR_AGENT_DIR;
+      else process.env.FORGE_CURSOR_AGENT_DIR = prevAgent;
+      if (prevConfig === undefined) delete process.env.FORGE_CURSOR_CONFIG_DIR;
+      else process.env.FORGE_CURSOR_CONFIG_DIR = prevConfig;
+    }
+  });
+
   it("startAgentContainer uses runner and records row without sock mount", async () => {
     const { projectId, sessionId } = seedSession();
     const seen: string[][] = [];

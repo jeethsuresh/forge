@@ -245,6 +245,14 @@ compose_inline() {
     echo "Cursor agent host mount path is missing. Redeploy Forge from the host with ./deploy.sh." >&2
     exit 1
   fi
+  if declare -F load_forge_runtime_env >/dev/null; then
+    load_forge_runtime_env || true
+  elif [[ -f "${FORGE_RUNTIME_ENV_FILE:-/data/forge-runtime.env}" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "${FORGE_RUNTIME_ENV_FILE:-/data/forge-runtime.env}"
+    set +a
+  fi
   docker compose -f "$compose_file" -p "$COMPOSE_PROJECT_NAME" "$@"
 }
 

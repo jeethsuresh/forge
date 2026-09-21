@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { agentSessions, projects } from "@/lib/db/schema";
 import {
   MAX_AGENT_EXIT_RESTARTS,
+  agentExitFailureMessage,
   isRecoverableAgentExit,
   isUnrecoverableKillReason,
 } from "@/lib/agent-exit-restart";
@@ -12,6 +13,15 @@ import {
 describe("agent exit restart policy", () => {
   it("caps auto-restarts at 3", () => {
     expect(MAX_AGENT_EXIT_RESTARTS).toBe(3);
+  });
+
+  it("says how many restarts already ran when the turn finally fails", () => {
+    expect(agentExitFailureMessage(1, 0)).toBe(
+      "Agent container exited with code 1",
+    );
+    expect(agentExitFailureMessage(1, 3)).toBe(
+      "Agent container exited with code 1 after 3 restart(s)",
+    );
   });
 
   it("restarts a generic non-zero exit before the cap", () => {

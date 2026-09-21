@@ -1,5 +1,15 @@
 import type { AgentKillReason } from "@/lib/db/schema";
 
+export function agentExitFailureMessage(
+  exitCode: number,
+  restartCount: number,
+): string {
+  if (restartCount > 0) {
+    return `Agent container exited with code ${exitCode} after ${restartCount} restart(s)`;
+  }
+  return `Agent container exited with code ${exitCode}`;
+}
+
 export const MAX_AGENT_EXIT_RESTARTS = 3;
 
 const UNRECOVERABLE_KILL_REASONS = new Set<AgentKillReason>([

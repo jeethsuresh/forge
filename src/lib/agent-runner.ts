@@ -63,7 +63,7 @@ import {
   getAgentContainer,
   clearAgentContainerKillReason,
 } from "@/lib/agent-container";
-import { runAgentContainerWithRestart } from "@/lib/agent-exit-restart";
+import { agentExitFailureMessage, runAgentContainerWithRestart } from "@/lib/agent-exit-restart";
 import { AGENT_HEARTBEAT_INTERVAL_SEC } from "@/lib/agent-heartbeat";
 import { getProjectForgefile } from "@/lib/forgefile-project";
 import type { Forgefile } from "@/lib/forgefile-types";
@@ -740,7 +740,7 @@ export async function runAgentTurnContainer(
 
     if (result.outcome === "fail") {
       markTurnFailed(sessionId, turnStartSeq);
-      throw new Error(`Agent container exited with code ${result.exitCode}`);
+      throw new Error(agentExitFailureMessage(result.exitCode, result.restartCount));
     }
     if (result.outcome === "success") {
       markTurnSucceeded(sessionId);
