@@ -1067,4 +1067,5 @@ export {
   archiveAgentSession,
   archiveLiveSessionForBranch,
   recreateAgentSession,
+  restartAgentSession,
 } from "./agent-session-lifecycle";

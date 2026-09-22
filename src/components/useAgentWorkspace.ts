@@ -726,6 +726,85 @@ export function useAgentWorkspace({
     }
   }
 
+  async function restartStuckAgent(targetId: string | null = selectedId) {
+    if (!targetId) return;
+    if (
+      !confirm(
+        "Replace this agent with a fresh one on the same branch?\n\nThe current session is archived. Uncommitted files stay. The new agent gets the transcript including the latest turn.",
+      )
+    ) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/agent-sessions/${targetId}/restart`,
+        { method: "POST" },
+      );
+      const json = (await res.json()) as {
+        error?: string;
+        sessionId?: string;
+      };
+      if (!res.ok) {
+        alert(json.error ?? "Failed to restart agent");
+        return;
+      }
+      setShowRecreateForm(false);
+      setShowNewBranchForm(false);
+      await fetchSessions();
+      if (json.sessionId) {
+        setSelectedId(json.sessionId);
+        setLoadedSessionTerminal(false);
+        setStreamEpoch((n) => n + 1);
+        setMobileShowChat(true);
+        setShowLogs(false);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function removeAgent(targetId: string | null = selectedId) {
+    if (!targetId) return;
+    const target =
+      sessions.find((s) => s.id === targetId) ??
+      (sessionDetail?.id === targetId ? sessionDetail : null);
+    const branchName = target?.branch ?? selectedBranch;
+    if (
+      !confirm(
+        `Remove the agent from "${branchName}"?\n\nThe session is archived. The branch and files stay. You can start a new agent later.`,
+      )
+    ) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/agent-sessions/${targetId}/archive`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ revertChanges: false }),
+        },
+      );
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        alert(json.error ?? "Failed to remove agent");
+        return;
+      }
+      setShowRecreateForm(false);
+      if (selectedId === targetId) {
+        setSelectedId(null);
+        setSessionDetail(null);
+        setMessages([]);
+        setLoadedSessionTerminal(true);
+      }
+      await fetchSessions();
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function recreateAgent(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedBranch || !recreatePrompt.trim()) return;
@@ -841,6 +920,9 @@ export function useAgentWorkspace({
     showNewAgentForm,
     showRecreateButton,
     showArchiveButton,
+    showRestartButton,
+    agentBranches,
+    idleBranches,
   } = deriveAgentWorkspaceUi({
     branches,
     sessions,
@@ -940,6 +1022,9 @@ export function useAgentWorkspace({
     showNewAgentForm,
     showRecreateButton,
     showArchiveButton,
+    showRestartButton,
+    agentBranches,
+    idleBranches,
     statusBanner,
     openBranch,
     selectBranch,
@@ -954,6 +1039,8 @@ export function useAgentWorkspace({
     endSession,
     stopAgent,
     archiveSession,
+    removeAgent,
+    restartStuckAgent,
     recreateAgent,
     clearLogs,
     cancelSession,

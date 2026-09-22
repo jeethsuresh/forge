@@ -7,7 +7,7 @@ import { promisify } from "util";
 import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { agentSessions, gitRepositories, projects } from "@/lib/db/schema";
+import { agentSessions, gitRepositories, projects, agentEvents } from "@/lib/db/schema";
 import {
   archiveAgentSession,
   endAgentSession,
@@ -15,6 +15,7 @@ import {
   listArchivedAgentSessions,
   listAgentSessions,
   recreateAgentSession,
+  restartAgentSession,
 } from "@/lib/agent-runner";
 
 const execFileAsync = promisify(execFile);
@@ -195,6 +196,86 @@ describe("agent session archive + recreate", () => {
     const archived = listArchivedAgentSessions(projectId);
     expect(archived.some((s) => s.id === sessionId)).toBe(true);
     expect(archived.find((s) => s.id === sessionId)?.logs).toContain("old logs");
+  });
+
+  it("restart archives the stuck session and starts a fresh agent with the transcript", async () => {
+    const projectId = ids[0]!;
+    const sessionId = randomUUID();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "feature/a",
+        status: "running",
+        initialPrompt: "Add a health endpoint",
+        source: "manual",
+        logs: "",
+        cursorSessionId: "cursor-stuck",
+        resumeCursorSessionId: "cursor-stuck",
+        startedAt: new Date(),
+      })
+      .run();
+    db.insert(agentEvents)
+      .values({
+        id: randomUUID(),
+        sessionId,
+        seq: 1,
+        eventType: "user",
+        payload: JSON.stringify({ type: "user", text: "Add a health endpoint" }),
+        createdAt: new Date(),
+      })
+      .run();
+    db.insert(agentEvents)
+      .values({
+        id: randomUUID(),
+        sessionId,
+        seq: 2,
+        eventType: "assistant",
+        payload: JSON.stringify({
+          type: "assistant",
+          text: "I started the health route",
+        }),
+        createdAt: new Date(),
+      })
+      .run();
+
+    const result = await restartAgentSession(sessionId);
+    expect(result.archivedSessionId).toBe(sessionId);
+    expect(result.sessionId).not.toBe(sessionId);
+
+    const live = getSessionForBranch(projectId, "feature/a");
+    expect(live?.id).toBe(result.sessionId);
+    expect(live?.initialPrompt).toContain("I started the health route");
+    expect(live?.initialPrompt).toContain("replacing a previous agent");
+    expect(live?.cursorSessionId).toBeNull();
+    expect(live?.resumeCursorSessionId).toBeNull();
+
+    const archived = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    expect(archived?.archivedAt).toBeTruthy();
+  });
+
+  it("refuses to restart an already archived session", async () => {
+    const projectId = ids[0]!;
+    const sessionId = randomUUID();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "feature/a",
+        status: "failed",
+        initialPrompt: "gone",
+        source: "manual",
+        logs: "",
+        archivedAt: new Date(),
+        startedAt: new Date(),
+        completedAt: new Date(),
+      })
+      .run();
+    await expect(restartAgentSession(sessionId)).rejects.toThrow(/archived/i);
   });
 });
 

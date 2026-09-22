@@ -81,6 +81,9 @@ export function AgentWorkspace({
     showNewAgentForm,
     showRecreateButton,
     showArchiveButton,
+    showRestartButton,
+    agentBranches,
+    idleBranches,
     statusBanner,
     startOrContinueSession,
     createNewBranchAndAgent,
@@ -93,6 +96,8 @@ export function AgentWorkspace({
     endSession,
     stopAgent,
     archiveSession,
+    removeAgent,
+    restartStuckAgent,
     recreateAgent,
     clearLogs,
     cancelSession,
@@ -139,8 +144,39 @@ export function AgentWorkspace({
         </div>
       </div>
 
+      {idleBranches.length > 0 && (
+        <label className="block border-b border-[var(--forge-line)] px-4 py-2">
+          <span className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--forge-faint)]">
+            Start on branch
+          </span>
+          <select
+            value=""
+            disabled={loading}
+            onChange={(e) => {
+              const name = e.target.value;
+              e.currentTarget.selectedIndex = 0;
+              if (!name) return;
+              const next = branches.find((b) => b.name === name);
+              if (!next) return;
+              setShowNewBranchForm(false);
+              setShowRecreateForm(false);
+              selectBranch(next);
+              setMobileShowChat(true);
+            }}
+            className="min-h-11 w-full rounded-lg border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.35)] px-2.5 text-sm text-[var(--forge-bright)]"
+          >
+            <option value="">Branches without an agent…</option>
+            {idleBranches.map((b) => (
+              <option key={b.name} value={b.name}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
       <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {branches.map((b) => {
+        {agentBranches.map((b) => {
           const session = sessionForBranch(sessions, b.name);
           const isSelected =
             selectedBranch === b.name && !sessionDetail?.archivedAt;
@@ -204,14 +240,45 @@ export function AgentWorkspace({
                   )}
                 </div>
               </button>
+              {session ? (
+                <div className="flex flex-wrap gap-1 border-b border-[var(--forge-line)] px-4 pb-2 pl-8">
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void restartStuckAgent(session.id);
+                    }}
+                    className="min-h-9 rounded-md border border-[var(--forge-line-strong)] px-2 text-[11px] text-[var(--forge-bright)] hover:bg-[var(--forge-elevated)] disabled:opacity-50"
+                  >
+                    Restart
+                  </button>
+                  <button
+                    type="button"
+                    disabled={loading}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void removeAgent(session.id);
+                    }}
+                    className="min-h-9 rounded-md border border-red-400/30 px-2 text-[11px] text-red-300 hover:bg-red-400/10 disabled:opacity-50"
+                  >
+                    Remove agent
+                  </button>
+                </div>
+              ) : null}
             </li>
           );
         })}
-        {branches.length === 0 && (
+        {branches.length === 0 ? (
           <li className="px-4 py-8 text-center text-sm text-[var(--forge-faint)]">
             No local branches. Clone the repo first.
           </li>
-        )}
+        ) : agentBranches.length === 0 ? (
+          <li className="px-4 py-8 text-center text-sm text-[var(--forge-faint)]">
+            No agents yet. Choose a branch without an agent above, or create a
+            new one.
+          </li>
+        ) : null}
       </ul>
 
       <div className="shrink-0 border-t border-[var(--forge-line)]">
@@ -431,6 +498,16 @@ export function AgentWorkspace({
               )}
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+              {showRestartButton && selectedId && !isArchivedSession && (
+                <button
+                  type="button"
+                  onClick={() => void restartStuckAgent(selectedId)}
+                  disabled={loading}
+                  className="min-h-9 rounded-lg border border-orange-400/40 bg-orange-400/10 px-2.5 py-1.5 text-xs font-medium text-orange-200 hover:bg-orange-400/20 disabled:opacity-50"
+                >
+                  Restart
+                </button>
+              )}
               {hasActiveRuntime && !isDeploying && selectedId && (
                 <button
                   type="button"
