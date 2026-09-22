@@ -38,9 +38,12 @@ Each agent turn runs in a new container. `HOME` is `/home/agent` and is not kept
 
 ## Prompt shape
 
-Follow-up when a compact exists and it already covers older turns:
+The system prompt (Forge Ops instructions) is the standing prefix on every user turn. Compacted learnings sit immediately after it. The user turn is only the latest turn plus the new message. The system prompt is never sent to the compaction turn and is never rewritten into the compact.
 
 ```text
+# Forge Operations API
+…
+
 ## Compacted learnings
 …
 
@@ -49,13 +52,12 @@ Follow-up when a compact exists and it already covers older turns:
 …
 ### Assistant
 …
-- tool shell: …
 
 ## New message
 …
 ```
 
-Compaction prompt asks for a standalone rewrite: decisions, files and behavior that changed, constraints, errors and fixes, and unfinished work. Previous learnings that are still true stay. Superseded guesses come out. The reply is only that markdown.
+The Agents transcript does not show that assembled prompt. It shows the short user message. Learnings render beside the system prompt. Compaction prompt asks for a standalone rewrite: decisions, files and behavior that changed, constraints, errors and fixes, and unfinished work. Previous learnings that are still true stay. Superseded guesses come out. The reply is only that markdown.
 
 ## Failure
 

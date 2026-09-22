@@ -15,6 +15,7 @@ import { listLiveBranches } from "@/lib/agent-live-branches";
 import { sessionEventsHaveFileEdits } from "@/lib/agent-stream";
 import {
   buildContextCompactionPrompt,
+  assembleAgentPrompt,
   composeUserTurnPrompt,
   extractCompactionReply,
   shouldRequestCompaction,
@@ -54,7 +55,7 @@ import {
 } from "@/lib/project-git-remote";
 import { deployProject } from "@/lib/project-deploy";
 import { resolveClonePath } from "@/lib/paths";
-import { prependForgeOpsInstructions, buildForgeOpsAgentInstructions } from "@/lib/agent-ops-prompt";
+import { buildForgeOpsAgentInstructions } from "@/lib/agent-ops-prompt";
 import { isForgeUpdateTerminalStatus } from "@/lib/ops-session-deploy";
 import { mintSessionOpsToken, opsApiBaseUrl } from "@/lib/ops-api-auth";
 import {
@@ -866,7 +867,7 @@ export async function runAgentTurn(
 
   updateSessionStatus(sessionId, "running");
   const priorEvents = getAllAgentEventsAfter(sessionId, 0);
-  const turnPrompt =
+  const userTurn =
     purpose === "compact"
       ? prompt
       : composeUserTurnPrompt({
@@ -874,12 +875,14 @@ export async function runAgentTurn(
           events: priorEvents,
           newMessage: prompt,
         });
-  const effectivePrompt = prependForgeOpsInstructions(
-    turnPrompt,
-    project.id,
-    sessionId,
-    true,
-  );
+  const effectivePrompt =
+    purpose === "compact"
+      ? prompt
+      : assembleAgentPrompt({
+          systemPrompt: buildForgeOpsAgentInstructions(project.id, sessionId),
+          compact: session.contextCompact,
+          userTurn,
+        });
   const recordOpsEvent =
     purpose === "user" && priorEvents.every((event) => event.eventType !== "user");
   const opsInstructions = recordOpsEvent

@@ -388,6 +388,32 @@ describe("eventsToDisplayMessages", () => {
     expect(messages.some((m) => m.role === "user" && m.content === "Do it")).toBe(true);
   });
 
+  it("hides the assembled prompt echo and keeps the short user message", () => {
+    const messages = eventsToDisplayMessages([
+      {
+        seq: 1,
+        eventType: "user",
+        payload: JSON.stringify({ type: "user", text: "Cover the error path" }),
+      },
+      {
+        seq: 2,
+        eventType: "user",
+        payload: JSON.stringify({
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "text",
+                text: "# Forge Operations API\n\nStay available.\n\n## Compacted learnings\nHealth route exists.\n\n## New message\nCover the error path",
+              },
+            ],
+          },
+        }),
+      },
+    ]);
+    expect(messages.map((message) => message.content)).toEqual(["Cover the error path"]);
+  });
+
   it("hides a context compaction exchange and shows that learnings were updated", () => {
     const messages = eventsToDisplayMessages([
       {

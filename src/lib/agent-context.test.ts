@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENT_CONTEXT_COMPACT_MAX_CHARS,
+  assembleAgentPrompt,
   buildContextCompactionPrompt,
   clampContextCompact,
   composeUserTurnPrompt,
@@ -71,17 +72,28 @@ describe("composeUserTurnPrompt", () => {
         phase: "stored",
       }),
     ];
-    const prompt = composeUserTurnPrompt({
+    const userTurn = composeUserTurnPrompt({
       compact: "Health route exists.",
       events,
       newMessage: "Cover the error path",
     });
-    expect(prompt).toContain("## Compacted learnings");
-    expect(prompt).toContain("Health route exists.");
-    expect(prompt).toContain("Include the git sha");
-    expect(prompt).toContain("Sha field is on the payload.");
-    expect(prompt).toContain("Cover the error path");
-    expect(prompt).not.toContain("Add a health endpoint");
+    expect(userTurn).not.toContain("Health route exists.");
+    expect(userTurn).not.toContain("Forge Operations API");
+    expect(userTurn).toContain("Include the git sha");
+    expect(userTurn).toContain("Cover the error path");
+    expect(userTurn).not.toContain("Add a health endpoint");
+
+    const prompt = assembleAgentPrompt({
+      systemPrompt: "# Forge Operations API\nStay available.",
+      compact: "Health route exists.",
+      userTurn,
+    });
+    expect(prompt.indexOf("# Forge Operations API")).toBeLessThan(
+      prompt.indexOf("## Compacted learnings"),
+    );
+    expect(prompt.indexOf("## Compacted learnings")).toBeLessThan(
+      prompt.indexOf("Include the git sha"),
+    );
     expect(prompt).not.toContain("internal compact draft");
   });
 
@@ -102,7 +114,7 @@ describe("composeUserTurnPrompt", () => {
       events,
       newMessage: "Add a test",
     });
-    expect(prompt).toContain("Health route exists.");
+    expect(prompt).not.toContain("Health route exists.");
     expect(prompt).toContain("Include the git sha");
     expect(prompt).toContain("Handle 500s");
     expect(prompt).toContain("Mapped 500 to a JSON body.");
@@ -119,6 +131,29 @@ describe("context compaction", () => {
     expect(prompt).toContain("Health route exists.");
     expect(prompt).toContain("Include the git sha");
     expect(prompt).toContain("standalone");
+  });
+
+  it("does not fold the system prompt into the rewrite", () => {
+    const prompt = buildContextCompactionPrompt({
+      previousCompact: "Health route exists.",
+      events: [
+        ...turn1,
+        ev(9, "user", {
+          type: "user",
+          message: {
+            content: [
+              {
+                type: "text",
+                text: "# Forge Operations API\n\nYou orchestrate deployments.",
+              },
+            ],
+          },
+        }),
+      ],
+    });
+    expect(prompt).not.toContain("Forge Operations API");
+    expect(prompt).toContain("Added GET /health.");
+    expect(prompt).toContain("Health route exists.");
   });
 
   it("requests compaction only after assistant or tool output", () => {

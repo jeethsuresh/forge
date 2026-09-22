@@ -438,6 +438,14 @@ function extractShellOutputDelta(
   return { callId, stdout: text };
 }
 
+function isAssembledPromptEcho(text: string): boolean {
+  return (
+    text.includes("# Forge Operations API") ||
+    text.includes("## Compacted learnings\n") ||
+    text.startsWith("Rewrite the compacted learnings")
+  );
+}
+
 export function streamEventToDisplay(
   event: StreamEvent,
   seq: number,
@@ -448,7 +456,7 @@ export function streamEventToDisplay(
     const text =
       event.message?.content?.[0]?.text ??
       (typeof event.text === "string" ? event.text : null);
-    if (!text) return null;
+    if (!text || isAssembledPromptEcho(text)) return null;
     return {
       id: `user-${seq}`,
       role: "user",
