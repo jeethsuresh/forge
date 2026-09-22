@@ -14,6 +14,12 @@ import {
 import { listLiveBranches } from "@/lib/agent-live-branches";
 import { sessionEventsHaveFileEdits } from "@/lib/agent-stream";
 import {
+  buildContextCompactionPrompt,
+  composeUserTurnPrompt,
+  extractCompactionReply,
+  shouldRequestCompaction,
+} from "@/lib/agent-context";
+import {
   canRetryFailedAgentTurn,
   failedTurnEventSeq,
   isAgentTurnComplete,
@@ -80,7 +86,26 @@ export const endedSessions = new Set<string>();
 const deploymentPollTimers = new Map<string, NodeJS.Timeout>();
 const deploymentPollActive = new Set<string>();
 const agentTurnsInFlight = new Map<string, Promise<void>>();
+const deferredFollowUps = new Map<string, string>();
+const compactingSessions = new Set<string>();
 const lastAgentExitLogs = new Map<string, string>();
+
+export function noteDeferredAgentFollowUp(sessionId: string, prompt: string): boolean {
+  if (!agentTurnsInFlight.has(sessionId)) return false;
+  deferredFollowUps.set(sessionId, prompt);
+  return true;
+}
+
+export function takeDeferredAgentFollowUp(sessionId: string): string | null {
+  const prompt = deferredFollowUps.get(sessionId) ?? null;
+  if (prompt != null) deferredFollowUps.delete(sessionId);
+  return prompt;
+}
+
+export async function waitForInFlightAgentTurn(sessionId: string): Promise<void> {
+  const pending = agentTurnsInFlight.get(sessionId);
+  if (pending) await pending;
+}
 
 /** Join an in-flight turn for this session instead of starting a second container. */
 export async function joinOrRunAgentTurn(
@@ -349,16 +374,18 @@ export type AgentSessionForClient = NonNullable<ReturnType<typeof getAgentSessio
   sessionSourceLabel: string;
   containerId: string | null;
   killReason: string | null;
+  compactingLearnings: boolean;
 };
 
 function withClientFields(session: NonNullable<ReturnType<typeof getAgentSession>>): AgentSessionForClient {
   const events = getAllAgentEventsAfter(session.id, 0);
   const sessionSource = resolveAgentSessionSource(session);
   const container = getAgentContainer(session.id);
+  const turnInFlight = agentTurnsInFlight.has(session.id);
   return {
     ...session,
-    hasActiveRuntime: isAgentProcessRunning(session.id),
-    hasActiveProcess: isAgentProcessRunning(session.id),
+    hasActiveRuntime: isAgentProcessRunning(session.id) || turnInFlight,
+    hasActiveProcess: isAgentProcessRunning(session.id) || turnInFlight,
     canRetry: canRetryFailedAgentTurn(session, events),
     hasFileEdits: sessionEventsHaveFileEdits(events),
     sessionSource,
@@ -368,6 +395,7 @@ function withClientFields(session: NonNullable<ReturnType<typeof getAgentSession
       container?.killReason && container.killReason !== "reconcile_missing"
         ? container.killReason
         : null,
+    compactingLearnings: compactingSessions.has(session.id),
   };
 }
 
@@ -780,12 +808,54 @@ export async function runAgentTurnContainer(
   }
 }
 
+async function compactAgentLearnings(
+  sessionId: string,
+  project: Project,
+  workspacePath: string | undefined,
+): Promise<void> {
+  const session = db
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.id, sessionId))
+    .get();
+  if (!session) return;
+  const events = getAllAgentEventsAfter(sessionId, 0);
+  if (!shouldRequestCompaction(events)) return;
+
+  const compactionPrompt = buildContextCompactionPrompt({
+    previousCompact: session.contextCompact,
+    events,
+  });
+  const resumeSnapshot = {
+    failedTurnStartSeq: session.failedTurnStartSeq,
+    resumeCursorSessionId: session.resumeCursorSessionId,
+    cursorSessionId: session.cursorSessionId,
+  };
+  compactingSessions.add(sessionId);
+  try {
+    await runAgentTurn(sessionId, project, compactionPrompt, workspacePath, {
+      purpose: "compact",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    appendSessionLog(sessionId, `Context compaction failed: ${message}`);
+  } finally {
+    compactingSessions.delete(sessionId);
+    db.update(agentSessions)
+      .set(resumeSnapshot)
+      .where(eq(agentSessions.id, sessionId))
+      .run();
+  }
+}
+
 export async function runAgentTurn(
   sessionId: string,
   project: Project,
   prompt: string,
   workspacePath?: string,
+  options?: { purpose?: "user" | "compact" },
 ): Promise<void> {
+  const purpose = options?.purpose ?? "user";
   const session = db
     .select()
     .from(agentSessions)
@@ -795,17 +865,32 @@ export async function runAgentTurn(
   if (!session) throw new Error("Session not found");
 
   updateSessionStatus(sessionId, "running");
-  const includeOpsInstructions = !session.resumeCursorSessionId && !session.cursorSessionId;
-  const opsInstructions = includeOpsInstructions
+  const priorEvents = getAllAgentEventsAfter(sessionId, 0);
+  const turnPrompt =
+    purpose === "compact"
+      ? prompt
+      : composeUserTurnPrompt({
+          compact: session.contextCompact,
+          events: priorEvents,
+          newMessage: prompt,
+        });
+  const effectivePrompt = prependForgeOpsInstructions(
+    turnPrompt,
+    project.id,
+    sessionId,
+    true,
+  );
+  const recordOpsEvent =
+    purpose === "user" && priorEvents.every((event) => event.eventType !== "user");
+  const opsInstructions = recordOpsEvent
     ? buildForgeOpsAgentInstructions(project.id, sessionId)
     : null;
-  const effectivePrompt = opsInstructions
-    ? prependForgeOpsInstructions(prompt, project.id, sessionId, true)
-    : prompt;
 
   appendSessionLog(
     sessionId,
-    `Starting agent turn: ${prompt.slice(0, 80)}…`,
+    purpose === "compact"
+      ? "Compacting learnings…"
+      : `Starting agent turn: ${prompt.slice(0, 80)}…`,
   );
 
   const turnStartSeq = getNextEventSeq(sessionId);
@@ -820,16 +905,59 @@ export async function runAgentTurn(
       }),
     );
   }
-  recordEvent(sessionId, "user", JSON.stringify({ type: "user", text: prompt }));
+  if (purpose === "compact") {
+    recordEvent(
+      sessionId,
+      "system",
+      JSON.stringify({
+        type: "system",
+        subtype: "context-compact",
+        phase: "request",
+        text: prompt,
+      }),
+    );
+  } else {
+    recordEvent(sessionId, "user", JSON.stringify({ type: "user", text: prompt }));
+  }
 
-  await runAgentTurnContainer(
-    sessionId,
-    project,
-    prompt,
-    effectivePrompt,
-    turnStartSeq,
-    workspacePath,
-  );
+  let failed: unknown = null;
+  try {
+    await runAgentTurnContainer(
+      sessionId,
+      project,
+      prompt,
+      effectivePrompt,
+      turnStartSeq,
+      workspacePath,
+    );
+  } catch (err) {
+    failed = err;
+  }
+
+  if (purpose === "compact") {
+    const reply = extractCompactionReply(getAllAgentEventsAfter(sessionId, 0));
+    if (reply) {
+      db.update(agentSessions)
+        .set({ contextCompact: reply })
+        .where(eq(agentSessions.id, sessionId))
+        .run();
+      recordEvent(
+        sessionId,
+        "system",
+        JSON.stringify({
+          type: "system",
+          subtype: "context-compact",
+          phase: "stored",
+          text: reply,
+        }),
+      );
+    }
+    if (failed && !reply) throw failed;
+    return;
+  }
+
+  await compactAgentLearnings(sessionId, project, workspacePath);
+  if (failed) throw failed;
 }
 
 export async function deployAfterAgent(

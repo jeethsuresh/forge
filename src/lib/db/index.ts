@@ -317,6 +317,7 @@ addColumnIfMissing("agent_sessions", "source", "TEXT NOT NULL DEFAULT 'manual'")
 addColumnIfMissing("agent_sessions", "archived_at", "INTEGER");
 addColumnIfMissing("agent_sessions", "restart_count", "INTEGER NOT NULL DEFAULT 0");
 addColumnIfMissing("agent_sessions", "last_exit_code", "INTEGER");
+addColumnIfMissing("agent_sessions", "context_compact", "TEXT");
 addColumnIfMissing("projects", "deploy_env_json", "TEXT NOT NULL DEFAULT '[]'");
 addColumnIfMissing("projects", "host_port", "INTEGER");
 addColumnIfMissing("projects", "caddy_route_json", "TEXT");

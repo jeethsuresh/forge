@@ -26,6 +26,7 @@ export type AgentDisplayItem =
 interface StreamEvent {
   type?: string;
   subtype?: string;
+  phase?: string;
   call_id?: string;
   session_id?: string;
   text?: string;
@@ -610,6 +611,7 @@ export function eventsToDisplayMessages(
   events: Array<{ seq: number; eventType: string; payload: string }>,
 ): AgentDisplayMessage[] {
   const raw: AgentDisplayMessage[] = [];
+  let hidingCompact = false;
 
   for (const event of events) {
     let parsed: StreamEvent;
@@ -618,6 +620,24 @@ export function eventsToDisplayMessages(
     } catch {
       continue;
     }
+
+    if (parsed.type === "system" && parsed.subtype === "context-compact") {
+      if (parsed.phase === "request") {
+        hidingCompact = true;
+        continue;
+      }
+      if (parsed.phase === "stored") {
+        hidingCompact = false;
+        raw.push({
+          id: `system-${event.seq}`,
+          role: "system",
+          content: "Learnings updated.",
+          timestamp: parsed.timestamp_ms ?? Date.now(),
+        });
+        continue;
+      }
+    }
+    if (hidingCompact) continue;
 
     if (parsed.type === "shell-output-delta") {
       const display = streamEventToDisplay(parsed, event.seq);

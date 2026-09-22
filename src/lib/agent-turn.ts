@@ -1,3 +1,5 @@
+import { eventsOutsideContextCompaction } from "@/lib/agent-context";
+
 export const TERMINAL_SESSION_STATUSES = [
   "completed",
   "failed",
@@ -11,12 +13,13 @@ export function isTerminalSessionStatus(status: string): status is TerminalSessi
 }
 
 export function isAgentTurnComplete(events: AgentEventRow[]): boolean {
+  const visible = eventsOutsideContextCompaction(events);
   let lastUserSeq = 0;
-  for (const event of events) {
+  for (const event of visible) {
     if (event.eventType === "user") lastUserSeq = event.seq;
   }
   if (lastUserSeq === 0) return true;
-  return events.some(
+  return visible.some(
     (event) => event.seq > lastUserSeq && event.eventType === "result",
   );
 }
@@ -30,6 +33,10 @@ export function resolveAgentSessionBanner(
 
   if (isDeploying) {
     return { kind: "working", text: "Rebuilding and releasing containers…" };
+  }
+
+  if (input.compactingLearnings) {
+    return { kind: "working", text: "Compacting learnings…" };
   }
 
   if (status === "failed") {
@@ -61,6 +68,7 @@ export interface AgentSessionBannerInput {
   isDeploying: boolean;
   errorMessage: string | null;
   canRetry: boolean;
+  compactingLearnings?: boolean;
 }
 
 export interface AgentSessionBanner {

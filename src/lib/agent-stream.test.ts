@@ -388,6 +388,53 @@ describe("eventsToDisplayMessages", () => {
     expect(messages.some((m) => m.role === "user" && m.content === "Do it")).toBe(true);
   });
 
+  it("hides a context compaction exchange and shows that learnings were updated", () => {
+    const messages = eventsToDisplayMessages([
+      {
+        seq: 1,
+        eventType: "user",
+        payload: JSON.stringify({ type: "user", text: "Add a health endpoint" }),
+      },
+      {
+        seq: 2,
+        eventType: "system",
+        payload: JSON.stringify({
+          type: "system",
+          subtype: "context-compact",
+          phase: "request",
+          text: "Rewrite the compacted learnings",
+        }),
+      },
+      {
+        seq: 3,
+        eventType: "assistant",
+        payload: JSON.stringify({
+          type: "assistant",
+          text: "Health route exists.",
+        }),
+      },
+      {
+        seq: 4,
+        eventType: "system",
+        payload: JSON.stringify({
+          type: "system",
+          subtype: "context-compact",
+          phase: "stored",
+        }),
+      },
+    ]);
+    expect(messages.some((message) => message.content.includes("Rewrite the compacted"))).toBe(
+      false,
+    );
+    expect(messages.some((message) => message.content === "Health route exists.")).toBe(
+      false,
+    );
+    expect(messages.some((message) => message.content === "Learnings updated.")).toBe(true);
+    expect(messages.some((message) => message.content === "Add a health endpoint")).toBe(
+      true,
+    );
+  });
+
   it("parses stored event payloads into messages", () => {
     const messages = eventsToDisplayMessages([
       {

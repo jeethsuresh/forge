@@ -126,6 +126,19 @@ describe("resolveAgentSessionBanner", () => {
     ).toEqual({ kind: "working", text: "Agent is working…" });
   });
 
+  it("shows compaction while learnings are being rewritten", () => {
+    expect(
+      resolveAgentSessionBanner({
+        status: "running",
+        hasActiveRuntime: true,
+        isDeploying: false,
+        errorMessage: null,
+        canRetry: false,
+        compactingLearnings: true,
+      }),
+    ).toEqual({ kind: "working", text: "Compacting learnings…" });
+  });
+
   it("hides the working banner without an active process", () => {
     expect(
       resolveAgentSessionBanner({
@@ -216,6 +229,37 @@ describe("isAgentTurnComplete", () => {
 
   it("is false while a turn is still in progress", () => {
     expect(isAgentTurnComplete(EVENTS)).toBe(false);
+  });
+
+  it("ignores a result that belongs to context compaction", () => {
+    expect(
+      isAgentTurnComplete([
+        ...EVENTS,
+        {
+          seq: 5,
+          eventType: "system",
+          payload: JSON.stringify({
+            type: "system",
+            subtype: "context-compact",
+            phase: "request",
+          }),
+        },
+        {
+          seq: 6,
+          eventType: "result",
+          payload: JSON.stringify({ type: "result" }),
+        },
+        {
+          seq: 7,
+          eventType: "system",
+          payload: JSON.stringify({
+            type: "system",
+            subtype: "context-compact",
+            phase: "stored",
+          }),
+        },
+      ]),
+    ).toBe(false);
   });
 });
 
