@@ -24,6 +24,18 @@ describe("agent exit restart policy", () => {
     );
   });
 
+  it("appends container output so the UI shows why the agent exited", () => {
+    expect(
+      agentExitFailureMessage(
+        1,
+        3,
+        "Error: EROFS: read-only file system, chmod '/home/agent/.config/cursor'",
+      ),
+    ).toBe(
+      "Agent container exited with code 1 after 3 restart(s)\n\nError: EROFS: read-only file system, chmod '/home/agent/.config/cursor'",
+    );
+  });
+
   it("restarts a generic non-zero exit before the cap", () => {
     expect(
       isRecoverableAgentExit({ exitCode: 1, restartCount: 0 }),
@@ -146,6 +158,36 @@ describe("runAgentContainerWithRestart", () => {
     expect(result.outcome).toBe("fail");
     expect(result.exitCode).toBe(1);
     expect(result.restartCount).toBe(MAX_AGENT_EXIT_RESTARTS);
+  });
+
+  it("awaits onExit so logs can be collected before remove", async () => {
+    const { runAgentContainerWithRestart } = await import(
+      "@/lib/agent-exit-restart"
+    );
+    const order: string[] = [];
+    const result = await runAgentContainerWithRestart({
+      initialRestartCount: 0,
+      start: async () => {},
+      waitForExit: async () => 1,
+      getKillReason: () => null,
+      onExit: async () => {
+        await Promise.resolve();
+        order.push("onExit");
+      },
+      persistRestart: () => {
+        order.push("persist");
+      },
+      remove: async () => {
+        order.push("remove");
+      },
+      isCancelled: () => false,
+      isEnded: () => false,
+      isStopping: () => false,
+    });
+    expect(result.outcome).toBe("fail");
+    expect(order[0]).toBe("onExit");
+    expect(order).toContain("persist");
+    expect(order.indexOf("onExit")).toBeLessThan(order.indexOf("persist"));
   });
 });
 

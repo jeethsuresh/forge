@@ -14,6 +14,8 @@ import {
   stopAgentContainer,
   removeAgentContainer,
   waitForAgentContainerExit,
+  collectAgentContainerLogs,
+  sanitizeAgentContainerLogs,
 } from "@/lib/agent-container";
 
 function seedSession(): { projectId: string; sessionId: string } {
@@ -302,7 +304,7 @@ describe("agent container lifecycle", () => {
     }
   });
 
-  it("mounts the host Cursor config directory into the agent home", () => {
+  it("does not bind-mount host Cursor config into the agent (CLI chmods that dir)", () => {
     const prevAgent = process.env.FORGE_CURSOR_AGENT_DIR;
     const prevConfig = process.env.FORGE_CURSOR_CONFIG_DIR;
     process.env.FORGE_CURSOR_AGENT_DIR =
@@ -316,9 +318,13 @@ describe("agent container lifecycle", () => {
         cloneUrl: "https://github.com/owner/repo.git",
         opsBaseUrl: "http://127.0.0.1:3456",
         opsToken: "fos.x",
+        cursorApiKey: "crsr_test_key",
       });
-      expect(args).toContain(
-        "/home/test/.config/cursor:/home/agent/.config/cursor:ro,z",
+      expect(args.some((a) => a.includes("/home/agent/.config/cursor"))).toBe(
+        false,
+      );
+      expect(args.some((a) => a.includes("CURSOR_API_KEY=crsr_test_key"))).toBe(
+        true,
       );
     } finally {
       if (prevAgent === undefined) delete process.env.FORGE_CURSOR_AGENT_DIR;
@@ -616,6 +622,63 @@ describe("agent container lifecycle", () => {
 
     await expect(waitForAgentContainerExit(sessionId)).resolves.toBe(0);
     expect(waits).toBeGreaterThanOrEqual(2);
+
+    db.delete(agentContainers).where(eq(agentContainers.sessionId, sessionId)).run();
+    db.delete(agentSessions).where(eq(agentSessions.id, sessionId)).run();
+    db.delete(projects).where(eq(projects.id, projectId)).run();
+  });
+
+  it("redacts secrets from captured agent container logs", () => {
+    const raw = [
+      "Error: EROFS: read-only file system, chmod '/home/agent/.config/cursor'",
+      "Authorization: Bearer fos.sess.secretmac",
+      "CURSOR_API_KEY=crsr_live_secretvalue",
+      "clone with fgc.abc.secret",
+      "session token fos.other.secretmac",
+    ].join("\n");
+    const cleaned = sanitizeAgentContainerLogs(raw);
+    expect(cleaned).toContain("EROFS");
+    expect(cleaned).not.toContain("fos.sess.secretmac");
+    expect(cleaned).not.toContain("fos.other.secretmac");
+    expect(cleaned).not.toContain("crsr_live_secretvalue");
+    expect(cleaned).not.toContain("fgc.abc.secret");
+    expect(cleaned).toMatch(/fos\.\[redacted\]/);
+    expect(cleaned).toMatch(/fgc\.\[redacted\]/);
+    expect(cleaned).toMatch(/\[redacted\]/);
+  });
+
+  it("collects docker logs before the container is removed", async () => {
+    const { projectId, sessionId } = seedSession();
+    db.insert(agentContainers)
+      .values({
+        sessionId,
+        containerId: "cid-logs",
+        image: "forge-agent:latest",
+        status: "running",
+        startedAt: new Date(),
+        deadlineAt: new Date(Date.now() + 60_000),
+      })
+      .run();
+
+    const seen: string[][] = [];
+    setAgentContainerDockerRunner(async (args) => {
+      seen.push([...args]);
+      if (args[0] === "logs") {
+        return {
+          stdout: "",
+          stderr:
+            "Error: EROFS: read-only file system, chmod '/home/agent/.config/cursor'\n",
+        };
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    const logs = await collectAgentContainerLogs(sessionId);
+    expect(logs).toMatch(/EROFS/);
+    const logsCall = seen.find((a) => a[0] === "logs");
+    expect(logsCall).toBeDefined();
+    expect(logsCall).toContain("cid-logs");
+    expect(logsCall).toContain("--tail");
 
     db.delete(agentContainers).where(eq(agentContainers.sessionId, sessionId)).run();
     db.delete(agentSessions).where(eq(agentSessions.id, sessionId)).run();

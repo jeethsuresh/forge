@@ -338,15 +338,9 @@ export function buildAgentContainerRunArgs(
     args.push("-v", agentBind);
   }
 
-  if (hostMounts.cursorConfigDir) {
-    const configBind = `${hostMounts.cursorConfigDir}:/home/agent/.config/cursor:ro,z`;
-    if (mountArgTargetsDockerSock(configBind)) {
-      throw new Error(
-        `Refusing Cursor config bind that looks like a container socket: ${configBind}`,
-      );
-    }
-    args.push("-v", configBind);
-  }
+  // Do not bind-mount host ~/.config/cursor into the agent. Cursor CLI chmods
+  // that directory on start; a :ro mount exits 1 with EROFS. Auth is
+  // CURSOR_API_KEY (and forge_app still mounts config at /opt/cursor-config).
 
   // Intentionally no -v docker.sock / podman.sock mounts.
   args.push(image);
@@ -480,6 +474,51 @@ export async function startAgentContainer(
   });
   startAgentContainerInflight.set(opts.sessionId, started);
   return started;
+}
+
+export const AGENT_CONTAINER_LOG_TAIL = 200;
+export const AGENT_CONTAINER_LOG_MAX_CHARS = 4000;
+
+export function sanitizeAgentContainerLogs(raw: string): string {
+  return raw
+    .replace(/\bfos\.[A-Za-z0-9._-]+/g, "fos.[redacted]")
+    .replace(/\bfgc\.[A-Za-z0-9._-]+/g, "fgc.[redacted]")
+    .replace(/\bcrsr_[A-Za-z0-9._-]+/g, "crsr_[redacted]")
+    .replace(
+      /(CURSOR_API_KEY|FORGE_CURSOR_API_KEY|FORGE_OPS_API_TOKEN|FORGE_GIT_PASSWORD)=[^\s]+/gi,
+      "$1=[redacted]",
+    )
+    .replace(/(Authorization:\s*Bearer)\s+\S+/gi, "$1 [redacted]");
+}
+
+export function formatAgentExitLogExcerpt(raw: string): string {
+  const cleaned = sanitizeAgentContainerLogs(raw).trim();
+  if (!cleaned) return "";
+  if (cleaned.length <= AGENT_CONTAINER_LOG_MAX_CHARS) return cleaned;
+  return cleaned.slice(-AGENT_CONTAINER_LOG_MAX_CHARS);
+}
+
+export async function collectAgentContainerLogs(
+  sessionId: string,
+): Promise<string> {
+  const row = db
+    .select()
+    .from(agentContainers)
+    .where(eq(agentContainers.sessionId, sessionId))
+    .get();
+  const name = agentContainerName(sessionId);
+  const target = row?.containerId || name;
+  try {
+    const { stdout, stderr } = await runDocker([
+      "logs",
+      "--tail",
+      String(AGENT_CONTAINER_LOG_TAIL),
+      target,
+    ]);
+    return formatAgentExitLogExcerpt(`${stdout}\n${stderr}`);
+  } catch {
+    return "";
+  }
 }
 
 export async function waitForAgentContainerExit(
