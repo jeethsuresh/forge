@@ -19,11 +19,16 @@ export function SessionLearningsDisclosure({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setDraft(text);
+    queueMicrotask(() => {
+      setDraft(text);
+    });
   }, [text]);
 
   useEffect(() => {
-    if (forceOpen) setOpen(true);
+    if (!forceOpen) return;
+    queueMicrotask(() => {
+      setOpen(true);
+    });
   }, [forceOpen]);
 
   const expanded = forceOpen || open;
