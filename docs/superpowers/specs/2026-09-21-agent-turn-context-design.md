@@ -32,7 +32,7 @@ Each agent turn runs in a new container. `HOME` is `/home/agent` and is not kept
 | Latest turn | User and assistant text in full. Each tool call is a one-line name plus a result capped at **8 000** characters. |
 | Compaction does not chain | The compaction turn does not schedule another compaction. |
 | No output | A turn with no assistant or tool output does not start compaction. |
-| UI | Transcript hides the compaction exchange and shows “Learnings updated.” A Learnings disclosure shows `contextCompact`. While compaction runs, the banner says “Compacting learnings…” and follow-up stays disabled. A message sent in that window runs after the compact is stored. |
+| UI | Transcript hides the compaction exchange and shows “Learnings updated.” Compacted learnings render in a collapsible editable disclosure under the sticky session bar (not in chat); see `2026-09-22-compacted-learnings-header-design.md`. While compaction runs, the banner says “Compacting learnings…” and follow-up stays disabled. A message sent in that window runs after the compact is stored. Question-shaped turn exits skip compaction and show a bottom ask dialog. |
 | Restart | Packed restart prompt includes the stored compact at the top. The new session does not copy the column; the packed prompt is its first message. |
 | Remove agent | Archives the session and its compact. A new agent on the branch starts without it. |
 
@@ -57,7 +57,7 @@ The system prompt (Forge Ops instructions) is the standing prefix on every user 
 …
 ```
 
-The Agents transcript does not show that assembled prompt. It shows the short user message. Learnings render beside the system prompt. Compaction prompt asks for a standalone rewrite: decisions, files and behavior that changed, constraints, errors and fixes, and unfinished work. Previous learnings that are still true stay. Superseded guesses come out. The reply is only that markdown.
+The Agents transcript does not show that assembled prompt. It shows the short user message. Learnings render under the sticky session bar (not in the transcript). Compaction prompt asks for a standalone rewrite: decisions, files and behavior that changed, constraints, errors and fixes, and unfinished work. Previous learnings that are still true stay. Superseded guesses come out. The reply is only that markdown.
 
 ## Failure
 

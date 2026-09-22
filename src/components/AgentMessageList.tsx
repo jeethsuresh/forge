@@ -13,54 +13,23 @@ import { ShellToolOutput } from "@/components/ShellToolOutput";
 
 export function AgentMessageList({
   messages,
-  learnings,
 }: {
   messages: AgentDisplayMessage[];
-  learnings?: string | null;
 }) {
   const items = useMemo(() => groupMessagesForDisplay(messages), [messages]);
-  const compact = learnings?.trim() ?? "";
-  const systemIndex = items.findIndex(
-    (item) =>
-      item.kind === "message" &&
-      item.message.role === "system" &&
-      item.message.content.includes("# Forge Operations API"),
-  );
 
   return (
     <>
-      {items.map((item, index) => {
-        const node =
-          item.kind === "tool-cluster" ? (
-            <ToolCluster key={item.id} cluster={item} />
-          ) : item.message.role === "tool" ? (
-            <ToolOperation key={item.message.id} message={item.message} />
-          ) : (
-            <MessageBubble key={item.message.id} message={item.message} />
-          );
-        if (!compact || index !== systemIndex) return node;
-        return (
-          <div key={`${item.kind === "message" ? item.message.id : item.id}-with-learnings`}>
-            {node}
-            <LearningsBlock text={compact} />
-          </div>
-        );
-      })}
-      {compact && systemIndex < 0 && <LearningsBlock text={compact} />}
+      {items.map((item) =>
+        item.kind === "tool-cluster" ? (
+          <ToolCluster key={item.id} cluster={item} />
+        ) : item.message.role === "tool" ? (
+          <ToolOperation key={item.message.id} message={item.message} />
+        ) : (
+          <MessageBubble key={item.message.id} message={item.message} />
+        ),
+      )}
     </>
-  );
-}
-
-function LearningsBlock({ text }: { text: string }) {
-  return (
-    <div className="rounded-lg border border-[var(--forge-line)] bg-zinc-900/60 px-3 py-2">
-      <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-        Compacted learnings
-      </p>
-      <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-sans text-xs leading-relaxed text-zinc-300">
-        {text}
-      </pre>
-    </div>
   );
 }
 

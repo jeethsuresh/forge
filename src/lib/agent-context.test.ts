@@ -6,7 +6,9 @@ import {
   clampContextCompact,
   composeUserTurnPrompt,
   eventsOutsideContextCompaction,
+  looksLikeAgentQuestion,
   shouldRequestCompaction,
+  turnEndedWithQuestion,
 } from "@/lib/agent-context";
 
 function ev(
@@ -187,5 +189,53 @@ describe("context compaction", () => {
       }),
     ]);
     expect(outside.map((event) => event.seq)).toEqual([4, 5]);
+  });
+});
+
+describe("looksLikeAgentQuestion", () => {
+  it("treats a trailing question mark as a question", () => {
+    expect(looksLikeAgentQuestion("Which option should I use?")).toBe(true);
+  });
+
+  it("rejects a plain status sentence", () => {
+    expect(looksLikeAgentQuestion("Health route exists on GET /health.")).toBe(
+      false,
+    );
+  });
+
+  it("treats A)/B) choice blocks as questions", () => {
+    expect(
+      looksLikeAgentQuestion(
+        "How should Forge detect questions?\n\nA) Heuristic on last assistant text\nB) Explicit AskUser marker",
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("turnEndedWithQuestion", () => {
+  it("is true when the latest assistant message asks a question", () => {
+    expect(
+      turnEndedWithQuestion([
+        ev(1, "user", { type: "user", text: "Continue" }),
+        ev(2, "assistant", {
+          type: "assistant",
+          text: "Pick one:\n\nA) Heuristic\nB) Explicit marker",
+        }),
+        ev(3, "result", { type: "result" }),
+      ]),
+    ).toBe(true);
+  });
+
+  it("is false when the latest assistant message is a status update", () => {
+    expect(
+      turnEndedWithQuestion([
+        ev(1, "user", { type: "user", text: "Continue" }),
+        ev(2, "assistant", {
+          type: "assistant",
+          text: "Deployed the health endpoint.",
+        }),
+        ev(3, "result", { type: "result" }),
+      ]),
+    ).toBe(false);
   });
 });
