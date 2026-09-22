@@ -69,6 +69,8 @@ Sidebar **Search…** also opens the palette.
 - Working-tree dirty signal on the project list API (Changes pulse)
 ## Prerequisites
 
+A new production host: follow [`SETUP_GUIDE.md`](SETUP_GUIDE.md). The steps below are the local dev loop.
+
 - Node.js 20+
 - Git
 - Docker and Docker Compose
