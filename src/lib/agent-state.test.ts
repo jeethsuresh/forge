@@ -15,8 +15,10 @@ import {
   applyAgentDeploymentOutcome,
   getBlockingAgentSession,
   isAgentSessionActive,
+  reconcileMissingAgentContainers,
   reconcileProjectAgentSessions,
 } from "@/lib/agent-state";
+import { setAgentContainerDockerRunner } from "@/lib/agent-container";
 import { AGENT_WALL_CLOCK_MS } from "@/lib/agent-heartbeat";
 
 describe("reconcileProjectAgentSessions", () => {
@@ -723,5 +725,103 @@ describe("reconcileProjectAgentSessions", () => {
     expect(session?.status).toBe("running");
     expect(session?.errorMessage).toBeNull();
     expect(session?.errorMessage ?? "").not.toMatch(/reconcile_missing/);
+  });
+});
+
+describe("reconcileMissingAgentContainers", () => {
+  let projectId: string;
+  let sessionId: string;
+
+  beforeEach(() => {
+    projectId = randomUUID();
+    sessionId = randomUUID();
+    const now = new Date();
+    db.insert(projects)
+      .values({
+        id: projectId,
+        name: "missing-container",
+        githubRepo: "acme/missing",
+        branch: "main",
+        clonePath: "/tmp/missing",
+        enabled: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(agentSessions)
+      .values({
+        id: sessionId,
+        projectId,
+        branch: "agent/stuck",
+        status: "running",
+        initialPrompt: "keep going",
+        logs: "",
+        startedAt: now,
+      })
+      .run();
+    db.insert(agentContainers)
+      .values({
+        sessionId,
+        containerId: "cid-gone",
+        image: "forge-agent:latest",
+        status: "running",
+        startedAt: now,
+        deadlineAt: new Date(now.getTime() + AGENT_WALL_CLOCK_MS),
+        killReason: "reconcile_missing",
+      })
+      .run();
+  });
+
+  afterEach(() => {
+    setAgentContainerDockerRunner(null);
+    activeAgentSessions.delete(sessionId);
+    db.delete(agentContainers).where(eq(agentContainers.sessionId, sessionId)).run();
+    db.delete(agentSessions).where(eq(agentSessions.id, sessionId)).run();
+    db.delete(projects).where(eq(projects.id, projectId)).run();
+  });
+
+  it("does not fail a turn when the container has exited but still exists", async () => {
+    setAgentContainerDockerRunner(async (args) => {
+      if (args[0] === "inspect") return { stdout: "false 1\n", stderr: "" };
+      return { stdout: "", stderr: "" };
+    });
+
+    await reconcileMissingAgentContainers(projectId);
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    const container = db
+      .select()
+      .from(agentContainers)
+      .where(eq(agentContainers.sessionId, sessionId))
+      .get();
+    expect(session?.status).toBe("running");
+    expect(container?.killReason).toBeNull();
+  });
+
+  it("fails a session whose container is gone without stamping reconcile_missing", async () => {
+    setAgentContainerDockerRunner(async () => {
+      throw new Error("no such container");
+    });
+
+    await reconcileMissingAgentContainers(projectId);
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    const container = db
+      .select()
+      .from(agentContainers)
+      .where(eq(agentContainers.sessionId, sessionId))
+      .get();
+    expect(session?.status).toBe("failed");
+    expect(session?.errorMessage ?? "").toMatch(/Restart the agent/i);
+    expect(session?.errorMessage ?? "").not.toMatch(/reconcile_missing/);
+    expect(container?.killReason ?? null).not.toBe("reconcile_missing");
   });
 });

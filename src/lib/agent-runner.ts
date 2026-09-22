@@ -364,7 +364,10 @@ function withClientFields(session: NonNullable<ReturnType<typeof getAgentSession
     sessionSource,
     sessionSourceLabel: agentSessionSourceLabel(sessionSource),
     containerId: container?.containerId ?? null,
-    killReason: container?.killReason ?? null,
+    killReason:
+      container?.killReason && container.killReason !== "reconcile_missing"
+        ? container.killReason
+        : null,
   };
 }
 
@@ -668,6 +671,9 @@ export async function runAgentTurnContainer(
           gitPassword: projectUsesForgeGit(project)
             ? mintSessionOpsToken(sessionId, project.id)
             : creds?.password,
+          gitBarePath: projectUsesForgeGit(project)
+            ? projectRemoteUrl(project)
+            : undefined,
           heartbeatIntervalSec: AGENT_HEARTBEAT_INTERVAL_SEC,
           agentPrompt: effectivePrompt,
           cursorApiKey: apiKey,

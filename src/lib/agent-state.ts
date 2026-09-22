@@ -28,7 +28,7 @@ import {
 import {
   inspectAgentContainerState,
   removeAgentContainer,
-  setAgentContainerKillReason,
+  clearAgentContainerKillReason,
 } from "@/lib/agent-container";
 import {
   shouldFailStoppedContainer,
@@ -311,21 +311,17 @@ function reconcileStoppedContainerSessions(projectId: string): number {
       continue;
     }
 
-    const reason = container.killReason ?? "reconcile_missing";
-    const message =
-      reason === "reconcile_missing"
-        ? "Agent container missing or stopped; session reconciled"
-        : `Agent container stopped (${reason})`;
+    const reason = container.killReason;
+    if (!reason || reason === "reconcile_missing") {
+      if (reason === "reconcile_missing") {
+        clearAgentContainerKillReason(session.id);
+      }
+      continue;
+    }
+    const message = `Agent container stopped (${reason})`;
 
     appendSessionLog(session.id, message);
-    if (!container.killReason) {
-      setAgentContainerKillReason(session.id, "reconcile_missing");
-    }
-    if (container.killReason) {
-      transition(session.id, { type: "kill", reason: container.killReason });
-    } else {
-      transition(session.id, { type: "fail", errorMessage: message });
-    }
+    transition(session.id, { type: "kill", reason });
     syncProjectAgentLock(projectId);
     reconciled += 1;
   }
@@ -362,12 +358,18 @@ export async function reconcileMissingAgentContainers(
     }
     if (session.archivedAt || session.completedAt) continue;
 
+    if (container.killReason === "reconcile_missing") {
+      clearAgentContainerKillReason(session.id);
+    }
+
+    if (activeAgentSessions.has(session.id)) continue;
+
     const state = await inspectAgentContainerState(session.id);
-    if (state.running !== false) continue;
+    // Exited containers still exist. The turn loop records the real exit.
+    if (state.present !== false) continue;
 
     const message =
-      "Agent container missing from runtime; session failed by reconcile";
-    setAgentContainerKillReason(session.id, "reconcile_missing");
+      "Agent container is gone. Restart the agent to continue on this branch.";
     try {
       await removeAgentContainer(session.id);
     } catch {

@@ -40,6 +40,10 @@ export type StartAgentContainerOpts = {
   opsToken: string;
   gitUsername?: string;
   gitPassword?: string;
+  /** Bare repo path as seen inside Forge (`/data/git/<slug>.git`). */
+  gitBarePath?: string;
+  /** Host path to bind as `gitBarePath` inside the agent. */
+  gitBareHostPath?: string;
   heartbeatIntervalSec?: number;
   image?: string;
   agentPrompt?: string;
@@ -287,6 +291,9 @@ export function buildAgentContainerRunArgs(
 
   if (opts.gitUsername) env.FORGE_GIT_USERNAME = opts.gitUsername;
   if (opts.gitPassword) env.FORGE_GIT_PASSWORD = opts.gitPassword;
+  if (opts.gitBarePath?.trim()) {
+    env.FORGE_GIT_BARE_PATH = opts.gitBarePath.trim();
+  }
   if (opts.agentPrompt) env.FORGE_AGENT_PROMPT = opts.agentPrompt;
   if (opts.cursorApiKey) env.CURSOR_API_KEY = opts.cursorApiKey;
   if (opts.packagesJson) env.FORGE_AGENT_PACKAGES_JSON = opts.packagesJson;
@@ -326,6 +333,18 @@ export function buildAgentContainerRunArgs(
       );
     }
     args.push("-v", `${bind}:/workspace/repo:z`);
+  }
+
+  if (opts.gitBarePath?.trim()) {
+    const inside = opts.gitBarePath.trim();
+    const host = opts.gitBareHostPath?.trim() || inside;
+    const bareBind = `${host}:${inside}:z`;
+    if (mountArgTargetsDockerSock(bareBind)) {
+      throw new Error(
+        `Refusing git bare bind that looks like a container socket: ${bareBind}`,
+      );
+    }
+    args.push("-v", bareBind);
   }
 
   if (hostMounts.cursorAgentDir) {
@@ -405,7 +424,16 @@ async function startAgentContainerUnlocked(
   const workspaceBind = opts.workspaceBind?.trim()
     ? await resolveHostBindPath(opts.workspaceBind.trim())
     : opts.workspaceBind;
-  const args = buildAgentContainerRunArgs({ ...opts, workspaceBind });
+  const bareInside = opts.gitBarePath?.trim();
+  const gitBareHostPath = bareInside
+    ? await resolveHostBindPath(bareInside)
+    : undefined;
+  const args = buildAgentContainerRunArgs({
+    ...opts,
+    workspaceBind,
+    gitBarePath: bareInside,
+    gitBareHostPath,
+  });
   assertNoDockerSockMount(args);
 
   const name = agentContainerName(opts.sessionId);
@@ -572,6 +600,8 @@ export async function waitForAgentContainerExit(
 export type AgentContainerInspectState = {
   running: boolean | null;
   exitCode: number | null;
+  /** False when docker has no container for this session. */
+  present: boolean;
 };
 
 export async function inspectAgentContainerState(
@@ -582,8 +612,11 @@ export async function inspectAgentContainerState(
     .from(agentContainers)
     .where(eq(agentContainers.sessionId, sessionId))
     .get();
-  if (!row || row.status === "removed" || row.status === "stopped") {
-    return { running: false, exitCode: null };
+  if (!row) {
+    return { running: false, exitCode: null, present: false };
+  }
+  if (row.status === "removed" || row.status === "stopped") {
+    return { running: false, exitCode: null, present: true };
   }
 
   const name = agentContainerName(sessionId);
@@ -599,9 +632,10 @@ export async function inspectAgentContainerState(
     return {
       running: runningStr?.toLowerCase() === "true",
       exitCode: Number.isFinite(exitCode) ? exitCode : null,
+      present: true,
     };
   } catch {
-    return { running: null, exitCode: null };
+    return { running: null, exitCode: null, present: false };
   }
 }
 

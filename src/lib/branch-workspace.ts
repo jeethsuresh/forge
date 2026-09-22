@@ -21,6 +21,7 @@ import { ensureDockerDaemon, dockerExecEnv } from "@/lib/docker-runtime";
 import { resolveBranchWorkspacesRoot } from "@/lib/paths";
 import { projectRemoteUrl } from "@/lib/project-git-remote";
 import { formatGitError } from "@/lib/git-workspace";
+import { ensureForgeBareOrigin } from "@/lib/forge-git-origin";
 
 const execFileAsync = promisify(execFile);
 
@@ -205,6 +206,7 @@ async function ensureGitCheckout(
     await execGit(["clone", url, workspacePath]);
   }
 
+  await ensureForgeBareOrigin(workspacePath, url);
   try {
     await execGit(["fetch", "--prune", "origin"], { cwd: workspacePath });
   } catch (err) {
@@ -240,6 +242,7 @@ async function cloneWatchBranch(
     }
     await execGit(["clone", "--branch", project.branch, url, workspacePath]);
   }
+  await ensureForgeBareOrigin(workspacePath, url);
   try {
     await execGit(["fetch", "--prune", "origin"], { cwd: workspacePath });
   } catch (err) {
@@ -289,6 +292,7 @@ export async function createBranchWorkspace(
       throw new Error(`Branch "${trimmed}" already exists`);
     }
     await execGit(["checkout", "-b", trimmed], { cwd: workspacePath });
+    await ensureForgeBareOrigin(workspacePath, projectRemoteUrl(project));
     await execGit(["push", "-u", "origin", trimmed], { cwd: workspacePath });
 
     let status: BranchWorkspaceStatus = "running";

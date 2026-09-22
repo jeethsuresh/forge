@@ -185,7 +185,13 @@ describe("agent container lifecycle", () => {
       gitPassword: "secret",
       heartbeatIntervalSec: 10,
       workspaceBind: "/data/clones/proj",
+      gitBarePath: "/data/git/demo.git",
+      gitBareHostPath: "/host/volumes/demo.git",
     });
+    expect(args).toContain("/host/volumes/demo.git:/data/git/demo.git:z");
+    expect(args.some((a) => a.includes("FORGE_GIT_BARE_PATH=/data/git/demo.git"))).toBe(
+      true,
+    );
 
     expect(args[0]).toBe("run");
     expect(args).toContain("-e");

@@ -38,15 +38,43 @@ post_event() {
 
 configure_git() {
   if [[ -n "${FORGE_GIT_USERNAME:-}" && -n "${FORGE_GIT_PASSWORD:-}" ]]; then
-    # Embed credentials for HTTPS clone (interim GitHub or Forge HTTP).
     local encoded_user encoded_pass
     encoded_user=$(python3 -c "import urllib.parse,os; print(urllib.parse.quote(os.environ['FORGE_GIT_USERNAME'], safe=''))")
     encoded_pass=$(python3 -c "import urllib.parse,os; print(urllib.parse.quote(os.environ['FORGE_GIT_PASSWORD'], safe=''))")
-    if [[ "${CLONE_URL}" =~ ^https:// ]]; then
-      CLONE_URL="https://${encoded_user}:${encoded_pass}@${CLONE_URL#https://}"
-    fi
+    case "${CLONE_URL}" in
+      https://*)
+        CLONE_URL="https://${encoded_user}:${encoded_pass}@${CLONE_URL#https://}"
+        ;;
+      http://*)
+        CLONE_URL="http://${encoded_user}:${encoded_pass}@${CLONE_URL#http://}"
+        ;;
+    esac
   fi
   git config --global --add safe.directory '*'
+  if [[ -n "${FORGE_GIT_BARE_PATH:-}" ]]; then
+    git config --global --add safe.directory "${FORGE_GIT_BARE_PATH}" || true
+  fi
+}
+
+use_forge_bare_origin() {
+  if [[ -z "${FORGE_GIT_BARE_PATH:-}" || ! -d "${FORGE_GIT_BARE_PATH}" ]]; then
+    return 0
+  fi
+  if [[ ! -d "${WORKDIR}/.git" ]]; then
+    return 0
+  fi
+  local origin
+  origin="$(git -C "${WORKDIR}" remote get-url origin 2>/dev/null || true)"
+  case "${origin}" in
+    http://*|https://*)
+      if [[ "${origin}" == *"/api/git/"* && "${origin}" != *"@"* ]]; then
+        git -C "${WORKDIR}" remote set-url origin "${FORGE_GIT_BARE_PATH}"
+      fi
+      ;;
+    "")
+      git -C "${WORKDIR}" remote add origin "${FORGE_GIT_BARE_PATH}"
+      ;;
+  esac
 }
 
 clone_repo() {
@@ -55,6 +83,7 @@ clone_repo() {
 
   if [[ -d "${WORKDIR}/.git" ]]; then
     cd "${WORKDIR}"
+    use_forge_bare_origin
     git fetch --all --prune 2>/dev/null || true
     if ! git checkout "${BRANCH}" 2>/dev/null; then
       git checkout -B "${BRANCH}"
