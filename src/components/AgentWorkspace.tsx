@@ -491,7 +491,8 @@ export function AgentWorkspace({
                   </span>
                 </p>
               )}
-              {sessionDetail?.killReason && (
+              {sessionDetail?.killReason &&
+                sessionDetail.killReason !== "reconcile_missing" && (
                 <p className="text-xs text-red-400/90">
                   Kill reason: {sessionDetail.killReason.replace(/_/g, " ")}
                 </p>

@@ -8,6 +8,7 @@ import {
   githubCloneUrl,
   prepareGithubGitAuth,
 } from "@/lib/github-import";
+import { ensureForgeBareOrigin } from "@/lib/forge-git-origin";
 
 const execFileAsync = promisify(execFile);
 
@@ -656,6 +657,9 @@ export async function ensureLocalBranchForAgent(
   const cloneBranch =
     trimmed === defaultBranch.trim() ? trimmed : defaultBranch.trim();
   await ensureRepoCloned(repo, cloneBranch || trimmed, clonePath, onLog);
+  if (repo.startsWith("/") && !repo.includes("://")) {
+    await ensureForgeBareOrigin(resolvedPath, repo);
+  }
 
   try {
     await execGit(["fetch", "--prune", "origin"], { cwd: resolvedPath });
