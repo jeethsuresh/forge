@@ -56,6 +56,17 @@ describe("buildAgentRestartPrompt", () => {
     expect(prompt).not.toContain("writeToolCall");
   });
 
+  it("puts stored learnings at the top of the packed prompt", () => {
+    const prompt = buildAgentRestartPrompt({
+      initialPrompt: "Add a health endpoint",
+      contextCompact: "Health route exists.",
+      events: [ev(1, "user", { type: "user", text: "Add a health endpoint" })],
+    });
+    expect(prompt.indexOf("Health route exists.")).toBeLessThan(
+      prompt.indexOf("## Original instruction"),
+    );
+  });
+
   it("keeps the header and the tail when over the character cap", () => {
     const huge = "x".repeat(2000) + " LATEST_TURN_MARKER";
     const prompt = buildAgentRestartPrompt({

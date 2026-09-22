@@ -58,10 +58,15 @@ function systemLine(payload: string): string | null {
 export function buildAgentRestartPrompt(input: {
   initialPrompt: string;
   events: EventRow[];
+  contextCompact?: string | null;
   maxChars?: number;
 }): string {
   const maxChars = input.maxChars ?? AGENT_RESTART_PROMPT_MAX_CHARS;
   const blocks: string[] = [];
+  const compact = input.contextCompact?.trim();
+  if (compact) {
+    blocks.push(`## Compacted learnings\n${compact}`);
+  }
   const original = input.initialPrompt.trim();
   if (original) {
     blocks.push(`## Original instruction\n${original}`);

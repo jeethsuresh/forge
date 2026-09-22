@@ -27,6 +27,8 @@ export interface AgentSession {
   sessionSourceLabel?: string;
   containerId?: string | null;
   killReason?: string | null;
+  contextCompact?: string | null;
+  compactingLearnings?: boolean;
 }
 
 export type StatusBanner =

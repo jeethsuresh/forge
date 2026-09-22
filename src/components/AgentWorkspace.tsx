@@ -497,6 +497,16 @@ export function AgentWorkspace({
                   Kill reason: {sessionDetail.killReason.replace(/_/g, " ")}
                 </p>
               )}
+              {sessionDetail?.contextCompact?.trim() && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs text-[var(--forge-faint)]">
+                    Learnings
+                  </summary>
+                  <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap font-sans text-xs text-[var(--forge-text)]">
+                    {sessionDetail.contextCompact}
+                  </pre>
+                </details>
+              )}
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
               {showRestartButton && selectedId && !isArchivedSession && (

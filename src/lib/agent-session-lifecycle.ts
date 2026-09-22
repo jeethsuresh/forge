@@ -41,6 +41,9 @@ import {
   finalizeSessionAfterSuccessfulTurn,
   isAgentRuntimeActive,
   joinOrRunAgentTurn,
+  noteDeferredAgentFollowUp,
+  takeDeferredAgentFollowUp,
+  waitForInFlightAgentTurn,
   reactivateFailedSession,
   reactivateSession,
   runAgentTurn,
@@ -522,6 +525,14 @@ export async function sendAgentMessage(
 ): Promise<void> {
   if (!prompt.trim()) throw new Error("Prompt is required");
 
+  const trimmedPrompt = prompt.trim();
+  if (noteDeferredAgentFollowUp(sessionId, trimmedPrompt)) {
+    await waitForInFlightAgentTurn(sessionId);
+    const queued = takeDeferredAgentFollowUp(sessionId);
+    if (!queued) return;
+    return sendAgentMessage(sessionId, queued);
+  }
+
   const session = db
     .select()
     .from(agentSessions)
@@ -535,7 +546,7 @@ export async function sendAgentMessage(
   if (session.status === "idle") {
     markAgentSessionLive(sessionId, session.projectId);
     updateSessionStatus(sessionId, "pending");
-    void executeAgentTurn(sessionId, session.projectId, prompt.trim());
+    void executeAgentTurn(sessionId, session.projectId, trimmedPrompt);
     return;
   }
   if (TERMINAL_STATUSES.includes(session.status)) {
@@ -566,7 +577,7 @@ export async function sendAgentMessage(
         session.branch,
         log,
       );
-      await runAgentTurn(sessionId, project, prompt.trim());
+      await runAgentTurn(sessionId, project, trimmedPrompt);
       await finalizeSessionAfterSuccessfulTurn(sessionId, session.projectId);
     });
     if (outcome === "joined") return;
@@ -821,6 +832,7 @@ export async function restartAgentSession(
   const prompt = buildAgentRestartPrompt({
     initialPrompt: session.initialPrompt,
     events,
+    contextCompact: session.contextCompact,
   });
   return recreateAgentSession(session.projectId, session.branch, prompt);
 }

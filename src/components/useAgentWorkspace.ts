@@ -943,6 +943,7 @@ export function useAgentWorkspace({
         isDeploying,
         errorMessage: sessionDetail.errorMessage,
         canRetry: sessionDetail.canRetry ?? false,
+        compactingLearnings: sessionDetail.compactingLearnings,
       }),
     );
   }, [sessionDetail, isDeploying, hasActiveRuntime]);

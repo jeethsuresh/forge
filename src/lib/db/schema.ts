@@ -267,6 +267,8 @@ export const agentSessions = sqliteTable("agent_sessions", {
   archivedAt: integer("archived_at", { mode: "timestamp" }),
   restartCount: integer("restart_count").notNull().default(0),
   lastExitCode: integer("last_exit_code"),
+  /** Standalone learnings rewritten by the agent after each turn. */
+  contextCompact: text("context_compact"),
 });
 
 export const forgeUpdates = sqliteTable("forge_updates", {
