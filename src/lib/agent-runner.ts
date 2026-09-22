@@ -62,6 +62,7 @@ import {
   waitForAgentContainerExit,
   getAgentContainer,
   clearAgentContainerKillReason,
+  collectAgentContainerLogs,
 } from "@/lib/agent-container";
 import { agentExitFailureMessage, runAgentContainerWithRestart } from "@/lib/agent-exit-restart";
 import { AGENT_HEARTBEAT_INTERVAL_SEC } from "@/lib/agent-heartbeat";
@@ -79,6 +80,7 @@ export const endedSessions = new Set<string>();
 const deploymentPollTimers = new Map<string, NodeJS.Timeout>();
 const deploymentPollActive = new Set<string>();
 const agentTurnsInFlight = new Map<string, Promise<void>>();
+const lastAgentExitLogs = new Map<string, string>();
 
 /** Join an in-flight turn for this session instead of starting a second container. */
 export async function joinOrRunAgentTurn(
@@ -685,10 +687,14 @@ export async function runAgentTurnContainer(
       },
       waitForExit: () => waitForAgentContainerExit(sessionId),
       getKillReason: () => getAgentContainer(sessionId)?.killReason ?? null,
-      onExit: ({ exitCode, attempt, recoverable }) => {
+      onExit: async ({ exitCode, attempt, recoverable }) => {
+        const logs = await collectAgentContainerLogs(sessionId);
+        const excerpt = logs
+          ? `\n--- container output ---\n${logs}`
+          : "\n(no container output before exit)";
         const note = recoverable
-          ? `Agent container exited with code ${exitCode}; restarting (attempt ${attempt}).`
-          : `Agent container exited with code ${exitCode} (unrecoverable).`;
+          ? `Agent container exited with code ${exitCode}; restarting (attempt ${attempt}).${excerpt}`
+          : `Agent container exited with code ${exitCode} (unrecoverable).${excerpt}`;
         appendSessionLog(sessionId, note);
         recordEvent(
           sessionId,
@@ -699,8 +705,10 @@ export async function runAgentTurnContainer(
             exitCode,
             attempt,
             recoverable,
+            logs: logs || null,
           }),
         );
+        lastAgentExitLogs.set(sessionId, logs);
       },
       persistRestart: (restartCount, lastExitCode) => {
         persistAgentRestartState(sessionId, restartCount, lastExitCode);
@@ -740,7 +748,13 @@ export async function runAgentTurnContainer(
 
     if (result.outcome === "fail") {
       markTurnFailed(sessionId, turnStartSeq);
-      throw new Error(agentExitFailureMessage(result.exitCode, result.restartCount));
+      throw new Error(
+        agentExitFailureMessage(
+          result.exitCode,
+          result.restartCount,
+          lastAgentExitLogs.get(sessionId),
+        ),
+      );
     }
     if (result.outcome === "success") {
       markTurnSucceeded(sessionId);
@@ -750,6 +764,7 @@ export async function runAgentTurnContainer(
     void _exhaustive;
   } finally {
     activeAgentContainers.delete(sessionId);
+    lastAgentExitLogs.delete(sessionId);
     try {
       await removeAgentContainer(sessionId);
     } catch {

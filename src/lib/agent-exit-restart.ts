@@ -3,11 +3,15 @@ import type { AgentKillReason } from "@/lib/db/schema";
 export function agentExitFailureMessage(
   exitCode: number,
   restartCount: number,
+  logs?: string,
 ): string {
-  if (restartCount > 0) {
-    return `Agent container exited with code ${exitCode} after ${restartCount} restart(s)`;
-  }
-  return `Agent container exited with code ${exitCode}`;
+  const head =
+    restartCount > 0
+      ? `Agent container exited with code ${exitCode} after ${restartCount} restart(s)`
+      : `Agent container exited with code ${exitCode}`;
+  const excerpt = logs?.trim() ?? "";
+  if (!excerpt) return head;
+  return `${head}\n\n${excerpt}`;
 }
 
 export const MAX_AGENT_EXIT_RESTARTS = 3;
@@ -79,7 +83,7 @@ export async function runAgentContainerWithRestart(opts: {
     exitCode: number;
     attempt: number;
     recoverable: boolean;
-  }) => void;
+  }) => void | Promise<void>;
   persistRestart: (restartCount: number, lastExitCode: number | null) => void;
   remove: () => Promise<void>;
   isCancelled: () => boolean;
@@ -113,7 +117,7 @@ export async function runAgentContainerWithRestart(opts: {
       return { outcome: "success", exitCode: 0, restartCount: 0 };
     }
     if (action.type === "fail") {
-      opts.onExit({
+      await opts.onExit({
         exitCode: lastCode,
         attempt: restartCount,
         recoverable: false,
@@ -127,7 +131,7 @@ export async function runAgentContainerWithRestart(opts: {
       return _exhaustive;
     }
 
-    opts.onExit({
+    await opts.onExit({
       exitCode: lastCode,
       attempt: restartCount + 1,
       recoverable: true,
