@@ -276,6 +276,9 @@ describe("agent-ops-prompt", () => {
     expect(paths).toContain(
       "/api/ops/projects/{projectId}/agent-sessions/{sessionId}/stop",
     );
+    expect(paths).toContain(
+      "/api/ops/projects/{projectId}/agent-sessions/{sessionId}/restart",
+    );
     expect(catalog.auth.sessionTokens).toMatch(/fos\./);
   });
 });

@@ -161,6 +161,13 @@ export function forgeOpsApiCatalog(baseUrl: string) {
       },
       {
         method: "POST",
+        path: "/api/ops/projects/{projectId}/agent-sessions/{sessionId}/restart",
+        description:
+          "Archive the current agent and start a fresh one on the same branch with the packed transcript; keeps workspace files; does not resume Cursor session id",
+        body: { actionDescription: "string (required)" },
+      },
+      {
+        method: "POST",
         path: "/api/ops/projects/{projectId}/agent-sessions/{sessionId}/heartbeat",
         description:
           "Agent container heartbeat (miss threshold kills the session)",

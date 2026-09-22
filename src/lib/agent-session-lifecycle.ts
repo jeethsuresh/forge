@@ -25,6 +25,7 @@ import { projectRemoteUrl } from "@/lib/project-git-remote";
 import { createBranchWorkspace, destroyBranchWorkspace, ensureBranchWorkspace } from "@/lib/branch-workspace";
 import { setAgentContainerKillReason } from "@/lib/agent-container";
 import { transition } from "@/lib/agent-session-machine";
+import { buildAgentRestartPrompt } from "@/lib/agent-restart-transcript";
 import {
   ACTIVE_TURN_STATUSES,
   TERMINAL_STATUSES,
@@ -806,6 +807,22 @@ export async function recreateAgentSession(
   );
   const created = await createAgentSession(projectId, trimmedBranch, trimmedPrompt);
   return { ...created, archivedSessionId };
+}
+
+export async function restartAgentSession(
+  sessionId: string,
+): Promise<{ sessionId: string; queued: boolean; archivedSessionId: string | null }> {
+  const session = getAgentSession(sessionId);
+  if (!session) throw new Error("Session not found");
+  if (session.archivedAt) {
+    throw new Error("Archived sessions cannot be restarted");
+  }
+  const events = getAllAgentEventsAfter(sessionId, 0);
+  const prompt = buildAgentRestartPrompt({
+    initialPrompt: session.initialPrompt,
+    events,
+  });
+  return recreateAgentSession(session.projectId, session.branch, prompt);
 }
 
 

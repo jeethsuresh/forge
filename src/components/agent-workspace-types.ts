@@ -180,6 +180,11 @@ export function deriveAgentWorkspaceUi(input: {
       !isArchivedSession &&
       !showRecreateForm,
   );
+  const showRestartButton = Boolean(
+    selectedSessionMeta && !isArchivedSession && !showRecreateForm,
+  );
+  const agentBranches = branches.filter((b) => b.hasAgent);
+  const idleBranches = branches.filter((b) => !b.hasAgent);
 
   return {
     selectedBranchInfo,
@@ -205,5 +210,8 @@ export function deriveAgentWorkspaceUi(input: {
     showNewAgentForm,
     showRecreateButton,
     showArchiveButton,
+    showRestartButton,
+    agentBranches,
+    idleBranches,
   };
 }
