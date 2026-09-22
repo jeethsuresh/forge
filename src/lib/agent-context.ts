@@ -139,12 +139,23 @@ export function composeUserTurnPrompt(input: {
   const compact = input.compact?.trim() ?? "";
   const included = eventsForFollowUp(input.events, compact || null);
   const history = formatTurnForPrompt(included);
-  if (!compact && !history) return input.newMessage.trim();
+  if (!history) return input.newMessage.trim();
 
-  const sections: string[] = [];
+  return [`## Latest turn\n${history}`, `## New message\n${input.newMessage.trim()}`].join(
+    "\n\n",
+  );
+}
+
+/** System prompt, then learnings. The system prompt is not part of the user turn. */
+export function assembleAgentPrompt(input: {
+  systemPrompt: string;
+  compact: string | null | undefined;
+  userTurn: string;
+}): string {
+  const sections = [input.systemPrompt.trim()];
+  const compact = input.compact?.trim();
   if (compact) sections.push(`## Compacted learnings\n${compact}`);
-  if (history) sections.push(`## Latest turn\n${history}`);
-  sections.push(`## New message\n${input.newMessage.trim()}`);
+  sections.push(input.userTurn.trim());
   return sections.join("\n\n");
 }
 
