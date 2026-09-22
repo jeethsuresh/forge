@@ -4,6 +4,8 @@ import { sessionForBranch, useAgentWorkspace } from "@/components/useAgentWorksp
 import Link from "next/link";
 import { formatRelativeTime, shortSha, statusColor } from "@/lib/utils";
 import { AgentMessageList } from "@/components/AgentMessageList";
+import { AgentAskDialog } from "@/components/AgentAskDialog";
+import { SessionLearningsDisclosure } from "@/components/SessionLearningsDisclosure";
 import { ActiveDeployLogsPanel } from "@/components/ActiveDeployLogsPanel";
 import {
   agentSessionSourceBadgeClass,
@@ -12,6 +14,22 @@ import {
   agentSessionUncommittedDiffHref,
   branchVsMainDiffHref,
 } from "@/lib/project-diff-url";
+import { looksLikeAgentQuestion } from "@/lib/agent-context";
+
+function lastAgentQuestionText(
+  messages: { role: string; content: string; id: string }[],
+): string | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]!;
+    if (message.role === "user") return null;
+    if (message.role !== "assistant") continue;
+    if (message.id.startsWith("thinking-")) continue;
+    const text = message.content.trim();
+    if (!text || text === "Learnings updated.") continue;
+    return looksLikeAgentQuestion(text) ? text : null;
+  }
+  return null;
+}
 
 export function AgentWorkspace({
   projectId,
@@ -88,6 +106,7 @@ export function AgentWorkspace({
     startOrContinueSession,
     createNewBranchAndAgent,
     sendMessage,
+    saveLearnings,
     commitSession,
     revertSessionCommit,
     deploySession,
@@ -107,6 +126,15 @@ export function AgentWorkspace({
     className,
     initialSessionId,
   });
+
+  const agentQuestion =
+    !hasActiveRuntime &&
+    !sessionDetail?.compactingLearnings &&
+    !isArchivedSession &&
+    isActiveSession
+      ? lastAgentQuestionText(messages)
+      : null;
+  const awaitingAgentQuestion = Boolean(agentQuestion);
 
   const branchSidebar = (
     <aside
@@ -725,6 +753,15 @@ export function AgentWorkspace({
             </div>
           </div>
 
+          {selectedId && !isArchivedSession && (
+            <SessionLearningsDisclosure
+              text={sessionDetail?.contextCompact ?? ""}
+              forceOpen={awaitingAgentQuestion}
+              disabled={loading || Boolean(sessionDetail?.compactingLearnings)}
+              onSave={saveLearnings}
+            />
+          )}
+
           {isArchivedSession && (
             <div className="border-b border-[var(--forge-line)] bg-[rgba(0,0,0,0.35)] px-4 py-2 text-xs text-[var(--forge-muted)]">
               Archived session — read-only. Recreate a live agent from the branch
@@ -940,10 +977,7 @@ export function AgentWorkspace({
                     Waiting for agent output…
                   </p>
                 )}
-                <AgentMessageList
-                  messages={messages}
-                  learnings={sessionDetail?.contextCompact}
-                />
+                <AgentMessageList messages={messages} />
                 {statusBanner?.kind === "working" && (
                   <div className="flex items-center gap-2 text-xs text-amber-400">
                     <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-400" />
@@ -975,7 +1009,17 @@ export function AgentWorkspace({
                 )}
               </div>
 
-              {showFollowUp && !showLogs && (
+              {awaitingAgentQuestion && agentQuestion && showFollowUp && !showLogs && (
+                <AgentAskDialog
+                  question={agentQuestion}
+                  value={prompt}
+                  onChange={setPrompt}
+                  onSubmit={sendMessage}
+                  disabled={loading || hasActiveRuntime}
+                />
+              )}
+
+              {showFollowUp && !showLogs && !awaitingAgentQuestion && (
                 <form
                   onSubmit={sendMessage}
                   className="shrink-0 border-t border-[var(--forge-line)] bg-[color-mix(in_srgb,var(--forge-panel)_95%,transparent)] p-4 pb-[max(1rem,env(safe-area-inset-bottom))]"

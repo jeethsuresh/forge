@@ -483,6 +483,32 @@ export function useAgentWorkspace({
     }
   }
 
+  async function saveLearnings(next: string) {
+    if (!selectedId) return;
+    const res = await fetch(
+      `/api/projects/${projectId}/agent-sessions/${selectedId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contextCompact: next }),
+      },
+    );
+    const json = (await res.json()) as {
+      error?: string;
+      session?: AgentSession;
+    };
+    if (!res.ok) {
+      throw new Error(json.error ?? "Failed to save learnings");
+    }
+    if (json.session) {
+      setSessionDetail(json.session);
+    } else {
+      setSessionDetail((prev) =>
+        prev ? { ...prev, contextCompact: next.trim() || null } : prev,
+      );
+    }
+  }
+
   async function commitSession() {
     if (!selectedId) return;
     setLoading(true);
@@ -1032,6 +1058,7 @@ export function useAgentWorkspace({
     startOrContinueSession,
     createNewBranchAndAgent,
     sendMessage,
+    saveLearnings,
     commitSession,
     revertSessionCommit,
     deploySession,

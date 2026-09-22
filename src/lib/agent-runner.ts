@@ -19,6 +19,7 @@ import {
   composeUserTurnPrompt,
   extractCompactionReply,
   shouldRequestCompaction,
+  turnEndedWithQuestion,
 } from "@/lib/agent-context";
 import {
   canRetryFailedAgentTurn,
@@ -959,7 +960,15 @@ export async function runAgentTurn(
     return;
   }
 
-  await compactAgentLearnings(sessionId, project, workspacePath);
+  const afterTurn = getAllAgentEventsAfter(sessionId, 0);
+  if (turnEndedWithQuestion(afterTurn)) {
+    appendSessionLog(
+      sessionId,
+      "Skipped learnings compaction: agent is awaiting an answer.",
+    );
+  } else {
+    await compactAgentLearnings(sessionId, project, workspacePath);
+  }
   if (failed) throw failed;
 }
 
