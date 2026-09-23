@@ -159,10 +159,10 @@ export function buildStaticPaletteItems(): PaletteItem[] {
       id: "nav:settings",
       kind: "settings",
       title: "Global settings",
-      subtitle: "Routing, Caddy, access logs",
-      keywords: ["settings", "caddy", "routing", "logs"],
+      subtitle: "Routing, Caddy, access logs, migration",
+      keywords: ["settings", "caddy", "routing", "logs", "migrate", "import"],
       href: "/settings",
-      docs: "Configure project routing, live Caddy routes, and access logs.",
+      docs: "Configure project routing, live Caddy routes, access logs, and one-way migration from another Forge install.",
     },
     {
       id: "nav:new-project",

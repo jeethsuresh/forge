@@ -198,6 +198,29 @@ export function isOlderThanRunningCommit(
   return candidateIsAncestorOfRunning;
 }
 
+/** Imported projects record the tip before any deployment exists. Do not auto-deploy that tip. */
+export function shouldSkipBaselineAutoDeploy(
+  lastSeenCommit: string | null,
+  remoteSha: string,
+  hasDeploymentHistory: boolean,
+): boolean {
+  return (
+    Boolean(lastSeenCommit) &&
+    lastSeenCommit === remoteSha &&
+    !hasDeploymentHistory
+  );
+}
+
+function projectHasDeploymentHistory(projectId: string): boolean {
+  const row = db
+    .select({ id: deployments.id })
+    .from(deployments)
+    .where(eq(deployments.projectId, projectId))
+    .limit(1)
+    .get();
+  return Boolean(row);
+}
+
 function syncLastSeenCommit(projectId: string, commitSha: string): void {
   db.update(projects)
     .set({ lastSeenCommit: commitSha, updatedAt: new Date() })
@@ -624,6 +647,15 @@ export async function checkProjectForChanges(projectId: string): Promise<boolean
       getLatestDeploymentBranch(projectId),
     );
     const remoteSha = await getRemoteCommitSha(projectRemoteUrl(project), autoBranch);
+    if (
+      shouldSkipBaselineAutoDeploy(
+        project.lastSeenCommit,
+        remoteSha,
+        projectHasDeploymentHistory(projectId),
+      )
+    ) {
+      return false;
+    }
     const runningSha = getCurrentlyRunningCommitSha(projectId);
 
     if (await shouldSkipStaleAutoCommit(project, remoteSha, runningSha)) {
