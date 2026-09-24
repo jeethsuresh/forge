@@ -37,6 +37,9 @@ import {
 } from "@/lib/migration/pull";
 import type { MigrationManifest } from "@/lib/migration/manifest";
 
+const SSH_PUBLIC_KEY =
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFtcwHy1CuZhkV5CZkhMXJ9GGIsnwVi2QoBqw20tZJhe migrate-test";
+
 const gitEnv = {
   ...process.env,
   GIT_TERMINAL_PROMPT: "0",
@@ -238,30 +241,11 @@ describe("migration", () => {
       .run();
     const key = addGitSshKey({
       name: `laptop-${slug}`,
-      publicKey: publicKey(),
+      publicKey: SSH_PUBLIC_KEY,
       scope: "user",
     });
     sshIds.push(key.id);
     return { projectId, slug, mainSha };
-  }
-
-  let cachedPublicKey = "";
-  function publicKey(): string {
-    if (!cachedPublicKey) {
-      const keyPath = join(root, "id_ed25519");
-      execFileSync("ssh-keygen", [
-        "-t",
-        "ed25519",
-        "-f",
-        keyPath,
-        "-N",
-        "",
-        "-C",
-        "migrate-test",
-      ]);
-      cachedPublicKey = readFileSync(`${keyPath}.pub`, "utf8").trim();
-    }
-    return cachedPublicKey;
   }
 
   it("exports project configuration and omits agents, caddy, history, and clone tokens", () => {
