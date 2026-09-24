@@ -183,6 +183,69 @@ export function clampContextCompact(text: string): string {
   return trimmed.slice(0, AGENT_CONTEXT_COMPACT_MAX_CHARS);
 }
 
+/** Heuristic: last line ends with `?`, or recent text has ≥2 A)–D) options. */
+export function looksLikeAgentQuestion(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  const lines = trimmed
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const last = lines[lines.length - 1] ?? "";
+  if (last.endsWith("?")) return true;
+  const recent = lines.slice(-12).join("\n");
+  const options = recent.match(/^\s*(?:\*\*)?[A-D](?:\*\*)?[.):]\s+\S/gm);
+  return Boolean(options && options.length >= 2);
+}
+
+function assistantTextFromPayload(payload: string): string | null {
+  try {
+    const parsed = JSON.parse(payload) as {
+      text?: unknown;
+      message?: { content?: Array<{ text?: unknown }> };
+    };
+    if (typeof parsed.text === "string" && parsed.text.trim()) {
+      return parsed.text.trim();
+    }
+    const parts = parsed.message?.content;
+    if (!Array.isArray(parts)) return null;
+    const joined = parts
+      .map((part) => (typeof part?.text === "string" ? part.text : ""))
+      .join("")
+      .trim();
+    return joined || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Last non-empty assistant event text outside compaction markers. */
+export function lastAssistantText(events: AgentContextEvent[]): string | null {
+  const outside = eventsOutsideContextCompaction(events);
+  for (let i = outside.length - 1; i >= 0; i -= 1) {
+    const event = outside[i]!;
+    if (event.eventType !== "assistant") continue;
+    const text = assistantTextFromPayload(event.payload);
+    if (text) return text;
+  }
+  return null;
+}
+
+/** True when the latest user turn's last assistant message looks like a question. */
+export function turnEndedWithQuestion(events: AgentContextEvent[]): boolean {
+  const outside = eventsOutsideContextCompaction(events);
+  let lastUserSeq = 0;
+  for (const event of outside) {
+    if (event.eventType === "user") lastUserSeq = event.seq;
+  }
+  const slice =
+    lastUserSeq > 0
+      ? outside.filter((event) => event.seq > lastUserSeq)
+      : outside;
+  const text = lastAssistantText(slice);
+  return text != null && looksLikeAgentQuestion(text);
+}
+
 export function extractCompactionReply(events: AgentContextEvent[]): string | null {
   let start = -1;
   for (let i = 0; i < events.length; i += 1) {
