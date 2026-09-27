@@ -49,3 +49,16 @@ if docker run --rm \
 fi
 
 echo "ok: forge-agent image present and host workspace bind works"
+
+# Large prompts must be files. A 140KiB docker -e value hits Linux MAX_ARG_STRLEN.
+PROMPT_FILE="$TMP/prompt.txt"
+python3 -c "open('$PROMPT_FILE','w').write('x'*140000)"
+if ! docker run --rm \
+  --entrypoint /bin/bash \
+  -v "$PROMPT_FILE:/tmp/forge-agent-prompt.txt:z" \
+  forge-agent:latest \
+  -c 'test "$(wc -c < /tmp/forge-agent-prompt.txt)" -eq 140000'; then
+  echo "EXPECTED 140k prompt file bind to be readable in forge-agent" >&2
+  exit 1
+fi
+echo "ok: large prompt file bind works"

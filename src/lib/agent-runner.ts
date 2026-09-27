@@ -109,6 +109,18 @@ export async function waitForInFlightAgentTurn(sessionId: string): Promise<void>
   if (pending) await pending;
 }
 
+/** Compact only after a successful user turn that did not end on a question. */
+export function shouldCompactLearningsAfterTurn(input: {
+  purpose: "user" | "compact";
+  failed: boolean;
+  endedWithQuestion: boolean;
+}): boolean {
+  if (input.purpose !== "user") return false;
+  if (input.failed) return false;
+  if (input.endedWithQuestion) return false;
+  return true;
+}
+
 /** Join an in-flight turn for this session instead of starting a second container. */
 export async function joinOrRunAgentTurn(
   sessionId: string,
@@ -961,13 +973,19 @@ export async function runAgentTurn(
   }
 
   const afterTurn = getAllAgentEventsAfter(sessionId, 0);
-  if (turnEndedWithQuestion(afterTurn)) {
+  if (
+    shouldCompactLearningsAfterTurn({
+      purpose,
+      failed: Boolean(failed),
+      endedWithQuestion: turnEndedWithQuestion(afterTurn),
+    })
+  ) {
+    await compactAgentLearnings(sessionId, project, workspacePath);
+  } else if (purpose === "user" && !failed && turnEndedWithQuestion(afterTurn)) {
     appendSessionLog(
       sessionId,
       "Skipped learnings compaction: agent is awaiting an answer.",
     );
-  } else {
-    await compactAgentLearnings(sessionId, project, workspacePath);
   }
   if (failed) throw failed;
 }

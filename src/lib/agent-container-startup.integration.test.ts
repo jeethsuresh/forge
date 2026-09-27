@@ -148,6 +148,12 @@ describe("agent container startup integration (Layer A)", () => {
     expect(lifecycle).toMatch(/ensureBranchWorkspace/);
     expect(container).toMatch(/resolveHostBindPath/);
     expect(container).toMatch(/ensureAgentImage/);
+    expect(container).toMatch(/FORGE_AGENT_PROMPT_FILE/);
+    const entrypoint = await readFile(
+      join(process.cwd(), "docker/agent/entrypoint.sh"),
+      "utf8",
+    );
+    expect(entrypoint).toMatch(/FORGE_AGENT_PROMPT_FILE/);
   });
 
   it("ensureLocalBranchForAgent materializes main when the working tree is missing", async () => {

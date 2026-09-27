@@ -175,3 +175,30 @@ describe("reactivateFailedSession", () => {
     db.delete(projects).where(eq(projects.id, projectId)).run();
   });
 });
+
+describe("shouldCompactLearningsAfterTurn", () => {
+  it("skips compaction when the user turn failed to start", async () => {
+    const { shouldCompactLearningsAfterTurn } = await import("@/lib/agent-runner");
+    expect(
+      shouldCompactLearningsAfterTurn({
+        purpose: "user",
+        failed: true,
+        endedWithQuestion: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldCompactLearningsAfterTurn({
+        purpose: "user",
+        failed: false,
+        endedWithQuestion: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldCompactLearningsAfterTurn({
+        purpose: "user",
+        failed: false,
+        endedWithQuestion: true,
+      }),
+    ).toBe(false);
+  });
+});

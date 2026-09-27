@@ -1,5 +1,8 @@
 import { describe, expect, it, afterEach, beforeEach } from "vitest";
 import { randomUUID } from "crypto";
+import { mkdtemp, readFile, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { agentContainers, agentSessions, projects } from "@/lib/db/schema";
@@ -51,9 +54,11 @@ function seedSession(): { projectId: string; sessionId: string } {
 
 describe("agent container lifecycle", () => {
   let previousContainerName: string | undefined;
+  let previousPromptDir: string | undefined;
 
   beforeEach(() => {
     previousContainerName = process.env.FORGE_CONTAINER_NAME;
+    previousPromptDir = process.env.FORGE_AGENT_PROMPT_DIR;
   });
 
   afterEach(() => {
@@ -62,6 +67,11 @@ describe("agent container lifecycle", () => {
       delete process.env.FORGE_CONTAINER_NAME;
     } else {
       process.env.FORGE_CONTAINER_NAME = previousContainerName;
+    }
+    if (previousPromptDir === undefined) {
+      delete process.env.FORGE_AGENT_PROMPT_DIR;
+    } else {
+      process.env.FORGE_AGENT_PROMPT_DIR = previousPromptDir;
     }
   });
 
@@ -495,6 +505,101 @@ describe("agent container lifecycle", () => {
     expect(runs).toBe(1);
     expect(a.containerId).toBe("cid-once");
     expect(b.containerId).toBe("cid-once");
+  });
+
+  it("bind-mounts a large agent prompt instead of passing it as docker -e", async () => {
+    const promptDir = await mkdtemp(join(tmpdir(), "forge-agent-prompt-"));
+    process.env.FORGE_AGENT_PROMPT_DIR = promptDir;
+    const { sessionId, projectId } = seedSession();
+    const huge = `P`.repeat(140_000);
+    const seen: string[][] = [];
+
+    setAgentContainerDockerRunner(async (args) => {
+      seen.push([...args]);
+      if (args[0] === "image") return { stdout: "[]\n", stderr: "" };
+      if (args[0] === "run") return { stdout: "cidprompt\n", stderr: "" };
+      return { stdout: "", stderr: "" };
+    });
+
+    try {
+      await startAgentContainer({
+        sessionId,
+        projectId,
+        branch: "agent/feat",
+        cloneUrl: "https://github.com/owner/repo.git",
+        opsBaseUrl: "http://127.0.0.1:3456",
+        opsToken: "fos.test.token",
+        agentPrompt: huge,
+      });
+
+      const runArgs = seen.find((a) => a[0] === "run");
+      expect(runArgs?.some((a) => a.startsWith("FORGE_AGENT_PROMPT="))).toBe(
+        false,
+      );
+      expect(runArgs?.some((a) => a.includes(huge.slice(0, 80)))).toBe(false);
+      expect(
+        runArgs?.some((a) =>
+          a.includes("FORGE_AGENT_PROMPT_FILE=/tmp/forge-agent-prompt.txt"),
+        ),
+      ).toBe(true);
+      expect(
+        runArgs?.some((a) =>
+          a.includes(`${promptDir}/${sessionId}.txt:/tmp/forge-agent-prompt.txt`),
+        ),
+      ).toBe(true);
+      await expect(
+        readFile(join(promptDir, `${sessionId}.txt`), "utf8"),
+      ).resolves.toBe(huge);
+    } finally {
+      await rm(promptDir, { recursive: true, force: true });
+    }
+  });
+
+  it("surfaces argument-list-too-long docker run failures without leaking the prompt", async () => {
+    const promptDir = await mkdtemp(join(tmpdir(), "forge-agent-prompt-"));
+    process.env.FORGE_AGENT_PROMPT_DIR = promptDir;
+    const { sessionId, projectId } = seedSession();
+    setAgentContainerDockerRunner(async (args) => {
+      if (args[0] === "image") return { stdout: "[]\n", stderr: "" };
+      if (args[0] === "run") {
+        throw new Error(
+          "spawn docker E2BIG Argument list too long FORGE_AGENT_PROMPT=secret-prompt",
+        );
+      }
+      return { stdout: "", stderr: "" };
+    });
+
+    try {
+      await expect(
+        startAgentContainer({
+          sessionId,
+          projectId,
+          branch: "agent/feat",
+          cloneUrl: "https://github.com/owner/repo.git",
+          opsBaseUrl: "http://127.0.0.1:3456",
+          opsToken: "fos.test.token",
+          agentPrompt: "secret-prompt",
+        }),
+      ).rejects.toThrow(/argument list too long/i);
+
+      try {
+        await startAgentContainer({
+          sessionId,
+          projectId,
+          branch: "agent/feat",
+          cloneUrl: "https://github.com/owner/repo.git",
+          opsBaseUrl: "http://127.0.0.1:3456",
+          opsToken: "fos.test.token",
+          agentPrompt: "secret-prompt",
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        expect(message).not.toMatch(/secret-prompt/);
+        expect(message).not.toMatch(/FORGE_AGENT_PROMPT=/);
+      }
+    } finally {
+      await rm(promptDir, { recursive: true, force: true });
+    }
   });
 
   it("does not leak agent env secrets when docker run fails", async () => {

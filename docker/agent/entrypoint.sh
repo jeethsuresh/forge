@@ -113,7 +113,13 @@ install_packages() {
 
 run_agent() {
   cd "${WORKDIR}"
-  local prompt="${FORGE_AGENT_PROMPT:-Continue the Forge agent session.}"
+  local prompt
+  if [[ -n "${FORGE_AGENT_PROMPT_FILE:-}" && -f "${FORGE_AGENT_PROMPT_FILE}" ]]; then
+    # Do not cat the file into argv: Linux MAX_ARG_STRLEN is 128KiB.
+    prompt="Read ${FORGE_AGENT_PROMPT_FILE} and follow those instructions exactly. Treat the file contents as the full prompt for this turn."
+  else
+    prompt="${FORGE_AGENT_PROMPT:-Continue the Forge agent session.}"
+  fi
   if [[ ! -x "${AGENT_BIN}" ]]; then
     post_event "{\"type\":\"system\",\"subtype\":\"error\",\"text\":\"Agent binary missing at ${AGENT_BIN}\"}"
     echo "Agent binary not found at ${AGENT_BIN}" >&2
