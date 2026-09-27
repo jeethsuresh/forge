@@ -3,14 +3,24 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { agentSessions } from "@/lib/db/schema";
+import { agentSessions, functionalUsers } from "@/lib/db/schema";
 import { secretsEqual } from "@/lib/secrets-equal";
 
 const MAC_PAYLOAD_PREFIX = "forge-ops-v1:";
+const FUNCTIONAL_MAC_PAYLOAD_PREFIX = "forge-mcp-v1:";
 
 export type OpsAuth =
   | { kind: "global" }
-  | { kind: "session"; sessionId: string; projectId: string };
+  | { kind: "session"; sessionId: string; projectId: string }
+  | { kind: "functional"; userId: string; name: string };
+
+export function isUnrestrictedOpsAuth(
+  auth: OpsAuth,
+): auth is
+  | { kind: "global" }
+  | { kind: "functional"; userId: string; name: string } {
+  return auth.kind === "global" || auth.kind === "functional";
+}
 
 let memorySecret: string | null = null;
 
@@ -60,14 +70,40 @@ export function mintSessionOpsToken(sessionId: string, projectId: string): strin
   return `fos.${sessionId}.${mac}`;
 }
 
+export function mintFunctionalUserToken(
+  userId: string,
+  tokenVersion: number,
+): string {
+  const secret = resolveOpsSessionSecret();
+  const mac = createHmac("sha256", secret)
+    .update(`${FUNCTIONAL_MAC_PAYLOAD_PREFIX}${userId}:${tokenVersion}`)
+    .digest("base64url");
+  return `fmu.${userId}.${mac}`;
+}
+
+function parsePrefixedToken(
+  token: string,
+  prefix: "fos" | "fmu",
+): { id: string; mac: string } | null {
+  const parts = token.split(".");
+  if (parts.length !== 3 || parts[0] !== prefix) return null;
+  const [, id, mac] = parts;
+  if (!id || !mac) return null;
+  return { id, mac };
+}
+
 function parseSessionOpsToken(
   token: string,
 ): { sessionId: string; mac: string } | null {
-  const parts = token.split(".");
-  if (parts.length !== 3 || parts[0] !== "fos") return null;
-  const [, sessionId, mac] = parts;
-  if (!sessionId || !mac) return null;
-  return { sessionId, mac };
+  const parsed = parsePrefixedToken(token, "fos");
+  return parsed ? { sessionId: parsed.id, mac: parsed.mac } : null;
+}
+
+function parseFunctionalUserToken(
+  token: string,
+): { userId: string; mac: string } | null {
+  const parsed = parsePrefixedToken(token, "fmu");
+  return parsed ? { userId: parsed.id, mac: parsed.mac } : null;
 }
 
 function macEqual(a: string, b: string): boolean {
@@ -93,6 +129,22 @@ export function authenticateOpsRequest(request: Request): OpsAuth | null {
   const global = process.env.FORGE_OPS_API_TOKEN?.trim();
   if (global && secretsEqual(presented, global)) {
     return { kind: "global" };
+  }
+
+  const functionalParsed = parseFunctionalUserToken(presented);
+  if (functionalParsed) {
+    const user = db
+      .select()
+      .from(functionalUsers)
+      .where(eq(functionalUsers.id, functionalParsed.userId))
+      .get();
+    if (!user) return null;
+    const expected = mintFunctionalUserToken(user.id, user.tokenVersion);
+    const expectedParsed = parseFunctionalUserToken(expected);
+    if (!expectedParsed || !macEqual(functionalParsed.mac, expectedParsed.mac)) {
+      return null;
+    }
+    return { kind: "functional", userId: user.id, name: user.name };
   }
 
   const parsed = parseSessionOpsToken(presented);

@@ -5,6 +5,7 @@ import { ProjectRoutingOverview } from "@/components/ProjectRoutingOverview";
 import { CaddyLogsViewer } from "@/components/CaddyLogsViewer";
 import { CaddySettingsEditor } from "@/components/CaddySettingsEditor";
 import { GitSshKeysSettings } from "@/components/GitSshKeysSettings";
+import { FunctionalUsersSettings } from "@/components/FunctionalUsersSettings";
 import { MigrationSettings } from "@/components/MigrationSettings";
 import { ThemeAppearance } from "@/components/ThemeAppearance";
 import { PageHeader, TabButton, TabList } from "@/components/ui";
@@ -15,6 +16,7 @@ type SettingsTab =
   | "routes"
   | "logs"
   | "git-ssh"
+  | "mcp-agents"
   | "migrate";
 
 export function GlobalSettings() {
@@ -25,7 +27,7 @@ export function GlobalSettings() {
       <div className="mx-auto max-w-4xl">
         <PageHeader
           title="Global settings"
-          subtitle="Appearance, routing, live Caddy config, access logs, git SSH keys, and migration"
+          subtitle="Appearance, routing, live Caddy config, access logs, git SSH keys, MCP agents, and migration"
         />
 
         <TabList className="mb-6">
@@ -60,6 +62,12 @@ export function GlobalSettings() {
             Git SSH
           </TabButton>
           <TabButton
+            active={activeTab === "mcp-agents"}
+            onClick={() => setActiveTab("mcp-agents")}
+          >
+            MCP agents
+          </TabButton>
+          <TabButton
             active={activeTab === "migrate"}
             onClick={() => setActiveTab("migrate")}
           >
@@ -77,6 +85,8 @@ export function GlobalSettings() {
           <CaddyLogsViewer />
         ) : activeTab === "git-ssh" ? (
           <GitSshKeysSettings />
+        ) : activeTab === "mcp-agents" ? (
+          <FunctionalUsersSettings />
         ) : (
           <MigrationSettings />
         )}

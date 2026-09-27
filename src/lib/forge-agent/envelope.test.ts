@@ -55,5 +55,6 @@ describe("forge-agent discover", () => {
     expect(doc.transports.http.tools).toBe("/api/ops/tools");
     expect(doc.transports.mcp.url).toBe("/api/ops/mcp");
     expect(doc.next.length).toBeGreaterThan(0);
+    expect(JSON.stringify(doc)).toMatch(/fmu\./);
   });
 });

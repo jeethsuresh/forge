@@ -14,6 +14,7 @@ Forge hosts bare repositories under `/data/git/<slug>.git` (override with `FORGE
 - Dashboard session cookie (browser / cookie-aware clients)
 - `Authorization: Bearer <FORGE_OPS_API_TOKEN>` (global Ops)
 - `Authorization: Bearer fos.<sessionId>.…` (agent session Ops token; project-scoped)
+- `Authorization: Bearer fmu.<userId>.…` (registered functional user / MCP agent; full Ops, same reach as global)
 - **Per-repo clone token** (`fgc.…`): Git Basic username `git`, password = the clone token shown on project Settings. Authorizes **only** smart HTTP for that slug — not Ops or other APIs.
 - Git Basic auth with Ops/agent token: username any (prefer `git`), password = Ops/agent token
 

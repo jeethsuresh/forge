@@ -5,6 +5,7 @@ import { projects } from "@/lib/db/schema";
 import {
   authenticateOpsRequest,
   isOpsApiConfigured,
+  isUnrestrictedOpsAuth,
   type OpsAuth,
 } from "@/lib/ops-api-auth";
 import { parseActionDescription, recordOpsAction } from "@/lib/ops-api-actions";
@@ -33,9 +34,15 @@ export function denyIfWrongProject(
   auth: OpsAuth,
   projectId: string,
 ): NextResponse | null {
-  if (auth.kind === "global") return null;
-  if (auth.projectId === projectId) return null;
+  if (isUnrestrictedOpsAuth(auth)) return null;
+  if (auth.kind === "session" && auth.projectId === projectId) return null;
   return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+}
+
+export function resolveOpsActor(auth?: OpsAuth): string {
+  if (auth?.kind === "functional") return `functional:${auth.name}`;
+  if (auth?.kind === "global") return "global";
+  return "agent";
 }
 
 export function resolveOpsActorSessionId(
@@ -43,6 +50,7 @@ export function resolveOpsActorSessionId(
   request: Request,
 ): string | null {
   if (auth.kind === "session") return auth.sessionId;
+  if (auth.kind === "functional") return null;
   return request.headers.get("x-forge-agent-session-id")?.trim() || null;
 }
 
@@ -101,6 +109,7 @@ export function auditOpsAction(input: {
     agentSessionId,
     resourceType: input.resourceType ?? null,
     resourceId: input.resourceId ?? null,
+    actor: resolveOpsActor(input.auth),
   });
 }
 

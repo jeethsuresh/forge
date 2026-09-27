@@ -44,6 +44,7 @@ export interface RecordOpsActionInput {
   agentSessionId?: string | null;
   resourceType?: string | null;
   resourceId?: string | null;
+  actor?: string;
 }
 
 export function recordOpsAction(input: RecordOpsActionInput): string {
@@ -60,7 +61,7 @@ export function recordOpsAction(input: RecordOpsActionInput): string {
       path: input.path,
       requestBodyJson: JSON.stringify(sanitizedBody),
       responseStatus: input.responseStatus,
-      actor: "agent",
+      actor: input.actor ?? "agent",
       agentSessionId: input.agentSessionId ?? null,
       projectId: input.projectId ?? null,
       resourceType: input.resourceType ?? null,

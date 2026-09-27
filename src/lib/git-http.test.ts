@@ -5,7 +5,7 @@ import { tmpdir } from "os";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
-import { agentSessions, gitRepositories, projects } from "@/lib/db/schema";
+import { agentSessions, functionalUsers, gitRepositories, projects } from "@/lib/db/schema";
 import { createForgeGitRepository } from "@/lib/git-repo";
 import {
   authorizeGitHttpAccess,
@@ -15,6 +15,7 @@ import {
   runGitHttpBackend,
 } from "@/lib/git-http";
 import { mintSessionOpsToken } from "@/lib/ops-api-auth";
+import { createFunctionalUser } from "@/lib/functional-users";
 
 vi.mock("next/headers", () => ({
   cookies: async () => ({
@@ -82,6 +83,25 @@ describe("authorizeGitHttpAccess", () => {
     const access = await authorizeGitHttpAccess(req, slug, false);
     expect(access.ok).toBe(false);
     if (!access.ok) expect(access.status).toBe(401);
+  });
+
+  it("allows functional-user fmu tokens like global Ops", async () => {
+    const previousSecret = process.env.FORGE_OPS_SESSION_SECRET;
+    process.env.FORGE_OPS_SESSION_SECRET = "test-git-functional-secret";
+    const created = createFunctionalUser("git-http-mcp");
+    try {
+      const req = new Request(`http://localhost/api/git/${slug}.git/info/refs`, {
+        headers: { Authorization: `Bearer ${created.token}` },
+      });
+      const access = await authorizeGitHttpAccess(req, slug, true);
+      expect(access).toEqual(
+        expect.objectContaining({ ok: true, actor: "ops-global" }),
+      );
+    } finally {
+      db.delete(functionalUsers).where(eq(functionalUsers.name, "git-http-mcp")).run();
+      if (previousSecret === undefined) delete process.env.FORGE_OPS_SESSION_SECRET;
+      else process.env.FORGE_OPS_SESSION_SECRET = previousSecret;
+    }
   });
 
   it("allows global Ops bearer token", async () => {

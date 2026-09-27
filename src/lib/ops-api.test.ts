@@ -15,11 +15,21 @@ import {
   validateActionDescription,
 } from "@/lib/ops-api-actions";
 import {
+  auditOpsAction,
+  denyIfWrongProject,
+} from "@/lib/ops-api-route";
+import { denyIfBootstrapRestricted } from "@/lib/ops-bootstrap-guard";
+import {
   buildForgeOpsAgentInstructions,
   forgeOpsApiCatalog,
 } from "@/lib/agent-ops-prompt";
 import { db } from "@/lib/db";
-import { agentSessions, projects } from "@/lib/db/schema";
+import { agentSessions, functionalUsers, opsApiActions, projects } from "@/lib/db/schema";
+import {
+  createFunctionalUser,
+  deleteFunctionalUser,
+  regenerateFunctionalUserToken,
+} from "@/lib/functional-users";
 
 describe("ops-api-auth", () => {
   let previousToken: string | undefined;
@@ -212,6 +222,60 @@ describe("ops-api-auth", () => {
     );
     expect(auth).toEqual({ kind: "global" });
   });
+
+  it("authenticates reminted fmu tokens as unrestricted functional users", () => {
+    process.env.FORGE_OPS_SESSION_SECRET = "test-session-secret-value";
+    delete process.env.FORGE_OPS_API_TOKEN;
+    const created = createFunctionalUser("ops-auth-mcp");
+    try {
+      const auth = authenticateOpsRequest(
+        new Request("http://localhost", {
+          headers: { authorization: `Bearer ${created.token}` },
+        }),
+      );
+      expect(auth).toEqual({
+        kind: "functional",
+        userId: created.user.id,
+        name: "ops-auth-mcp",
+      });
+      expect(denyIfWrongProject(auth!, "any-other-project")).toBeNull();
+      expect(
+        denyIfBootstrapRestricted(
+          auth!,
+          new Request("http://localhost/api/ops/projects/any/deploy", {
+            method: "POST",
+          }),
+        ),
+      ).toBeNull();
+
+      const rotated = regenerateFunctionalUserToken(created.user.id);
+      expect(
+        authenticateOpsRequest(
+          new Request("http://localhost", {
+            headers: { authorization: `Bearer ${created.token}` },
+          }),
+        ),
+      ).toBeNull();
+      expect(
+        authenticateOpsRequest(
+          new Request("http://localhost", {
+            headers: { authorization: `Bearer ${rotated!.token}` },
+          }),
+        )?.kind,
+      ).toBe("functional");
+
+      deleteFunctionalUser(created.user.id);
+      expect(
+        authenticateOpsRequest(
+          new Request("http://localhost", {
+            headers: { authorization: `Bearer ${rotated!.token}` },
+          }),
+        ),
+      ).toBeNull();
+    } finally {
+      db.delete(functionalUsers).where(eq(functionalUsers.name, "ops-auth-mcp")).run();
+    }
+  });
 });
 
 describe("ops-api-actions", () => {
@@ -235,6 +299,38 @@ describe("ops-api-actions", () => {
       resourceId: "dep-1",
     });
     expect(id).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("names functional users on audited mutating ops calls", () => {
+    process.env.FORGE_OPS_SESSION_SECRET = "test-session-secret-value";
+    const created = createFunctionalUser("audit-mcp");
+    try {
+      const actionId = auditOpsAction({
+        request: new Request("http://localhost/api/ops/projects/p1/deploy", {
+          method: "POST",
+          headers: { authorization: `Bearer ${created.token}` },
+        }),
+        method: "POST",
+        path: "/api/ops/projects/p1/deploy",
+        actionDescription: "Deploying after MCP client asked to ship main.",
+        responseStatus: 202,
+        projectId: "p1",
+        auth: {
+          kind: "functional",
+          userId: created.user.id,
+          name: created.user.name,
+        },
+      });
+      const row = db
+        .select()
+        .from(opsApiActions)
+        .where(eq(opsApiActions.id, actionId))
+        .get();
+      expect(row?.actor).toBe("functional:audit-mcp");
+      expect(row?.agentSessionId).toBeNull();
+    } finally {
+      db.delete(functionalUsers).where(eq(functionalUsers.name, "audit-mcp")).run();
+    }
   });
 
   it("documents minimum action description length", () => {
@@ -286,6 +382,7 @@ describe("agent-ops-prompt", () => {
       "/api/ops/projects/{projectId}/agent-sessions/{sessionId}/restart",
     );
     expect(catalog.auth.sessionTokens).toMatch(/fos\./);
+    expect(catalog.auth.sessionTokens).toMatch(/fmu\./);
     expect(paths).toContain(
       "/api/ops/projects/{projectId}/git-tree/rebase/finalize",
     );

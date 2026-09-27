@@ -12,6 +12,15 @@ export const users = sqliteTable("users", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+/** Machine identities for external MCP / Ops clients (`fmu.*` secrets). */
+export const functionalUsers = sqliteTable("functional_users", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  tokenVersion: integer("token_version").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
 /** Bare git repositories hosted by Forge (`/data/git/<slug>.git`). */
 export const gitRepositories = sqliteTable("git_repositories", {
   id: text("id").primaryKey(),
@@ -413,6 +422,7 @@ export const opsApiActions = sqliteTable("ops_api_actions", {
 });
 
 export type User = typeof users.$inferSelect;
+export type FunctionalUser = typeof functionalUsers.$inferSelect;
 export type GitRepository = typeof gitRepositories.$inferSelect;
 export type GitSshKey = typeof gitSshKeys.$inferSelect;
 export type Project = typeof projects.$inferSelect;

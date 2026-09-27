@@ -67,7 +67,7 @@ export function forgeAgentDiscoverDocument(baseUrl = opsApiBaseUrl()) {
         alternateHeader: "X-Forge-Ops-Token: $FORGE_OPS_API_TOKEN",
         sessionHeader: "X-Forge-Agent-Session-Id: <session-id>",
         howTo:
-          "Agents receive a project-scoped session token (fos.<sessionId>.) in FORGE_OPS_API_TOKEN. Optional global token grants full access for CI. Well-known and discover leak no project data.",
+          "Agents receive a project-scoped session token (fos.<sessionId>.) in FORGE_OPS_API_TOKEN. Optional global token grants full access for CI. Registered MCP functional users authenticate with an fmu.* secret. Well-known and discover leak no project data.",
       },
     },
   });

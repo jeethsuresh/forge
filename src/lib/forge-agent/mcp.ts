@@ -101,7 +101,7 @@ export async function handleMcpJsonRpc(
 
   const needsAuth = !MCP_UNAUTHENTICATED_METHODS.has(method);
   if (needsAuth && !authenticateOpsRequest(request)) {
-    return jsonRpcError(id, -32001, "Unauthorized", { next: "Send Authorization: Bearer $FORGE_OPS_API_TOKEN" }, 401);
+    return jsonRpcError(id, -32001, "Unauthorized", { next: "Send Authorization: Bearer $FORGE_OPS_API_TOKEN (env, fos.*, or registered fmu.*)" }, 401);
   }
 
   switch (method) {
@@ -120,7 +120,7 @@ export async function handleMcpJsonRpc(
         },
         serverInfo: { name: "forge-agent", version: "1" },
         instructions:
-          "Authenticate tools/call and live resource reads with Authorization: Bearer $FORGE_OPS_API_TOKEN. Discover HTTP explorer at GET /.well-known/forge-agent.json.",
+          "Authenticate tools/call and live resource reads with Authorization: Bearer $FORGE_OPS_API_TOKEN (env token, fos.* session token, or a registered fmu.* functional-user secret). Discover HTTP explorer at GET /.well-known/forge-agent.json.",
       });
     }
     case "ping":

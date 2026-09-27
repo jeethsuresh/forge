@@ -16,6 +16,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Create a **New project** (seeded README + Forgefile, optional host-folder import, bootstrap agent), one-shot **Import GitHub**, or **From image** (registry compose seed + deploy). GitHub is not a dual remote after import. Startup migrates leftover `githubRepo` projects into Forge bare repos.
 - **Host import / existing checkouts:** If the checkout has no `origin`, add `origin` pointing at Forge. If `origin` already exists, add a `forge` remote and `git config remote.pushDefault forge`. Append a **Git remotes (Forge)** note with `cat >> AGENTS.md` (creates the file if missing). Agents must **push to Forge** (`origin` when that is Forge, otherwise `forge`) and must not `git push origin` to GitHub unless a human asked.
 - **Clone tokens (`fgc.*`):** Settings shows a per-repo HTTPS password for humans. It only authorizes git push/pull for that repo. Agents keep using Ops/`fos.*` tokens for git — do not put clone tokens in agent env as Ops credentials.
+- **Functional users (`fmu.*`):** Global settings → MCP agents mints named machine secrets for external MCP clients. These are full Ops credentials (and therefore git HTTP), not clone tokens. In-container agents keep using `fos.*`.
 - When `gitRepositoryId` is set, deploy jobs and agent containers clone from Forge (not GitHub).
 
 ## Agent workflow (mandatory)

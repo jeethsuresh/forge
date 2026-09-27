@@ -3,7 +3,7 @@ export const GIT_HTTPS_BASIC_USERNAME = "git";
 
 /** @deprecated Prefer showing the per-repo fgc.* clone token from the API. */
 export function gitHttpsPasswordHelp(): string {
-  return "FORGE_OPS_API_TOKEN (from .env) or a fos.* agent session token";
+  return "FORGE_OPS_API_TOKEN (from .env), a fos.* agent session token, or a registered fmu.* functional-user secret";
 }
 
 /** Embed Basic credentials into an HTTPS clone URL for copy-paste recipes. */

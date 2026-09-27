@@ -10,6 +10,7 @@ describe("git HTTPS basic credentials", () => {
     expect(GIT_HTTPS_BASIC_USERNAME).toBe("git");
     expect(gitHttpsPasswordHelp()).toContain("FORGE_OPS_API_TOKEN");
     expect(gitHttpsPasswordHelp()).toContain("fos.");
+    expect(gitHttpsPasswordHelp()).toContain("fmu.");
   });
 
   it("embeds clone token into HTTPS URLs", () => {

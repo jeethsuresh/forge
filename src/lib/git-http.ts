@@ -114,7 +114,7 @@ export async function authorizeGitHttpAccess(
     ops = authenticateOpsRequest(request);
   }
 
-  if (ops?.kind === "global") {
+  if (ops?.kind === "global" || ops?.kind === "functional") {
     return { ok: true, actor: "ops-global", projectId: linked?.id };
   }
 

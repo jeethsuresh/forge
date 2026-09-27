@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import { handleMcpJsonRpc } from "@/lib/forge-agent/mcp";
 import { callForgeAgentTool, denyDashboardOrUncallable, validateToolArguments } from "@/lib/forge-agent/dispatch";
 import { getForgeAgentTool } from "@/lib/forge-agent/registry";
 import { MCP_PROTOCOL_VERSION } from "@/lib/forge-agent/types";
+import { db } from "@/lib/db";
+import { functionalUsers } from "@/lib/db/schema";
+import { createFunctionalUser, regenerateFunctionalUserToken } from "@/lib/functional-users";
 
 async function rpc(body: unknown, headers?: HeadersInit) {
   const request = new Request("http://127.0.0.1:3000/api/ops/mcp", {
@@ -27,6 +31,7 @@ describe("forge-agent MCP", () => {
     };
     expect(initBody.result.protocolVersion).toBe("2025-03-26");
     expect(initBody.result.serverInfo.name).toBe("forge-agent");
+    expect(JSON.stringify(initBody.result)).toMatch(/fmu\./);
 
     const listed = await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" });
     const listBody = (await listed.json()) as {
@@ -56,6 +61,37 @@ describe("forge-agent MCP", () => {
     expect(response.status).toBe(401);
     const body = (await response.json()) as { error: { code: number } };
     expect(body.error.code).toBe(-32001);
+  });
+
+  it("accepts fmu tokens for tools/call and rejects rotated secrets", async () => {
+    const previousSecret = process.env.FORGE_OPS_SESSION_SECRET;
+    process.env.FORGE_OPS_SESSION_SECRET = "test-mcp-functional-secret";
+    const created = createFunctionalUser("mcp-tools-call");
+    try {
+      const callBody = {
+        jsonrpc: "2.0",
+        id: 9,
+        method: "tools/call",
+        params: { name: "ops.projects.list", arguments: {} },
+      };
+      const ok = await rpc(callBody, { authorization: `Bearer ${created.token}` });
+      const okBody = (await ok.json()) as {
+        result?: { isError?: boolean };
+        error?: { code: number };
+      };
+      expect(okBody.error?.code).not.toBe(-32001);
+      expect(okBody.result).toBeTruthy();
+
+      regenerateFunctionalUserToken(created.user.id);
+      const denied = await rpc(callBody, { authorization: `Bearer ${created.token}` });
+      expect(denied.status).toBe(401);
+      const deniedBody = (await denied.json()) as { error: { code: number } };
+      expect(deniedBody.error.code).toBe(-32001);
+    } finally {
+      db.delete(functionalUsers).where(eq(functionalUsers.name, "mcp-tools-call")).run();
+      if (previousSecret === undefined) delete process.env.FORGE_OPS_SESSION_SECRET;
+      else process.env.FORGE_OPS_SESSION_SECRET = previousSecret;
+    }
   });
 
   it("returns default protocol version 2025-06-18", async () => {

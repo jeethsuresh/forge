@@ -41,5 +41,7 @@ test.describe("settings", () => {
     ).toBeVisible();
     await page.getByRole("button", { name: "Git SSH" }).click();
     await expect(page.getByRole("heading", { name: "Git SSH keys" })).toBeVisible();
+    await page.getByRole("button", { name: "MCP agents" }).click();
+    await expect(page.getByRole("heading", { name: "MCP agents" })).toBeVisible();
   });
 });
