@@ -150,6 +150,16 @@ describe("bootstrap ops allowlist", () => {
         "/api/ops/projects/p1/scripts/build/run",
       ),
     ).toBe(false);
+    expect(isBootstrapOpsPathAllowed("GET", "/api/ops/discover")).toBe(true);
+    expect(isBootstrapOpsPathAllowed("GET", "/api/ops/search")).toBe(true);
+    expect(isBootstrapOpsPathAllowed("GET", "/api/ops/tools")).toBe(true);
+    expect(isBootstrapOpsPathAllowed("GET", "/api/ops/tools/ops.project.deploy")).toBe(
+      true,
+    );
+    expect(
+      isBootstrapOpsPathAllowed("POST", "/api/ops/tools/ops.project.deploy/call"),
+    ).toBe(true);
+    expect(isBootstrapOpsPathAllowed("POST", "/api/ops/mcp")).toBe(true);
   });
 
   it("projectNeedsForgefileBootstrap reflects projection status", () => {

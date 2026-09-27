@@ -11,6 +11,7 @@ describe("isSessionExemptPath", () => {
     expect(isSessionExemptPath("/api/git/demo.git/info/refs")).toBe(true);
     expect(isSessionExemptPath("/api/caddy/logs/ingest")).toBe(true);
     expect(isSessionExemptPath("/api/forge/recover")).toBe(true);
+    expect(isSessionExemptPath("/.well-known/forge-agent.json")).toBe(true);
   });
 
   it("requires a session for Caddy log read and dashboard APIs", () => {
