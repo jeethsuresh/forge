@@ -1,7 +1,7 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
-import { existsSync } from "fs";
-import { join } from "path";
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "fs";
+import { dirname, join } from "path";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
@@ -31,6 +31,9 @@ const DOCKER_SOCK_PATHS = [
 export const DEFAULT_AGENT_IMAGE =
   process.env.FORGE_AGENT_IMAGE?.trim() || "forge-agent:latest";
 
+/** In-container path for the turn prompt bind (never passed as docker -e). */
+export const AGENT_PROMPT_INSIDE_PATH = "/tmp/forge-agent-prompt.txt";
+
 export type StartAgentContainerOpts = {
   sessionId: string;
   projectId: string;
@@ -56,6 +59,8 @@ export type StartAgentContainerOpts = {
    * volume source before `docker run` so Podman does not mkdir /data on the host.
    */
   workspaceBind?: string;
+  /** Host path bind-mounted at AGENT_PROMPT_INSIDE_PATH. */
+  promptFileHostPath?: string;
 };
 
 export type DockerRunResult = { stdout: string; stderr: string };
@@ -87,6 +92,11 @@ function sanitizeDockerExecError(err: unknown, args: string[]): Error {
   if (/already in use/i.test(raw)) {
     return new Error(
       "Failed to start agent container: that name is already in use",
+    );
+  }
+  if (/argument list too long|E2BIG/i.test(raw)) {
+    return new Error(
+      "Failed to start agent container: argument list too long",
     );
   }
   if (verb === "run") {
@@ -172,6 +182,29 @@ export async function ensureAgentImage(
 export function agentContainerName(sessionId: string): string {
   const short = sessionId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 12) || "session";
   return `forge-agent-${short}`;
+}
+
+export function agentPromptDir(): string {
+  return process.env.FORGE_AGENT_PROMPT_DIR?.trim() || "/data/agent-prompts";
+}
+
+export function agentPromptFilePath(sessionId: string): string {
+  return join(agentPromptDir(), `${sessionId}.txt`);
+}
+
+function writeAgentPromptFile(sessionId: string, prompt: string): string {
+  const path = agentPromptFilePath(sessionId);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, prompt, { encoding: "utf8", mode: 0o600 });
+  return path;
+}
+
+function removeAgentPromptFile(sessionId: string): void {
+  try {
+    unlinkSync(agentPromptFilePath(sessionId));
+  } catch {
+    // missing is fine
+  }
 }
 
 type InspectMount = {
@@ -294,7 +327,6 @@ export function buildAgentContainerRunArgs(
   if (opts.gitBarePath?.trim()) {
     env.FORGE_GIT_BARE_PATH = opts.gitBarePath.trim();
   }
-  if (opts.agentPrompt) env.FORGE_AGENT_PROMPT = opts.agentPrompt;
   if (opts.cursorApiKey) env.CURSOR_API_KEY = opts.cursorApiKey;
   if (opts.packagesJson) env.FORGE_AGENT_PACKAGES_JSON = opts.packagesJson;
   if (opts.cursorSessionId?.trim()) {
@@ -303,6 +335,10 @@ export function buildAgentContainerRunArgs(
 
   if (hostMounts.cursorAgentDir) {
     env.FORGE_AGENT_BIN = resolveCursorAgentBinInMount(hostMounts.cursorAgentDir);
+  }
+
+  if (opts.promptFileHostPath?.trim()) {
+    env.FORGE_AGENT_PROMPT_FILE = AGENT_PROMPT_INSIDE_PATH;
   }
 
   const args = [
@@ -345,6 +381,17 @@ export function buildAgentContainerRunArgs(
       );
     }
     args.push("-v", bareBind);
+  }
+
+  if (opts.promptFileHostPath?.trim()) {
+    const host = opts.promptFileHostPath.trim();
+    const promptBind = `${host}:${AGENT_PROMPT_INSIDE_PATH}:ro,z`;
+    if (mountArgTargetsDockerSock(promptBind)) {
+      throw new Error(
+        `Refusing prompt bind that looks like a container socket: ${promptBind}`,
+      );
+    }
+    args.push("-v", promptBind);
   }
 
   if (hostMounts.cursorAgentDir) {
@@ -428,11 +475,18 @@ async function startAgentContainerUnlocked(
   const gitBareHostPath = bareInside
     ? await resolveHostBindPath(bareInside)
     : undefined;
+  const promptFileHostPath = opts.agentPrompt
+    ? await resolveHostBindPath(
+        writeAgentPromptFile(opts.sessionId, opts.agentPrompt),
+      )
+    : opts.promptFileHostPath;
   const args = buildAgentContainerRunArgs({
     ...opts,
+    agentPrompt: undefined,
     workspaceBind,
     gitBarePath: bareInside,
     gitBareHostPath,
+    promptFileHostPath,
   });
   assertNoDockerSockMount(args);
 
@@ -693,6 +747,7 @@ export async function removeAgentContainer(sessionId: string): Promise<void> {
       .where(eq(agentContainers.sessionId, sessionId))
       .run();
   }
+  removeAgentPromptFile(sessionId);
 }
 
 export async function agentContainerIsRunning(
