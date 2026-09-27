@@ -67,6 +67,16 @@ describe("forge-agent MCP", () => {
     const previousSecret = process.env.FORGE_OPS_SESSION_SECRET;
     process.env.FORGE_OPS_SESSION_SECRET = "test-mcp-functional-secret";
     const created = createFunctionalUser("mcp-tools-call");
+    // Dispatch is HTTP fetch into Ops routes. Unit tests have no App Router.
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      return new Response(JSON.stringify({ projects: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
     try {
       const callBody = {
         jsonrpc: "2.0",
@@ -81,13 +91,16 @@ describe("forge-agent MCP", () => {
       };
       expect(okBody.error?.code).not.toBe(-32001);
       expect(okBody.result).toBeTruthy();
+      expect(fetchCalls).toBe(1);
 
       regenerateFunctionalUserToken(created.user.id);
       const denied = await rpc(callBody, { authorization: `Bearer ${created.token}` });
       expect(denied.status).toBe(401);
       const deniedBody = (await denied.json()) as { error: { code: number } };
       expect(deniedBody.error.code).toBe(-32001);
+      expect(fetchCalls).toBe(1);
     } finally {
+      globalThis.fetch = originalFetch;
       db.delete(functionalUsers).where(eq(functionalUsers.name, "mcp-tools-call")).run();
       if (previousSecret === undefined) delete process.env.FORGE_OPS_SESSION_SECRET;
       else process.env.FORGE_OPS_SESSION_SECRET = previousSecret;
