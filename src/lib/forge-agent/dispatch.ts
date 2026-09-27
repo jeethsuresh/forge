@@ -13,74 +13,6 @@ import {
 import type { ForgeAgentNext, ForgeAgentTool } from "@/lib/forge-agent/types";
 import { forgeAgentEnvelope } from "@/lib/forge-agent/envelope";
 
-type RouteModule = {
-  GET?: (request: Request, ctx: { params: Promise<Record<string, string>> }) => Promise<Response> | Response;
-  POST?: (request: Request, ctx: { params: Promise<Record<string, string>> }) => Promise<Response> | Response;
-  PATCH?: (request: Request, ctx: { params: Promise<Record<string, string>> }) => Promise<Response> | Response;
-};
-
-type RouteLoader = () => Promise<RouteModule>;
-
-const ROUTE_LOADERS: Record<string, RouteLoader> = {
-  "GET /api/ops": () => import("@/app/api/ops/route"),
-  "GET /api/ops/actions": () => import("@/app/api/ops/actions/route"),
-  "GET /api/ops/projects": () => import("@/app/api/ops/projects/route"),
-  "GET /api/ops/projects/{projectId}": () => import("@/app/api/ops/projects/[id]/route"),
-  "PATCH /api/ops/projects/{projectId}": () => import("@/app/api/ops/projects/[id]/route"),
-  "GET /api/ops/projects/{projectId}/forgefile": () =>
-    import("@/app/api/ops/projects/[id]/forgefile/route"),
-  "GET /api/ops/services": () => import("@/app/api/ops/services/route"),
-  "GET /api/ops/projects/{projectId}/artifacts": () =>
-    import("@/app/api/ops/projects/[id]/artifacts/route"),
-  "POST /api/ops/projects/{projectId}/artifacts/{name}/build": () =>
-    import("@/app/api/ops/projects/[id]/artifacts/[name]/build/route"),
-  "GET /api/ops/projects/{projectId}/artifacts/{name}/builds/{buildId}/download": () =>
-    import("@/app/api/ops/projects/[id]/artifacts/[name]/builds/[buildId]/download/route"),
-  "POST /api/ops/projects/{projectId}/scripts/{name}/run": () =>
-    import("@/app/api/ops/projects/[id]/scripts/[name]/run/route"),
-  "POST /api/ops/projects/{projectId}/deploy": () =>
-    import("@/app/api/ops/projects/[id]/deploy/route"),
-  "POST /api/ops/projects/{projectId}/rollback": () =>
-    import("@/app/api/ops/projects/[id]/rollback/route"),
-  "POST /api/ops/projects/{projectId}/stop": () =>
-    import("@/app/api/ops/projects/[id]/stop/route"),
-  "GET /api/ops/projects/{projectId}/deployments": () =>
-    import("@/app/api/ops/projects/[id]/deployments/route"),
-  "GET /api/ops/projects/{projectId}/deployments/{deploymentId}": () =>
-    import("@/app/api/ops/projects/[id]/deployments/[deploymentId]/route"),
-  "GET /api/ops/projects/{projectId}/agent-sessions": () =>
-    import("@/app/api/ops/projects/[id]/agent-sessions/route"),
-  "POST /api/ops/projects/{projectId}/agent-sessions": () =>
-    import("@/app/api/ops/projects/[id]/agent-sessions/route"),
-  "GET /api/ops/projects/{projectId}/agent-sessions/{sessionId}": () =>
-    import("@/app/api/ops/projects/[id]/agent-sessions/[sessionId]/route"),
-  "POST /api/ops/projects/{projectId}/agent-sessions/{sessionId}/messages": () =>
-    import("@/app/api/ops/projects/[id]/agent-sessions/[sessionId]/messages/route"),
-  "POST /api/ops/projects/{projectId}/agent-sessions/{sessionId}/stop": () =>
-    import("@/app/api/ops/projects/[id]/agent-sessions/[sessionId]/stop/route"),
-  "POST /api/ops/projects/{projectId}/agent-sessions/{sessionId}/end": () =>
-    import("@/app/api/ops/projects/[id]/agent-sessions/[sessionId]/end/route"),
-  "POST /api/ops/projects/{projectId}/agent-sessions/{sessionId}/restart": () =>
-    import("@/app/api/ops/projects/[id]/agent-sessions/[sessionId]/restart/route"),
-  "POST /api/ops/projects/{projectId}/agent-sessions/{sessionId}/heartbeat": () =>
-    import("@/app/api/ops/projects/[id]/agent-sessions/[sessionId]/heartbeat/route"),
-  "POST /api/ops/projects/{projectId}/agent-sessions/{sessionId}/events": () =>
-    import("@/app/api/ops/projects/[id]/agent-sessions/[sessionId]/events/route"),
-  "POST /api/ops/projects/{projectId}/secrets/{name}/request": () =>
-    import("@/app/api/ops/projects/[id]/secrets/[name]/request/route"),
-  "POST /api/ops/projects/{projectId}/git-tree/rebase/finalize": () =>
-    import("@/app/api/ops/projects/[id]/git-tree/rebase/finalize/route"),
-};
-
-const PATH_PARAM_TO_ROUTE: Record<string, string> = {
-  projectId: "id",
-  sessionId: "sessionId",
-  name: "name",
-  deploymentId: "deploymentId",
-  buildId: "buildId",
-  slug: "slug",
-};
-
 export function expandToolPath(
   template: string,
   args: Record<string, unknown>,
@@ -120,15 +52,6 @@ function remainingArgs(
     if (!skip.has(key) && value !== undefined) rest[key] = value;
   }
   return rest;
-}
-
-function routeParams(args: Record<string, unknown>, used: string[]): Record<string, string> {
-  const params: Record<string, string> = {};
-  for (const key of used) {
-    const routeKey = PATH_PARAM_TO_ROUTE[key] ?? key;
-    params[routeKey] = String(args[key]);
-  }
-  return params;
 }
 
 function dashboardDenied(tool: ForgeAgentTool): NextResponse {
@@ -207,23 +130,9 @@ export async function invokeOpsTool(
     init.body = JSON.stringify(rest);
   }
 
-  const forwarded = new Request(url, init);
-  const loader = ROUTE_LOADERS[`${tool.method} ${tool.path}`];
-  if (!loader) {
-    return NextResponse.json(
-      { error: `No dispatcher for ${tool.method} ${tool.path}` },
-      { status: 500 },
-    );
-  }
-  const mod = await loader();
-  const handler = mod[tool.method as "GET" | "POST" | "PATCH"];
-  if (!handler) {
-    return NextResponse.json(
-      { error: `Handler ${tool.method} missing for ${tool.path}` },
-      { status: 500 },
-    );
-  }
-  return handler(forwarded, { params: Promise.resolve(routeParams(args, used)) });
+  // Forward to the existing Ops route over HTTP so App Router chunks stay
+  // acyclic (importing route modules from lib failed the Next.js production build).
+  return fetch(url, init);
 }
 
 export function requireOpsAuthForCall(request: Request): OpsAuth | NextResponse {
