@@ -42,6 +42,7 @@ Forge exposes a machine-readable **Ops API** at `/api/ops/*` for deploy, rollbac
 - **Audit:** Every POST/PATCH must include `actionDescription` (10–2000 chars) stating exactly what the agent is doing and why.
 - **Session link:** Pass `X-Forge-Agent-Session-Id: <session-id>` to attach ops calls to the agent session audit log (also inferred from session tokens).
 - **Catalog:** `GET /api/ops` returns all endpoints and curl examples.
+- **Zero-knowledge discovery:** `GET /.well-known/forge-agent.json` or `GET /api/ops/discover` (no auth). Search `GET /api/ops/search?q=`. HTTP explorer: `/api/ops/tools` + `POST /api/ops/tools/{name}/call`. MCP JSON-RPC: `POST /api/ops/mcp`. Existing `/api/ops/*` remain the real mutators.
 - **Agent prompt:** Forge prepends ops instructions to the first turn of each agent session automatically.
 
 When implementing or debugging ops flows, run `./test.sh` and consult `src/lib/agent-ops-prompt.ts` for the canonical instruction text.

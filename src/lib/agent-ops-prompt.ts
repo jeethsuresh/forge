@@ -21,6 +21,47 @@ export function forgeOpsApiCatalog(baseUrl: string) {
     ],
     endpoints: [
       { method: "GET", path: "/api/ops", description: "This catalog and usage rules" },
+      {
+        method: "GET",
+        path: "/.well-known/forge-agent.json",
+        description: "Public zero-knowledge protocol document (no auth, no project data)",
+      },
+      {
+        method: "GET",
+        path: "/api/ops/discover",
+        description: "Public alias of the well-known Forge agent document",
+      },
+      {
+        method: "GET",
+        path: "/api/ops/search",
+        description: "Search tools, resources, and prompts. Query: ?q=",
+      },
+      {
+        method: "GET",
+        path: "/api/ops/tools",
+        description: "List MCP-safe tool schemas. Query: ?q=",
+      },
+      {
+        method: "POST",
+        path: "/api/ops/tools/{name}/call",
+        description: "Validate arguments and dispatch into the matching Ops handler",
+        body: { actionDescription: "string (required on mutations)" },
+      },
+      {
+        method: "GET",
+        path: "/api/ops/resources",
+        description: "List resources (Ops live reads + git + dashboard descriptors)",
+      },
+      {
+        method: "GET",
+        path: "/api/ops/prompts",
+        description: "List workflow prompts (deploy, rollback, status, rebase, bootstrap)",
+      },
+      {
+        method: "POST",
+        path: "/api/ops/mcp",
+        description: "MCP JSON-RPC 2.0 (Streamable HTTP). initialize is unauthenticated.",
+      },
       { method: "GET", path: "/api/ops/actions", description: "Recent audited ops actions" },
       { method: "GET", path: "/api/ops/projects", description: "List all projects with runtime summary" },
       {
@@ -192,6 +233,17 @@ export function forgeOpsApiCatalog(baseUrl: string) {
           "Request a named project/global secret (hybrid model; docker/host names always denied; audited)",
         body: { actionDescription: "string (required)" },
       },
+      {
+        method: "POST",
+        path: "/api/ops/projects/{projectId}/git-tree/rebase/finalize",
+        description:
+          "Finalize rebase recovery (Ops auth): rename recovery branch to source and clean workspaces",
+        body: {
+          actionDescription: "string (required)",
+          recoveryBranch: "string (required)",
+          sourceBranch: "string (required)",
+        },
+      },
     ],
   };
 }
@@ -206,6 +258,14 @@ export function buildForgeOpsAgentInstructions(
 
 You orchestrate deployments and monitoring for this project through Forge's Ops API.
 The token is available in your environment as FORGE_OPS_API_TOKEN.
+
+## Zero-knowledge discovery
+
+Start here (no auth, no project data): \`GET ${baseUrl}/.well-known/forge-agent.json\`
+Alias: \`GET ${baseUrl}/api/ops/discover\`
+Search: \`GET ${baseUrl}/api/ops/search?q=\`
+HTTP explorer: \`GET ${baseUrl}/api/ops/tools\` then \`POST ${baseUrl}/api/ops/tools/{name}/call\`
+MCP JSON-RPC: \`POST ${baseUrl}/api/ops/mcp\` (initialize, tools/list, tools/call). Both transports share one registry. Existing \`/api/ops/*\` remain the real mutators.
 
 ## Required behavior
 
@@ -332,8 +392,8 @@ When rebasing, if the rebase command fails, create a special agent session in a 
 curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
   -H "Content-Type: application/json" \\
   -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
-  -d '{"recoveryBranch":"forge-rebase/feature-x","sourceBranch":"feature/x"}' \\
-  "${baseUrl}/api/projects/${projectId}/git-tree/rebase/finalize"
+  -d '{"actionDescription":"Finalizing rebase recovery after conflicts are resolved and tests passed.","recoveryBranch":"forge-rebase/feature-x","sourceBranch":"feature/x"}' \\
+  "${baseUrl}/api/ops/projects/${projectId}/git-tree/rebase/finalize"
 \`\`\`
 
 ## Recovery agent sessions

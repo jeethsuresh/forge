@@ -15,5 +15,15 @@ export async function GET(request: Request) {
       : allProjects;
   const summaries = await Promise.all(scoped.map(buildOpsProjectSummary));
 
-  return NextResponse.json({ projects: summaries });
+  return NextResponse.json({
+    projects: summaries,
+    search: "/api/ops/search?q=",
+    next: [
+      {
+        method: "GET",
+        href: "/api/ops/tools",
+        description: "Discover callable project tools",
+      },
+    ],
+  });
 }

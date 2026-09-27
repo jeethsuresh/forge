@@ -251,6 +251,12 @@ describe("agent-ops-prompt", () => {
     expect(text).toContain("/api/ops/projects/proj-1");
     expect(text).toContain("sess-1");
     expect(text).toContain("rebase/finalize");
+    expect(text).toContain("/.well-known/forge-agent.json");
+    expect(text).toContain("/api/ops/discover");
+    expect(text).toContain("/api/ops/mcp");
+    expect(text).toContain(
+      "/api/ops/projects/proj-1/git-tree/rebase/finalize",
+    );
     expect(text).toContain("NEVER run Forge's own");
     expect(text).toContain("deploy.sh");
     expect(text).toContain("Recovery agent sessions");
@@ -280,5 +286,10 @@ describe("agent-ops-prompt", () => {
       "/api/ops/projects/{projectId}/agent-sessions/{sessionId}/restart",
     );
     expect(catalog.auth.sessionTokens).toMatch(/fos\./);
+    expect(paths).toContain(
+      "/api/ops/projects/{projectId}/git-tree/rebase/finalize",
+    );
+    expect(paths).toContain("/api/ops/discover");
+    expect(paths).toContain("/api/ops/mcp");
   });
 });

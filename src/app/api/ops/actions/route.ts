@@ -17,5 +17,13 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     actions: listRecentOpsActions(limit, filter),
+    search: "/api/ops/search?q=",
+    next: [
+      {
+        method: "GET",
+        href: "/api/ops/tools?q=actions",
+        description: "Action-related tools",
+      },
+    ],
   });
 }

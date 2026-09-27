@@ -55,7 +55,7 @@ You are on recovery branch \`${context.recoveryBranch}\`, created from \`${conte
 Commits from \`${context.sourceBranch}\` were cherry-picked onto this branch; resolve any conflicts and finish the cherry-pick sequence.
 
 When the branch is clean and tests pass:
-1. Call POST /api/projects/${context.projectId}/git-tree/rebase/finalize with recoveryBranch, sourceBranch, and onto.
+1. Call POST /api/ops/projects/${context.projectId}/git-tree/rebase/finalize with actionDescription, recoveryBranch, and sourceBranch.
 2. That deletes the old \`${context.sourceBranch}\` branch and renames \`${context.recoveryBranch}\` to \`${context.sourceBranch}\` for continuity.
 
 Error from the failed rebase:

@@ -15,6 +15,33 @@ export function isBootstrapOpsPathAllowed(
 
   if (path === "/api/ops" && m === "GET") return true;
 
+  // Explorer / MCP discovery (schemas and names only). tools/call is allowed
+  // at this layer so dispatch can enforce the *target* Ops path.
+  if (
+    (path === "/api/ops/discover" ||
+      path === "/api/ops/search" ||
+      path === "/api/ops/tools" ||
+      path === "/api/ops/resources" ||
+      path === "/api/ops/prompts") &&
+    m === "GET"
+  ) {
+    return true;
+  }
+  if (
+    (/^\/api\/ops\/tools\/[^/]+$/.test(path) ||
+      /^\/api\/ops\/resources\/[^/]+$/.test(path) ||
+      /^\/api\/ops\/prompts\/[^/]+$/.test(path)) &&
+    m === "GET"
+  ) {
+    return true;
+  }
+  if (/^\/api\/ops\/tools\/[^/]+\/call$/.test(path) && m === "POST") {
+    return true;
+  }
+  if (path === "/api/ops/mcp" && (m === "GET" || m === "POST")) {
+    return true;
+  }
+
   // Forgefile read (and future write) for the project under bootstrap.
   if (/\/api\/ops\/projects\/[^/]+\/forgefile$/.test(path)) {
     return m === "GET" || m === "PUT" || m === "POST" || m === "PATCH";
