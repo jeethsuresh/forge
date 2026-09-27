@@ -1,10 +1,5 @@
-import { NextResponse } from "next/server";
-import { isBootstrapOpsPathAllowed } from "@/lib/ops-bootstrap-guard";
-import {
-  denyIfBootstrapRestricted,
-  requireOpsAuth,
-  type OpsAuth,
-} from "@/lib/ops-api-route";
+import { authenticateOpsRequest, type OpsAuth } from "@/lib/ops-api-auth";
+import { denyIfBootstrapRestricted, isBootstrapOpsPathAllowed } from "@/lib/ops-bootstrap-guard";
 import {
   getForgeAgentResource,
   getForgeAgentTool,
@@ -12,6 +7,13 @@ import {
 } from "@/lib/forge-agent/registry";
 import type { ForgeAgentNext, ForgeAgentTool } from "@/lib/forge-agent/types";
 import { forgeAgentEnvelope } from "@/lib/forge-agent/envelope";
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
 
 export function expandToolPath(
   template: string,
@@ -54,7 +56,7 @@ function remainingArgs(
   return rest;
 }
 
-function dashboardDenied(tool: ForgeAgentTool): NextResponse {
+function dashboardDenied(tool: ForgeAgentTool): Response {
   const next: ForgeAgentNext[] = [
     {
       method: "GET",
@@ -69,7 +71,7 @@ function dashboardDenied(tool: ForgeAgentTool): NextResponse {
       auth: "none",
     },
   ];
-  return NextResponse.json(
+  return jsonResponse(
     forgeAgentEnvelope({
       self: `/api/ops/tools/${tool.name}/call`,
       next,
@@ -79,11 +81,11 @@ function dashboardDenied(tool: ForgeAgentTool): NextResponse {
         auth: "dashboard_cookie",
       },
     }),
-    { status: 403 },
+    403,
   );
 }
 
-export function denyDashboardOrUncallable(tool: ForgeAgentTool): NextResponse | null {
+export function denyDashboardOrUncallable(tool: ForgeAgentTool): Response | null {
   if (!tool.callable || tool.auth === "dashboard_cookie" || tool.kind === "dashboard") {
     return dashboardDenied(tool);
   }
@@ -130,20 +132,14 @@ export async function invokeOpsTool(
     init.body = JSON.stringify(rest);
   }
 
-  // Forward to the existing Ops route over HTTP so App Router chunks stay
-  // acyclic (importing route modules from lib failed the Next.js production build).
   return fetch(url, init);
-}
-
-export function requireOpsAuthForCall(request: Request): OpsAuth | NextResponse {
-  return requireOpsAuth(request);
 }
 
 export function denyBootstrapForTarget(
   auth: OpsAuth,
   tool: ForgeAgentTool,
   args: Record<string, unknown>,
-): NextResponse | null {
+): Response | null {
   if (auth.kind !== "session") return null;
   let path: string;
   try {
@@ -156,6 +152,14 @@ export function denyBootstrapForTarget(
   return denyIfBootstrapRestricted(auth, fake);
 }
 
+function requireCallAuth(request: Request): OpsAuth | Response {
+  const auth = authenticateOpsRequest(request);
+  if (!auth) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+  return auth;
+}
+
 export async function callForgeAgentTool(input: {
   name: string;
   args: Record<string, unknown>;
@@ -163,7 +167,7 @@ export async function callForgeAgentTool(input: {
 }): Promise<Response> {
   const tool = getForgeAgentTool(input.name);
   if (!tool) {
-    return NextResponse.json(
+    return jsonResponse(
       forgeAgentEnvelope({
         self: `/api/ops/tools/${input.name}/call`,
         next: [
@@ -176,7 +180,7 @@ export async function callForgeAgentTool(input: {
         ],
         extra: { error: `Unknown tool: ${input.name}` },
       }),
-      { status: 404 },
+      404,
     );
   }
 
@@ -185,11 +189,11 @@ export async function callForgeAgentTool(input: {
 
   const invalid = validateToolArguments(tool, input.args);
   if (invalid) {
-    return NextResponse.json({ error: invalid }, { status: 400 });
+    return jsonResponse({ error: invalid }, 400);
   }
 
-  const auth = requireOpsAuthForCall(input.request);
-  if (auth instanceof NextResponse) return auth;
+  const auth = requireCallAuth(input.request);
+  if (auth instanceof Response) return auth;
 
   const bootstrap = denyBootstrapForTarget(auth, tool, input.args);
   if (bootstrap) return bootstrap;
@@ -206,11 +210,11 @@ export async function readForgeAgentResource(input: {
   const byUri = listResourceByUri(input.nameOrUri);
   const resource = byName ?? byUri;
   if (!resource) {
-    return NextResponse.json({ error: `Unknown resource: ${input.nameOrUri}` }, { status: 404 });
+    return jsonResponse({ error: `Unknown resource: ${input.nameOrUri}` }, 404);
   }
 
   if (resource.kind === "dashboard" || resource.auth === "dashboard_cookie") {
-    return NextResponse.json(
+    return jsonResponse(
       forgeAgentEnvelope({
         self: `/api/ops/resources/${resource.name}`,
         next: [
@@ -226,13 +230,13 @@ export async function readForgeAgentResource(input: {
           auth: "dashboard_cookie",
         },
       }),
-      { status: 403 },
+      403,
     );
   }
 
   if (resource.kind === "git") {
     const slug = String(input.args.slug ?? extractUriArg(input.nameOrUri, "slug") ?? "");
-    return NextResponse.json(
+    return jsonResponse(
       forgeAgentEnvelope({
         self: `/api/ops/resources/${resource.name}`,
         next: [
@@ -254,7 +258,7 @@ export async function readForgeAgentResource(input: {
   }
 
   if (!resource.live || !resource.readTool) {
-    return NextResponse.json({ resource }, { status: 200 });
+    return jsonResponse({ resource });
   }
 
   return callForgeAgentTool({
