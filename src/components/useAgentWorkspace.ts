@@ -1119,7 +1119,6 @@ export function useAgentWorkspace({
     showArchiveButton,
     showRestartButton,
     agentBranches,
-    sortedAgentBranches,
     idleBranches,
     completedAgentCount,
     statusBanner,
