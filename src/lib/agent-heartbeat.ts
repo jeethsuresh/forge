@@ -21,6 +21,9 @@ export const AGENT_IDLE_MS = 30 * 60 * 1000;
 export const AGENT_WALL_CLOCK_MS = 2 * 60 * 60 * 1000;
 
 const KILL_TICK_MS = 5_000;
+const SMOKE_SWEEP_EVERY_TICKS = 12;
+
+let smokeSweepTick = 0;
 
 declare global {
   var __forgeAgentKillPolicyStarted: boolean | undefined;
@@ -245,6 +248,18 @@ export function startAgentKillPolicyTicker(): void {
       await reconcileMissingAgentContainers();
     } catch (err) {
       console.error("[forge] Agent kill-policy tick failed:", err);
+    }
+
+    smokeSweepTick += 1;
+    if ((smokeSweepTick - 1) % SMOKE_SWEEP_EVERY_TICKS === 0) {
+      try {
+        const { sweepForgeSmokeLeftovers } = await import(
+          "@/lib/forge-smoke-cleanup"
+        );
+        await sweepForgeSmokeLeftovers();
+      } catch (err) {
+        console.error("[forge] Smoke leftover sweep failed:", err);
+      }
     }
   };
 

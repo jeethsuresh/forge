@@ -31,6 +31,7 @@ import {
   defaultStaleUpdateErrorMessage,
   FORGE_UPDATE_SUCCESS_MARKER,
   forgeUpdateUnavailableMessage,
+  FORGE_TERMINAL_STATUSES,
   isInProgressForgeUpdateStatus,
   parseTargetCommitFromUpdateLogs,
   resolveForgeBranchDeployAllowed,
@@ -184,6 +185,7 @@ function syncForgeUpdateToDeployment(updateId: string): void {
         completedAt: update.completedAt,
       })
       .run();
+    scheduleForgeSmokeCleanup(updateId, update.status);
     return;
   }
   db.update(deployments)
@@ -196,6 +198,20 @@ function syncForgeUpdateToDeployment(updateId: string): void {
     })
     .where(eq(deployments.id, updateId))
     .run();
+  scheduleForgeSmokeCleanup(updateId, update.status);
+}
+
+function scheduleForgeSmokeCleanup(
+  updateId: string,
+  status: ForgeUpdateStatus,
+): void {
+  if (!FORGE_TERMINAL_STATUSES.includes(status)) return;
+  // Dynamic import: avoid pulling agent session teardown into this module graph.
+  void import("@/lib/forge-smoke-cleanup")
+    .then((mod) => mod.maybeCleanupForgeSmokeAfterUpdate(updateId))
+    .catch((err) => {
+      console.error("[forge] Smoke cleanup after update failed:", err);
+    });
 }
 
 export function backfillForgeUpdatesIntoDeployments(): number {

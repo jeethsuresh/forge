@@ -8,9 +8,15 @@ export const FORGE_SMOKE_MARKER_RELATIVE_PATH = "public/forge-smoke-marker.txt";
 /** In-container path after the runner image copies public/ → /app/public. */
 export const FORGE_SMOKE_MARKER_CONTAINER_PATH = "/app/public/forge-smoke-marker.txt";
 
+export const FORGE_SMOKE_BRANCH_PREFIX = "forge-smoke/";
+
 export function buildForgeSmokeBranchName(now = new Date()): string {
   const stamp = now.toISOString().replace(/[:.]/g, "-");
-  return `forge-smoke/${stamp}`;
+  return `${FORGE_SMOKE_BRANCH_PREFIX}${stamp}`;
+}
+
+export function isForgeSmokeBranch(branch: string): boolean {
+  return branch.startsWith(FORGE_SMOKE_BRANCH_PREFIX);
 }
 
 export function buildForgeSmokeMarkerToken(uniqueId: string): string {

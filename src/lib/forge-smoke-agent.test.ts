@@ -6,6 +6,7 @@ import {
   buildForgeSmokeBranchName,
   buildForgeSmokeMarkerToken,
   forgeSmokeMarkerMatches,
+  isForgeSmokeBranch,
 } from "@/lib/forge-smoke-agent";
 
 describe("forge-smoke-agent helpers", () => {
@@ -32,5 +33,15 @@ describe("forge-smoke-agent helpers", () => {
     expect(FORGE_SMOKE_MARKER_CONTAINER_PATH).toBe(
       "/app/public/forge-smoke-marker.txt",
     );
+  });
+
+  it("detects only forge-smoke/ prefixed branches", () => {
+    expect(isForgeSmokeBranch("forge-smoke/2026-07-20T15-30-00-000Z")).toBe(
+      true,
+    );
+    expect(isForgeSmokeBranch("forge-smoke/1784515734087")).toBe(true);
+    expect(isForgeSmokeBranch("agent/foo")).toBe(false);
+    expect(isForgeSmokeBranch("main")).toBe(false);
+    expect(isForgeSmokeBranch("forge-smoke")).toBe(false);
   });
 });

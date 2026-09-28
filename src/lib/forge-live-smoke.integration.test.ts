@@ -393,5 +393,7 @@ describe.skipIf(!liveEnabled)("forge live smoke (Layer C)", () => {
     await waitForForgeHealth();
     const markerContents = readMarkerFromRunningContainer();
     expect(forgeSmokeMarkerMatches(markerContents, markerToken)).toBe(true);
+    // Leftover forge-smoke/* sessions, workspaces, and git refs are cleaned by
+    // Forge itself (post-update + grace sweeper), not by this test.
   }, 90 * 60_000);
 });
