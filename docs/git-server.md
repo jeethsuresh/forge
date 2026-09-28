@@ -54,6 +54,8 @@ Smart HTTP is the supported path in unit tests; SSH is optional host infrastruct
 - **Import GitHub** — one-shot `git clone --mirror` into Forge bare store; no ongoing dual-remote sync in v1.
 - **From image** — seed Forgefile, compose, `build.sh`/`test.sh`/`deploy.sh`/`teardown.sh`, and `.env` around a registry image; store registry secrets in deploy env; deploy immediately; open Compose studio.
 
+Ops/MCP: `POST /api/ops/projects` (`ops.projects.create`) creates a seeded repo or imports GitHub with a global or `fmu.*` token. Session `fos.*` tokens are rejected. Image mode and host-folder copy stay on the dashboard. The Ops response includes HTTPS/SSH clone URLs but not `fgc.*` clone tokens — clone with the same Ops/fmu bearer.
+
 Settings still shows clone URLs and GitHub-style push recipes for operators who push from an existing checkout:
 
 - no `origin`: `git remote add origin <https-url>` then push

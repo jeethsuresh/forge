@@ -388,5 +388,10 @@ describe("agent-ops-prompt", () => {
     );
     expect(paths).toContain("/api/ops/discover");
     expect(paths).toContain("/api/ops/mcp");
+    expect(
+      catalog.endpoints.some(
+        (item) => item.method === "POST" && item.path === "/api/ops/projects",
+      ),
+    ).toBe(true);
   });
 });

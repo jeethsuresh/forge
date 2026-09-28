@@ -20,6 +20,9 @@ describe("forge-agent registry", () => {
   });
 
   it("includes Ops rebase finalize and marks dashboard tools not callable", () => {
+    expect(getForgeAgentTool("ops.projects.create")?.callable).toBe(true);
+    expect(getForgeAgentTool("ops.projects.create")?.method).toBe("POST");
+
     const finalize = getForgeAgentTool("ops.project.git.rebase_finalize");
     expect(finalize?.callable).toBe(true);
     expect(finalize?.path).toBe(

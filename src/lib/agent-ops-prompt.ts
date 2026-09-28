@@ -65,6 +65,20 @@ export function forgeOpsApiCatalog(baseUrl: string) {
       { method: "GET", path: "/api/ops/actions", description: "Recent audited ops actions" },
       { method: "GET", path: "/api/ops/projects", description: "List all projects with runtime summary" },
       {
+        method: "POST",
+        path: "/api/ops/projects",
+        description:
+          "Create a seeded Forge git repo + project, or one-shot import GitHub. Global and fmu.* tokens only; session fos.* tokens are forbidden. Does not return clone tokens — clone with the Ops/fmu bearer.",
+        body: {
+          actionDescription: "string (required)",
+          mode: "create|import|local?",
+          name: "string (required for create/local)",
+          slug: "string?",
+          branch: "string?",
+          githubRepo: "string (required for import)",
+        },
+      },
+      {
         method: "GET",
         path: "/api/ops/projects/{projectId}",
         description: "Project detail: deployments, containers, agents, deploy update",

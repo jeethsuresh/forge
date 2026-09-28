@@ -39,6 +39,7 @@ describe("forge-agent MCP", () => {
     };
     const names = listBody.result.tools.map((tool) => tool.name);
     expect(names).toContain("ops.project.deploy");
+    expect(names).toContain("ops.projects.create");
     expect(names).toContain("dashboard.project.compose");
     expect(
       listBody.result.tools.find((tool) => tool.name === "ops.project.deploy")?.inputSchema,

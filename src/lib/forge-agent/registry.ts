@@ -97,6 +97,28 @@ function opsTools(): ForgeAgentTool[] {
       {},
     ),
     opsTool(
+      "ops.projects.create",
+      "Create a seeded Forge git repository and project, or one-shot import GitHub. Requires a global or fmu.* token (not fos.*). Clone with that same bearer; the response does not include fgc clone tokens.",
+      "POST",
+      "/api/ops/projects",
+      ["projects", "git"],
+      {
+        actionDescription: ACTION_DESCRIPTION,
+        mode: {
+          type: "string",
+          description: "create (default), import, or local (seeded alias of create)",
+        },
+        name: { type: "string", description: "Required for create/local" },
+        slug: { type: "string", description: "Optional git slug" },
+        branch: { type: "string", description: "Default branch (default main)" },
+        githubRepo: {
+          type: "string",
+          description: "owner/repo required for mode=import",
+        },
+      },
+      ["actionDescription"],
+    ),
+    opsTool(
       "ops.project.get",
       "Project detail: deployments, containers, agents, deploy update",
       "GET",
@@ -395,7 +417,7 @@ function dashboardTools(): ForgeAgentTool[] {
   return [
     dashboardTool(
       "dashboard.projects.create",
-      "Create a project from the dashboard.",
+      "Create a project from the dashboard. Prefer ops.projects.create with an Ops bearer.",
       "POST",
       "/api/projects",
       ["projects"],
