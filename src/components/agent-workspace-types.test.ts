@@ -205,5 +205,7 @@ describe("useAgentWorkspace return object", () => {
     ]);
     const dups = keys.filter((key, index) => keys.indexOf(key) !== index);
     expect(dups).toEqual([]);
+    // Declaration + single return shorthand. The failed image at f5b0ca4 had three.
+    expect([...src.matchAll(/\bsortedAgentBranches\b/g)]).toHaveLength(2);
   });
 });
