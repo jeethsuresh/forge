@@ -55,6 +55,23 @@ describe("deriveRuntimeStatus", () => {
     ).toBe("running");
   });
 
+  it("returns running when docker reports Up status with an odd state", () => {
+    expect(
+      deriveRuntimeStatus(
+        [
+          {
+            name: "svc",
+            service: "app",
+            state: "unknown",
+            status: "Up 41 hours",
+            ports: "",
+          },
+        ],
+        baseOptions,
+      ),
+    ).toBe("running");
+  });
+
   it("returns partial when some containers are running", () => {
     expect(
       deriveRuntimeStatus(

@@ -38,6 +38,7 @@ import {
 import type { Forgefile } from "@/lib/forgefile-types";
 import { resolveClonePath } from "@/lib/paths";
 import { observeDeployTargetPorts } from "@/lib/service-observe";
+import { captureProjectComposeLogs } from "@/lib/container-logs";
 import { syncDeployTargetCaddyRoutes } from "@/lib/service-caddy";
 import {
   buildProjectScriptEnv,
@@ -380,6 +381,20 @@ async function executeDeployment(
   const scriptArgs = projectScriptArgs(composeSlug, scriptEnv);
   let registryCleanup: (() => void) | null = null;
 
+  const captureLogs = async (slug = composeSlug) => {
+    try {
+      await captureProjectComposeLogs({
+        projectId,
+        repoPath: resolveClonePath(project.clonePath),
+        composeSlug: slug,
+        deploymentId,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log(`WARN: container log capture failed: ${message}`);
+    }
+  };
+
   try {
     const registryAuth = await prepareRegistryDockerConfig(scriptEnv);
     registryCleanup = registryAuth.cleanup;
@@ -533,6 +548,7 @@ async function executeDeployment(
           deploymentId,
           commitSha,
         });
+        await captureLogs(observeSlug);
         await syncDeployTargetCaddyRoutes(projectId, deployTargetName);
         return;
       }
@@ -554,6 +570,7 @@ async function executeDeployment(
           errorMessage: reason,
           completedAt: new Date(),
         });
+        await captureLogs(target.composeSlug?.trim() || composeSlug);
         return;
       }
 
@@ -564,6 +581,8 @@ async function executeDeployment(
         errorMessage: reason,
         completedAt: new Date(),
       });
+
+      await captureLogs(target.composeSlug?.trim() || composeSlug);
 
       const failedRow = db
         .select({ logs: deployments.logs })
@@ -601,6 +620,7 @@ async function executeDeployment(
       deploymentId,
       commitSha,
     });
+    await captureLogs(observeSlug);
     await syncDeployTargetCaddyRoutes(projectId, deployTargetName);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -609,6 +629,8 @@ async function executeDeployment(
       errorMessage: message,
       completedAt: new Date(),
     });
+
+    await captureLogs();
 
     const failedRow = db
       .select({ logs: deployments.logs })

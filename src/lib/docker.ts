@@ -96,6 +96,7 @@ function formatPorts(record: ComposePsRecord): string {
   }
 
   const ports = record.Ports;
+  if (typeof ports === "string") return ports;
   if (!Array.isArray(ports)) return "";
 
   return ports

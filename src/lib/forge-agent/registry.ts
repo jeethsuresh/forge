@@ -159,6 +159,20 @@ function opsTools(): ForgeAgentTool[] {
       { projectId: { type: "string" } },
     ),
     opsTool(
+      "ops.project.container_logs.get",
+      "Latest docker logs for a compose container, including failed-start inspect errors",
+      "GET",
+      "/api/ops/projects/{projectId}/containers/{containerName}/logs",
+      ["containers", "logs"],
+      {
+        projectId: PROJECT_ID,
+        containerName: { type: "string", description: "Docker compose container name" },
+        tail: { type: "number", description: "Max lines to return (1–2000)" },
+        refresh: { type: "boolean", description: "Pull live docker logs before returning" },
+      },
+      ["projectId", "containerName"],
+    ),
+    opsTool(
       "ops.project.artifacts.list",
       "List Forgefile artifact declarations and recent builds",
       "GET",
@@ -432,6 +446,18 @@ function dashboardTools(): ForgeAgentTool[] {
       ["id"],
     ),
     dashboardTool(
+      "dashboard.project.container_logs",
+      "Dashboard compose container logs.",
+      "GET",
+      "/api/projects/{id}/containers/{containerName}/logs",
+      ["containers", "logs"],
+      {
+        id: PROJECT_ID,
+        containerName: { type: "string" },
+      },
+      ["id", "containerName"],
+    ),
+    dashboardTool(
       "dashboard.project.deploy",
       "Dashboard deploy (use ops.project.deploy instead).",
       "POST",
@@ -681,6 +707,16 @@ export function listForgeAgentResources(): ForgeAgentResource[] {
       "ops",
       true,
       "ops.services.list",
+    ),
+    resource(
+      "ops.container_logs",
+      "forge://ops/projects/{projectId}/containers/{containerName}/logs",
+      "Compose container logs",
+      ["containers", "logs"],
+      "ops",
+      "ops",
+      true,
+      "ops.project.container_logs.get",
     ),
     resource(
       "ops.actions",

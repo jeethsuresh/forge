@@ -195,6 +195,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_service_directory_project_target_port
 CREATE INDEX IF NOT EXISTS idx_service_directory_project_id
   ON service_directory(project_id);
 
+CREATE TABLE IF NOT EXISTS container_logs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  compose_slug TEXT NOT NULL,
+  container_name TEXT NOT NULL,
+  service TEXT NOT NULL,
+  state TEXT NOT NULL,
+  status TEXT NOT NULL,
+  logs TEXT NOT NULL DEFAULT '',
+  inspect_error TEXT,
+  deployment_id TEXT,
+  captured_at INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_container_logs_project_name
+  ON container_logs(project_id, container_name);
+CREATE INDEX IF NOT EXISTS idx_container_logs_project_id
+  ON container_logs(project_id);
+
 CREATE TABLE IF NOT EXISTS artifacts (
   id TEXT PRIMARY KEY,
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,

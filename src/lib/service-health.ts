@@ -9,6 +9,7 @@ import {
   listServiceDirectory,
   setServiceHealth,
 } from "@/lib/service-directory";
+import { refreshAllServiceDirectoryRuntime } from "@/lib/service-observe";
 
 const DEFAULT_HEALTH_INTERVAL_SECONDS = 30;
 const DEFAULT_HEALTH_PATH = "/";
@@ -146,7 +147,7 @@ export async function probeServiceHealth(
       projectId: row.projectId,
       deployTarget: row.deployTarget,
       portName: row.portName,
-      status: "down",
+      status: row.status === "up" ? "up" : "down",
       lastLatencyMs: latency,
       lastError: `HTTP ${res.status}`,
     });
@@ -156,7 +157,7 @@ export async function probeServiceHealth(
       projectId: row.projectId,
       deployTarget: row.deployTarget,
       portName: row.portName,
-      status: "down",
+      status: row.status === "up" ? "up" : "down",
       lastLatencyMs: Date.now() - started,
       lastError: message,
     });
@@ -164,6 +165,12 @@ export async function probeServiceHealth(
 }
 
 export async function runServiceHealthTick(): Promise<void> {
+  try {
+    await refreshAllServiceDirectoryRuntime();
+  } catch (err) {
+    console.error("[forge] Service runtime refresh failed:", err);
+  }
+
   const nowMs = Date.now();
   const rows = listServiceDirectory().filter(
     (row) => shouldProbeRow(row) && isDue(row, nowMs),

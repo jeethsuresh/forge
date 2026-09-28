@@ -136,7 +136,7 @@ describe("observeDeployTargetPorts", () => {
     }
   });
 
-  it("marks unpublished declared ports down while others stay up", async () => {
+  it("keeps unpublished declared ports up while the container is running", async () => {
     mockedStatus.mockResolvedValue([
       {
         name: "web-1",
@@ -160,6 +160,33 @@ describe("observeDeployTargetPorts", () => {
     ).toMatchObject({ status: "up", boundPort: 8080 });
     expect(
       listServiceDirectory({ projectId }).find((r) => r.portName === "metrics"),
-    ).toMatchObject({ status: "down", boundPort: null });
+    ).toMatchObject({ status: "up", boundPort: 9091 });
+  });
+
+  it("marks services up when a container is running even if Ports is empty", async () => {
+    mockedStatus.mockResolvedValue([
+      {
+        name: "web-1",
+        service: "app",
+        state: "running",
+        status: "Up 41 hours",
+        ports: "",
+      },
+    ]);
+
+    await observeDeployTargetPorts({
+      projectId,
+      deployTarget: "web",
+      composeSlug: "observe-web",
+      deploymentId: "dep-4",
+      commitSha: "jkl000",
+    });
+
+    for (const row of listServiceDirectory({ projectId })) {
+      expect(row).toMatchObject({
+        status: "up",
+        boundPort: row.port,
+      });
+    }
   });
 });

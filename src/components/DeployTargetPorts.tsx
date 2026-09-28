@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { ServiceDirectoryApiRow } from "@/lib/service-directory-types";
 import { formatRelativeTime } from "@/lib/utils";
 import { Badge, SectionLabel } from "@/components/ui";
+import { serviceDirectoryStatusLabel } from "@/lib/container-runtime";
 
 type ServicesResponse = {
   services: ServiceDirectoryApiRow[];
@@ -142,7 +143,7 @@ export function DeployTargetPorts({
                   </td>
                   <td className="px-4 py-2.5">
                     <Badge tone={serviceStatusTone(row.status)} className="normal-case">
-                      {row.status}
+                      {serviceDirectoryStatusLabel(row.status)}
                     </Badge>
                   </td>
                   <td className="px-4 py-2.5">

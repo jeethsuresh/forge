@@ -109,6 +109,12 @@ export function forgeOpsApiCatalog(baseUrl: string) {
       },
       {
         method: "GET",
+        path: "/api/ops/projects/{projectId}/containers/{containerName}/logs",
+        description:
+          "Latest stored docker logs for a compose container (includes failed-start inspect errors). Query: ?tail=200&refresh=1",
+      },
+      {
+        method: "GET",
         path: "/api/ops/projects/{projectId}/artifacts",
         description:
           "List Forgefile artifact declarations and recent builds for a project",
@@ -317,6 +323,13 @@ curl -sS -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
 curl -sS -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
   -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
   "${baseUrl}/api/ops/services?projectId=${projectId}"
+\`\`\`
+
+**Read compose container logs**
+\`\`\`bash
+curl -sS -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  "${baseUrl}/api/ops/projects/${projectId}/containers/{containerName}/logs?tail=200&refresh=1"
 \`\`\`
 
 **List artifacts**

@@ -238,6 +238,31 @@ export const serviceDirectory = sqliteTable(
   ],
 );
 
+export const containerLogs = sqliteTable(
+  "container_logs",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    composeSlug: text("compose_slug").notNull(),
+    containerName: text("container_name").notNull(),
+    service: text("service").notNull(),
+    state: text("state").notNull(),
+    status: text("status").notNull(),
+    logs: text("logs").notNull().default(""),
+    inspectError: text("inspect_error"),
+    deploymentId: text("deployment_id"),
+    capturedAt: integer("captured_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_container_logs_project_name").on(
+      table.projectId,
+      table.containerName,
+    ),
+  ],
+);
+
 export const deployments = sqliteTable("deployments", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
@@ -431,6 +456,7 @@ export type DeployTarget = typeof deployTargets.$inferSelect;
 export type Artifact = typeof artifacts.$inferSelect;
 export type ArtifactBuild = typeof artifactBuilds.$inferSelect;
 export type ServiceDirectoryRow = typeof serviceDirectory.$inferSelect;
+export type ContainerLogRow = typeof containerLogs.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
 export type AgentSession = typeof agentSessions.$inferSelect;
 export type AgentEvent = typeof agentEvents.$inferSelect;

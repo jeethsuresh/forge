@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { deployTargets, projects, serviceDirectory } from "@/lib/db/schema";
 import {
   listServiceDirectory,
+  markServiceObserved,
   setServiceRouteStatus,
   upsertDeclaredService,
 } from "@/lib/service-directory";
@@ -13,6 +14,10 @@ import {
   resolveServiceProbeTarget,
   runServiceHealthTick,
 } from "@/lib/service-health";
+
+vi.mock("@/lib/docker", () => ({
+  getComposeContainerStatus: vi.fn().mockResolvedValue([]),
+}));
 
 describe("resolveServiceProbeTarget", () => {
   it("prefers public URL when present", () => {
@@ -144,6 +149,28 @@ describe("service health probes", () => {
     expect(listServiceDirectory({ projectId })[0]).toMatchObject({
       status: "down",
       lastError: expect.stringMatching(/ECONNREFUSED/),
+    });
+  });
+
+  it("does not mark a running service down when the HTTP probe fails", async () => {
+    markServiceObserved({
+      projectId,
+      deployTarget: "web",
+      portName: "http",
+      boundPort: 8080,
+      deploymentId: "dep-1",
+      commitSha: "abc",
+      status: "up",
+    });
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+    }) as unknown as typeof fetch;
+
+    await probeServiceHealth(listServiceDirectory({ projectId })[0]!);
+    expect(listServiceDirectory({ projectId })[0]).toMatchObject({
+      status: "up",
+      lastError: expect.stringMatching(/503/),
     });
   });
 
