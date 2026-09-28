@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   deriveAgentWorkspaceUi,
@@ -184,5 +186,24 @@ describe("isAgentCommitDeployed", () => {
       false,
     );
     expect(isAgentCommitDeployed({ commitSha: null }, "abc1234")).toBe(false);
+  });
+});
+
+describe("useAgentWorkspace return object", () => {
+  it("does not list sortedAgentBranches twice (next build typecheck)", () => {
+    const src = readFileSync(
+      join(process.cwd(), "src/components/useAgentWorkspace.ts"),
+      "utf8",
+    );
+    const block = src.match(/\n  return \{([\s\S]*)\n  \};\n\}\s*$/);
+    expect(block).not.toBeNull();
+    const keys = [...block![1].matchAll(/^\s{4}([A-Za-z_][A-Za-z0-9_]*),$/gm)].map(
+      (m) => m[1],
+    );
+    expect(keys.filter((k) => k === "sortedAgentBranches")).toEqual([
+      "sortedAgentBranches",
+    ]);
+    const dups = keys.filter((key, index) => keys.indexOf(key) !== index);
+    expect(dups).toEqual([]);
   });
 });
