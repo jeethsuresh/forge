@@ -1,6 +1,10 @@
 "use client";
 
 import { sessionForBranch, useAgentWorkspace } from "@/components/useAgentWorkspace";
+import {
+  isAgentCommitDeployed,
+  type AgentSidebarSort,
+} from "@/components/agent-workspace-types";
 import Link from "next/link";
 import { formatRelativeTime, shortSha, statusColor } from "@/lib/utils";
 import { AgentMessageList } from "@/components/AgentMessageList";
@@ -77,6 +81,10 @@ export function AgentWorkspace({
     setShowRecreateForm,
     recreatePrompt,
     setRecreatePrompt,
+    agentSort,
+    setAgentSort,
+    sortedAgentBranches,
+    deployedCommitSha,
     hasActiveRuntime,
     selectBranch,
     selectedSessionMeta,
@@ -102,6 +110,7 @@ export function AgentWorkspace({
     showRestartButton,
     agentBranches,
     idleBranches,
+    completedAgentCount,
     statusBanner,
     startOrContinueSession,
     createNewBranchAndAgent,
@@ -116,6 +125,7 @@ export function AgentWorkspace({
     stopAgent,
     archiveSession,
     removeAgent,
+    cleanupCompletedAgents,
     restartStuckAgent,
     recreateAgent,
     clearLogs,
@@ -170,6 +180,25 @@ export function AgentWorkspace({
             + New
           </button>
         </div>
+        <label className="mt-3 block">
+          <span className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--forge-faint)]">
+            Sort
+          </span>
+          <select
+            data-testid="agent-sidebar-sort"
+            aria-label="Sort agents"
+            value={agentSort}
+            disabled={loading}
+            onChange={(e) => {
+              setAgentSort(e.target.value as AgentSidebarSort);
+            }}
+            className="min-h-9 w-full rounded-lg border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.35)] px-2.5 text-sm text-[var(--forge-bright)]"
+          >
+            <option value="recent">Most recently used</option>
+            <option value="branch">Branch name</option>
+            <option value="status">Run status</option>
+          </select>
+        </label>
       </div>
 
       {idleBranches.length > 0 && (
@@ -204,7 +233,7 @@ export function AgentWorkspace({
       )}
 
       <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        {agentBranches.map((b) => {
+        {sortedAgentBranches.map((b) => {
           const session = sessionForBranch(sessions, b.name);
           const isSelected =
             selectedBranch === b.name && !sessionDetail?.archivedAt;
@@ -266,6 +295,14 @@ export function AgentWorkspace({
                       {b.sessionStatus}
                     </span>
                   )}
+                  {isAgentCommitDeployed(session, deployedCommitSha) && (
+                    <span
+                      data-testid="agent-deployed-badge"
+                      className="rounded border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-emerald-200"
+                    >
+                      deployed
+                    </span>
+                  )}
                 </div>
               </button>
               {session ? (
@@ -308,6 +345,23 @@ export function AgentWorkspace({
           </li>
         ) : null}
       </ul>
+
+      <div className="shrink-0 border-t border-[var(--forge-line)] px-4 py-2">
+        <button
+          type="button"
+          data-testid="agent-sidebar-cleanup"
+          disabled={loading || completedAgentCount === 0}
+          onClick={() => void cleanupCompletedAgents()}
+          className="min-h-9 w-full rounded-lg border border-[var(--forge-line-strong)] px-2.5 text-xs font-medium text-[var(--forge-muted)] hover:bg-[rgba(255,255,255,0.04)] disabled:opacity-50"
+          title={
+            completedAgentCount === 0
+              ? "No completed agents to clean up"
+              : "Archive completed agents and delete their branches"
+          }
+        >
+          Cleanup completed
+        </button>
+      </div>
 
       <div className="shrink-0 border-t border-[var(--forge-line)]">
         <button

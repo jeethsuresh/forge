@@ -18,6 +18,7 @@ export interface AgentSession {
   commitSha: string | null;
   startedAt: string;
   completedAt: string | null;
+  lastUsedAt?: string | null;
   archivedAt?: string | null;
   hasActiveRuntime?: boolean;
   hasActiveProcess?: boolean;
@@ -64,6 +65,7 @@ export interface AgentSessionsResponse {
   branches: BranchAgentInfo[];
   activeSession: AgentSession | null;
   hasActiveSession: boolean;
+  deployedCommitSha?: string | null;
 }
 
 export interface SessionDetailResponse {
@@ -84,6 +86,87 @@ export function sessionForBranch(
   branch: string,
 ): AgentSession | undefined {
   return sessions.find((s) => s.branch === branch);
+}
+
+export const AGENT_SIDEBAR_SORTS = ["recent", "branch", "status"] as const;
+export type AgentSidebarSort = (typeof AGENT_SIDEBAR_SORTS)[number];
+
+export function parseAgentSidebarSort(
+  raw: string | null | undefined,
+): AgentSidebarSort {
+  if (raw === "branch" || raw === "status" || raw === "recent") return raw;
+  return "recent";
+}
+
+export function agentRunStatusSortRank(
+  status: string | null | undefined,
+): number {
+  switch (status) {
+    case "running":
+    case "pending":
+    case "deploying":
+    case "queued":
+      return 0;
+    case "failed":
+      return 1;
+    case "completed":
+      return 2;
+    default:
+      return 3;
+  }
+}
+
+export function sessionLastUsedMs(session: AgentSession | undefined): number {
+  if (!session) return 0;
+  const raw = session.lastUsedAt ?? session.completedAt ?? session.startedAt;
+  const ms = Date.parse(String(raw));
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+export function isAgentCommitDeployed(
+  session: { commitSha?: string | null } | undefined,
+  deployedCommitSha: string | null | undefined,
+): boolean {
+  const a = session?.commitSha?.trim().toLowerCase() ?? "";
+  const b = deployedCommitSha?.trim().toLowerCase() ?? "";
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const n = Math.min(a.length, b.length);
+  if (n < 7) return false;
+  return a.startsWith(b) || b.startsWith(a);
+}
+
+function effectiveAgentStatus(
+  branch: BranchAgentInfo,
+  session: AgentSession | undefined,
+): string | null {
+  if (session?.hasActiveRuntime || session?.hasActiveProcess) return "running";
+  return branch.sessionStatus ?? session?.status ?? null;
+}
+
+export function sortAgentBranches(
+  branches: BranchAgentInfo[],
+  sessions: AgentSession[],
+  sort: AgentSidebarSort,
+): BranchAgentInfo[] {
+  const byName = new Map(sessions.map((row) => [row.branch, row]));
+  return [...branches].sort((left, right) => {
+    const leftSession = byName.get(left.name);
+    const rightSession = byName.get(right.name);
+    if (sort === "branch") {
+      return left.name.localeCompare(right.name);
+    }
+    if (sort === "status") {
+      const rankDelta =
+        agentRunStatusSortRank(effectiveAgentStatus(left, leftSession)) -
+        agentRunStatusSortRank(effectiveAgentStatus(right, rightSession));
+      if (rankDelta !== 0) return rankDelta;
+    }
+    const usedDelta =
+      sessionLastUsedMs(rightSession) - sessionLastUsedMs(leftSession);
+    if (usedDelta !== 0) return usedDelta;
+    return left.name.localeCompare(right.name);
+  });
 }
 
 export function deriveAgentWorkspaceUi(input: {
@@ -187,6 +270,9 @@ export function deriveAgentWorkspaceUi(input: {
   );
   const agentBranches = branches.filter((b) => b.hasAgent);
   const idleBranches = branches.filter((b) => !b.hasAgent);
+  const completedAgentCount = sessions.filter(
+    (row) => row.status === "completed",
+  ).length;
 
   return {
     selectedBranchInfo,
@@ -215,5 +301,6 @@ export function deriveAgentWorkspaceUi(input: {
     showRestartButton,
     agentBranches,
     idleBranches,
+    completedAgentCount,
   };
 }

@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { deployments, projects } from "@/lib/db/schema";
 import {
   computeProjectDeployUpdate,
+  deployedCommitShaForProject,
   deployedCommitShaForProjectBranch,
   getSuccessfulDeployCommitForBranch,
 } from "@/lib/project-deploy-update";
@@ -181,5 +182,16 @@ describe("deployedCommitShaForProjectBranch", () => {
         updatedAt: "2026-01-01T00:00:00.000Z",
       }),
     ).toBe("envsha777");
+  });
+});
+
+describe("deployedCommitShaForProject", () => {
+  it("prefers lastSeenCommit over the latest successful deploy row", () => {
+    const project = {
+      id: randomUUID(),
+      branch: "main",
+      lastSeenCommit: "livebeef",
+    } as typeof projects.$inferSelect;
+    expect(deployedCommitShaForProject(project)).toBe("livebeef");
   });
 });

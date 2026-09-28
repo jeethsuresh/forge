@@ -54,6 +54,12 @@ export function deployedCommitShaForProjectBranch(
   return getSuccessfulDeployCommitForBranch(project.id, branch);
 }
 
+export function deployedCommitShaForProject(project: Project): string | null {
+  const seen = project.lastSeenCommit?.trim() || null;
+  if (seen) return seen;
+  return getSuccessfulDeployCommitForBranch(project.id, project.branch);
+}
+
 export function computeProjectDeployUpdate(input: {
   branch: string;
   watchBranch: string;

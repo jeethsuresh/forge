@@ -13,10 +13,13 @@ import { resolveAgentSessionBanner } from "@/lib/agent-turn";
 import { isInactiveAgentSessionStatus } from "@/lib/agent-session-source";
 import {
   deriveAgentWorkspaceUi,
+  parseAgentSidebarSort,
   sessionForBranch,
+  sortAgentBranches,
   toStatusBanner,
   type AgentSession,
   type AgentSessionsResponse,
+  type AgentSidebarSort,
   type BranchAgentInfo,
   type SessionDetailResponse,
   type StatusBanner,
@@ -81,6 +84,23 @@ export function useAgentWorkspace({
   });
   const [showRecreateForm, setShowRecreateForm] = useState(false);
   const [recreatePrompt, setRecreatePrompt] = useState("");
+  const sortStorageKey = `forge:agents-sort:${projectId}`;
+  const [agentSort, setAgentSortState] = useState<AgentSidebarSort>(() => {
+    if (typeof window === "undefined") return "recent";
+    try {
+      return parseAgentSidebarSort(window.localStorage.getItem(sortStorageKey));
+    } catch {
+      return "recent";
+    }
+  });
+  function setAgentSort(next: AgentSidebarSort) {
+    setAgentSortState(next);
+    try {
+      window.localStorage.setItem(sortStorageKey, next);
+    } catch {
+      // ignore
+    }
+  }
 
   const fetchSessions = useCallback(async () => {
     const res = await fetch(`/api/projects/${projectId}/agent-sessions`);
@@ -831,6 +851,43 @@ export function useAgentWorkspace({
     }
   }
 
+  async function cleanupCompletedAgents() {
+    const count = sessions.filter((row) => row.status === "completed").length;
+    if (count === 0) return;
+    if (
+      !confirm(
+        `Remove ${count} completed agent${count === 1 ? "" : "s"} and delete their branches?\n\nThe watch/deploy branch is kept. Running and failed agents stay. This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/agent-sessions/cleanup-completed`,
+        { method: "POST" },
+      );
+      const json = (await res.json()) as {
+        error?: string;
+        deletedBranches?: string[];
+        skipped?: Array<{ branch: string; reason: string }>;
+      };
+      if (!res.ok) {
+        alert(json.error ?? "Failed to clean up completed agents");
+        return;
+      }
+      if (selectedId && sessions.some((row) => row.id === selectedId && row.status === "completed")) {
+        setSelectedId(null);
+        setSessionDetail(null);
+        setMessages([]);
+        setLoadedSessionTerminal(true);
+      }
+      await fetchSessions();
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function recreateAgent(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedBranch || !recreatePrompt.trim()) return;
@@ -949,6 +1006,7 @@ export function useAgentWorkspace({
     showRestartButton,
     agentBranches,
     idleBranches,
+    completedAgentCount,
   } = deriveAgentWorkspaceUi({
     branches,
     sessions,
@@ -958,6 +1016,12 @@ export function useAgentWorkspace({
     hasActiveRuntime,
     showRecreateForm,
   });
+
+  const sortedAgentBranches = useMemo(
+    () => sortAgentBranches(agentBranches, sessions, agentSort),
+    [agentBranches, sessions, agentSort],
+  );
+  const deployedCommitSha = data?.deployedCommitSha ?? null;
 
   const statusBanner = useMemo((): StatusBanner => {
     if (!sessionDetail) return null;
@@ -1023,6 +1087,10 @@ export function useAgentWorkspace({
     setShowRecreateForm,
     recreatePrompt,
     setRecreatePrompt,
+    agentSort,
+    setAgentSort,
+    sortedAgentBranches,
+    deployedCommitSha,
     fetchSessions,
     fetchSessionDetail,
     hasActiveRuntime,
@@ -1051,7 +1119,9 @@ export function useAgentWorkspace({
     showArchiveButton,
     showRestartButton,
     agentBranches,
+    sortedAgentBranches,
     idleBranches,
+    completedAgentCount,
     statusBanner,
     openBranch,
     selectBranch,
@@ -1068,6 +1138,7 @@ export function useAgentWorkspace({
     stopAgent,
     archiveSession,
     removeAgent,
+    cleanupCompletedAgents,
     restartStuckAgent,
     recreateAgent,
     clearLogs,

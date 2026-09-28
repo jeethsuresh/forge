@@ -13,6 +13,10 @@ test.describe("agents mode", () => {
       page.getByText("Queue agents on different branches"),
     ).toBeVisible();
     await expect(page.getByRole("button", { name: "+ New" })).toBeVisible();
+    await expect(page.getByLabel("Sort agents")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Cleanup completed" }),
+    ).toBeVisible();
   });
 
   test("new-branch form is available and can be dismissed", async ({ page }) => {

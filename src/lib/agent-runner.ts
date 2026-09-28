@@ -389,7 +389,24 @@ export type AgentSessionForClient = NonNullable<ReturnType<typeof getAgentSessio
   containerId: string | null;
   killReason: string | null;
   compactingLearnings: boolean;
+  lastUsedAt: string;
 };
+
+function latestIso(
+  ...values: Array<Date | string | null | undefined>
+): string | null {
+  let bestMs = Number.NEGATIVE_INFINITY;
+  let bestIso: string | null = null;
+  for (const value of values) {
+    if (value == null || value === "") continue;
+    const ms =
+      value instanceof Date ? value.getTime() : Date.parse(String(value));
+    if (!Number.isFinite(ms) || ms < bestMs) continue;
+    bestMs = ms;
+    bestIso = new Date(ms).toISOString();
+  }
+  return bestIso;
+}
 
 function withClientFields(session: NonNullable<ReturnType<typeof getAgentSession>>): AgentSessionForClient {
   const events = getAllAgentEventsAfter(session.id, 0);
@@ -410,6 +427,13 @@ function withClientFields(session: NonNullable<ReturnType<typeof getAgentSession
         ? container.killReason
         : null,
     compactingLearnings: compactingSessions.has(session.id),
+    lastUsedAt:
+      latestIso(
+        container?.lastActivityAt,
+        container?.lastHeartbeatAt,
+        session.completedAt,
+        session.startedAt,
+      ) ?? new Date(0).toISOString(),
   };
 }
 

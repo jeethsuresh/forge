@@ -6,6 +6,7 @@ import {
   listAgentSessionsForClient,
   drainQueuedAgentSessions,
 } from "@/lib/agent-runner";
+import { deployedCommitShaForProject } from "@/lib/project-deploy-update";
 import { getActiveSessionForProject, isAgentSessionActive } from "@/lib/agent-state";
 import {
   reconcileAbandonedDeployingSessions,
@@ -48,6 +49,7 @@ export async function GET(
     branches,
     activeSession: activeSession ?? null,
     hasActiveSession: isAgentSessionActive(id),
+    deployedCommitSha: deployedCommitShaForProject(project),
   });
 }
 

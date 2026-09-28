@@ -83,6 +83,8 @@ describe("reconcileStuckAgentSession", () => {
     expect(session?.status).toBe("running");
     expect(session?.errorMessage).toBeNull();
     expect(session?.errorMessage ?? "").not.toMatch(/ended unexpectedly/i);
+    expect(session?.lastUsedAt).toBeTruthy();
+    expect(Math.abs(Date.parse(session!.lastUsedAt) - now.getTime())).toBeLessThan(2000);
   });
 
   it("does not fail an incomplete turn after the per-turn container is removed", () => {

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   deriveAgentWorkspaceUi,
+  isAgentCommitDeployed,
+  parseAgentSidebarSort,
+  sortAgentBranches,
   type AgentSession,
   type BranchAgentInfo,
 } from "@/components/agent-workspace-types";
@@ -75,5 +78,111 @@ describe("deriveAgentWorkspaceUi", () => {
       showRecreateForm: false,
     });
     expect(ui.showRestartButton).toBe(false);
+  });
+
+  it("counts live completed agents for cleanup", () => {
+    const ui = deriveAgentWorkspaceUi({
+      branches: [
+        branch("agent/done", {
+          hasAgent: true,
+          sessionId: "s-done",
+          sessionStatus: "completed",
+        }),
+        branch("agent/live", {
+          hasAgent: true,
+          sessionId: "s-live",
+          sessionStatus: "running",
+        }),
+      ],
+      sessions: [
+        session({ id: "s-done", branch: "agent/done", status: "completed" }),
+        session({ id: "s-live", branch: "agent/live", status: "running" }),
+      ],
+      selectedBranch: "agent/live",
+      selectedId: "s-live",
+      sessionDetail: session({ id: "s-live", branch: "agent/live", status: "running" }),
+      hasActiveRuntime: true,
+      showRecreateForm: false,
+    });
+    expect(ui.completedAgentCount).toBe(1);
+  });
+});
+
+describe("parseAgentSidebarSort", () => {
+  it("defaults unknown values to most recently used", () => {
+    expect(parseAgentSidebarSort(null)).toBe("recent");
+    expect(parseAgentSidebarSort("nope")).toBe("recent");
+    expect(parseAgentSidebarSort("branch")).toBe("branch");
+    expect(parseAgentSidebarSort("status")).toBe("status");
+  });
+});
+
+describe("sortAgentBranches", () => {
+  const branches: BranchAgentInfo[] = [
+    branch("zeta/live", { hasAgent: true, sessionId: "s-live", sessionStatus: "running" }),
+    branch("alpha/fail", { hasAgent: true, sessionId: "s-fail", sessionStatus: "failed" }),
+    branch("mu/old", { hasAgent: true, sessionId: "s-old", sessionStatus: "completed" }),
+  ];
+  const sessions: AgentSession[] = [
+    session({
+      id: "s-old",
+      branch: "mu/old",
+      status: "completed",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      lastUsedAt: "2026-01-01T00:00:00.000Z",
+    }),
+    session({
+      id: "s-live",
+      branch: "zeta/live",
+      status: "running",
+      startedAt: "2026-01-02T00:00:00.000Z",
+      lastUsedAt: "2026-01-03T00:00:00.000Z",
+    }),
+    session({
+      id: "s-fail",
+      branch: "alpha/fail",
+      status: "failed",
+      startedAt: "2026-01-02T12:00:00.000Z",
+      lastUsedAt: "2026-01-02T12:00:00.000Z",
+    }),
+  ];
+
+  it("sorts by most recently used first", () => {
+    expect(sortAgentBranches(branches, sessions, "recent").map((b) => b.name)).toEqual([
+      "zeta/live",
+      "alpha/fail",
+      "mu/old",
+    ]);
+  });
+
+  it("sorts by branch name", () => {
+    expect(sortAgentBranches(branches, sessions, "branch").map((b) => b.name)).toEqual([
+      "alpha/fail",
+      "mu/old",
+      "zeta/live",
+    ]);
+  });
+
+  it("sorts run status as running, then failed, then completed", () => {
+    expect(sortAgentBranches(branches, sessions, "status").map((b) => b.name)).toEqual([
+      "zeta/live",
+      "alpha/fail",
+      "mu/old",
+    ]);
+  });
+});
+
+describe("isAgentCommitDeployed", () => {
+  it("matches prefix-equal commit SHAs against the live deploy", () => {
+    expect(
+      isAgentCommitDeployed(
+        { commitSha: "abc1234deadbeef" },
+        "abc1234deadbeef99",
+      ),
+    ).toBe(true);
+    expect(isAgentCommitDeployed({ commitSha: "abc1234deadbeef" }, "fff0000")).toBe(
+      false,
+    );
+    expect(isAgentCommitDeployed({ commitSha: null }, "abc1234")).toBe(false);
   });
 });
