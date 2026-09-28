@@ -1,7 +1,13 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { projects } from "@/lib/db/schema";
+import { deployTargets, projects } from "@/lib/db/schema";
 import { getComposeContainerStatus, type ContainerInfo } from "@/lib/docker";
+import {
+  isContainerRunningState,
+  parsePublishedPortBindings,
+  resolveBoundHostPort,
+} from "@/lib/container-runtime";
+import { projectComposeSlug } from "@/lib/projects";
 import {
   listServiceDirectory,
   markServiceObserved,
@@ -15,26 +21,13 @@ export type ObserveDeployTargetPortsOpts = {
   commitSha: string;
 };
 
-/** Extract host ports from compose/docker ps port strings. */
-export function parsePublishedHostPorts(portsField: string): number[] {
-  const found = new Set<number>();
-  const trimmed = portsField.trim();
-  if (!trimmed) return [];
-
-  for (const match of trimmed.matchAll(/\b(\d{2,5}):(\d{2,5})\b/g)) {
-    found.add(Number(match[1]));
-  }
-
-  for (const match of trimmed.matchAll(/\b\d{1,3}(?:\.\d{1,3}){3}:(\d{2,5})\b/g)) {
-    found.add(Number(match[1]));
-  }
-
-  return [...found];
-}
+export {
+  parsePublishedHostPorts,
+  parsePublishedPortBindings,
+} from "@/lib/container-runtime";
 
 function isContainerRunning(container: ContainerInfo): boolean {
-  const state = container.state.toLowerCase();
-  return state === "running" || state.startsWith("up");
+  return isContainerRunningState(container.state, container.status);
 }
 
 export async function observeDeployTargetPorts(
@@ -58,8 +51,9 @@ export async function observeDeployTargetPorts(
   }
 
   const running = containers.filter(isContainerRunning);
-  const published = new Set(
-    containers.flatMap((c) => parsePublishedHostPorts(c.ports)),
+  const runtimeUp = running.length > 0;
+  const bindings = containers.flatMap((c) =>
+    parsePublishedPortBindings(c.ports),
   );
 
   const rows = listServiceDirectory({ projectId: opts.projectId }).filter(
@@ -67,40 +61,57 @@ export async function observeDeployTargetPorts(
   );
 
   for (const row of rows) {
-    if (running.length === 0) {
-      markServiceObserved({
-        projectId: opts.projectId,
-        deployTarget: opts.deployTarget,
-        portName: row.portName,
-        boundPort: null,
-        deploymentId: opts.deploymentId,
-        commitSha: opts.commitSha,
-        status: "down",
-      });
-      continue;
-    }
-
-    if (published.has(row.port)) {
-      markServiceObserved({
-        projectId: opts.projectId,
-        deployTarget: opts.deployTarget,
-        portName: row.portName,
-        boundPort: row.port,
-        deploymentId: opts.deploymentId,
-        commitSha: opts.commitSha,
-        status: "up",
-      });
-      continue;
-    }
+    const matchedHost = resolveBoundHostPort(row.port, bindings);
+    const boundPort = runtimeUp ? (matchedHost ?? row.port) : null;
 
     markServiceObserved({
       projectId: opts.projectId,
       deployTarget: opts.deployTarget,
       portName: row.portName,
-      boundPort: null,
+      boundPort,
       deploymentId: opts.deploymentId,
       commitSha: opts.commitSha,
-      status: "down",
+      status: runtimeUp ? "up" : "down",
+    });
+  }
+}
+
+export async function refreshAllServiceDirectoryRuntime(): Promise<void> {
+  const rows = listServiceDirectory();
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    const key = `${row.projectId}\0${row.deployTarget}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const project = db
+      .select()
+      .from(projects)
+      .where(eq(projects.id, row.projectId))
+      .get();
+    if (!project) continue;
+
+    const target = db
+      .select()
+      .from(deployTargets)
+      .where(
+        and(
+          eq(deployTargets.projectId, row.projectId),
+          eq(deployTargets.name, row.deployTarget),
+        ),
+      )
+      .get();
+
+    const composeSlug =
+      target?.composeSlug?.trim() || projectComposeSlug(project);
+
+    await observeDeployTargetPorts({
+      projectId: row.projectId,
+      deployTarget: row.deployTarget,
+      composeSlug,
+      deploymentId: row.deploymentId ?? "",
+      commitSha: row.commitSha ?? "",
     });
   }
 }

@@ -9,6 +9,7 @@ import {
 import type { RuntimeStatus } from "@/lib/project-status";
 import { ForgefileStatusBanner } from "@/components/ForgefileStatusBanner";
 import { DeployTargetPorts } from "@/components/DeployTargetPorts";
+import { ProjectContainers } from "@/components/ProjectContainers";
 import { ProjectArtifacts } from "@/components/ProjectArtifacts";
 import { statusTone } from "@/lib/ui-status";
 import { Badge, Button } from "@/components/ui";
@@ -156,32 +157,7 @@ export function ProjectStudioOverview({
         </div>
       ) : null}
 
-      {containers.length > 0 ? (
-        <div className="forge-surface p-4">
-          <div className="forge-section-label mb-3">Containers</div>
-          <ul className="divide-y divide-[var(--forge-line)]">
-            {containers.slice(0, 8).map((c) => (
-              <li
-                key={`${c.service}-${c.name}`}
-                className="flex items-center justify-between gap-2 py-2 text-sm"
-              >
-                <span className="font-medium text-[var(--forge-bright)]">
-                  {c.service}
-                </span>
-                <span
-                  className={
-                    c.state === "running"
-                      ? "forge-status-pill forge-tone-success"
-                      : "forge-status-pill forge-tone-neutral"
-                  }
-                >
-                  {c.state}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <ProjectContainers projectId={project.id} containers={containers} />
 
       <DeployTargetPorts
         projectId={project.id}

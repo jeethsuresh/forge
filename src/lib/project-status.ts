@@ -1,4 +1,5 @@
 import type { ContainerInfo } from "@/lib/docker";
+import { isContainerRunningState } from "@/lib/container-runtime";
 
 export type RuntimeStatus =
   | "deploying"
@@ -20,7 +21,9 @@ export function deriveRuntimeStatus(
   if (!options.hasSuccessfulDeploy) return "not_deployed";
   if (!options.hasComposeFile) return "unknown";
 
-  const runningCount = containers.filter((c) => c.state === "running").length;
+  const runningCount = containers.filter((c) =>
+    isContainerRunningState(c.state, c.status),
+  ).length;
   if (runningCount === 0) return "stopped";
   if (runningCount === containers.length) return "running";
   return "partial";

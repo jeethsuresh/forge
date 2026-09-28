@@ -14,6 +14,7 @@ import {
 import { mergePolledProjectDetail } from "@/lib/project-detail-client";
 import { ForgeSelfUpdateEditor } from "@/components/ForgeSelfUpdateEditor";
 import { ActiveDeployLogsPanel } from "@/components/ActiveDeployLogsPanel";
+import { isContainerRunningState } from "@/lib/container-runtime";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import { resolveActiveDeployLogView } from "@/lib/active-deploy-logs";
 import type { ProjectCaddySettings } from "@/lib/project-routing-shared";
@@ -22,6 +23,7 @@ import { ProjectGitTreePanel } from "@/components/ProjectGitTreePanel";
 import { ProjectBranchEditor } from "@/components/ProjectBranchEditor";
 import { ForgefileStatusBanner } from "@/components/ForgefileStatusBanner";
 import { DeployTargetPorts } from "@/components/DeployTargetPorts";
+import { ProjectContainers } from "@/components/ProjectContainers";
 import { ProjectArtifacts } from "@/components/ProjectArtifacts";
 import { ProjectStudioSettings } from "@/components/ProjectStudioSettings";
 import { ProjectStudioOverview } from "@/components/ProjectStudioOverview";
@@ -739,7 +741,7 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
                   : runtimeStatus === "stopped"
                     ? "Containers are down"
                     : runtimeStatus === "partial"
-                      ? `${containers.filter((c) => c.state === "running").length}/${containers.length} services running`
+                      ? `${containers.filter((c) => isContainerRunningState(c.state, c.status)).length}/${containers.length} services running`
                       : undefined
               }
             />
@@ -768,49 +770,11 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
             </section>
           )}
 
-          {containers.length > 0 && (
-            <section className="mb-8">
-              <h2 className="mb-3 text-sm font-medium uppercase tracking-wider text-zinc-500">
-                Containers
-              </h2>
-              <div className="overflow-x-auto rounded-xl border border-zinc-800">
-                <table className="w-full min-w-[36rem] text-sm">
-                  <thead className="bg-zinc-950 text-left text-zinc-500">
-                    <tr>
-                      <th className="px-4 py-3 font-medium">Service</th>
-                      <th className="px-4 py-3 font-medium">State</th>
-                      <th className="px-4 py-3 font-medium">Status</th>
-                      <th className="px-4 py-3 font-medium">Ports</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-800 bg-zinc-900">
-                    {containers.map((c) => (
-                      <tr key={`${c.service}-${c.name}`}>
-                        <td className="px-4 py-3 font-medium text-zinc-200">
-                          {c.service}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={`inline-flex rounded border px-2 py-0.5 text-xs capitalize ${
-                              c.state === "running"
-                                ? "text-emerald-400 bg-emerald-400/10 border-emerald-400/20"
-                                : "text-zinc-400 bg-zinc-400/10 border-zinc-400/20"
-                            }`}
-                          >
-                            {c.state}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-zinc-400">{c.status}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-zinc-500">
-                          {c.ports || "—"}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
+          <ProjectContainers
+            className="mb-8"
+            projectId={project.id}
+            containers={containers}
+          />
 
           <div className="mb-4">
             <button
