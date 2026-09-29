@@ -14,6 +14,13 @@ export interface LiveBranchInfo {
   containerStatus: BranchWorkspaceStatus | null;
 }
 
+/** Branches with an active agent session (excludes checkout-only containers). */
+export function filterLiveBranchesWithAgents<
+  T extends { sessionId: string | null },
+>(branches: T[]): T[] {
+  return branches.filter((b) => b.sessionId != null);
+}
+
 export function listLiveBranches(projectId: string): LiveBranchInfo[] {
   const sessions = listActiveSessionsForProject(projectId);
   const workspaces = db

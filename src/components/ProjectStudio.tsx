@@ -15,6 +15,7 @@ import { mergePolledProjectDetail } from "@/lib/project-detail-client";
 import { ForgeSelfUpdateEditor } from "@/components/ForgeSelfUpdateEditor";
 import { ActiveDeployLogsPanel } from "@/components/ActiveDeployLogsPanel";
 import { isContainerRunningState } from "@/lib/container-runtime";
+import { filterLiveBranchesWithAgents } from "@/lib/agent-live-branches";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import { resolveActiveDeployLogView } from "@/lib/active-deploy-logs";
 import type { ProjectCaddySettings } from "@/lib/project-routing-shared";
@@ -422,6 +423,7 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
   const isForge = project.isForge === true;
   const forgeUpdateBusy = !!forgeStatus?.activeUpdate;
   const deployBusy = isForge ? forgeUpdateBusy : isDeploying;
+  const liveAgentBranches = filterLiveBranchesWithAgents(liveBranches);
 
   const forgeHistoryDeployments: Deployment[] =
     isForge && forgeStatus
@@ -571,13 +573,13 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
               />
             </div>
           ) : null}
-          {liveBranches.length > 0 && (
+          {liveAgentBranches.length > 0 && (
             <div className="forge-attention-row mb-6 justify-between">
               <div className="min-w-0 space-y-1">
                 <p className="text-sm text-[var(--forge-bright)]">
                   Agents are running on{" "}
                   <span className="font-mono">
-                    {liveBranches.map((b) => b.name).join(", ")}
+                    {liveAgentBranches.map((b) => b.name).join(", ")}
                   </span>
                   . Deploy is not blocked.
                 </p>
@@ -586,7 +588,7 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
                 size="sm"
                 variant="secondary"
                 onClick={() => {
-                  const first = liveBranches.find((b) => b.sessionId);
+                  const first = liveAgentBranches[0];
                   if (first?.sessionId) openAgentSession(first.sessionId);
                 }}
               >
