@@ -257,6 +257,9 @@ export function updateSessionStatus(
     case "idle":
       patchIdleNotSupported(sessionId, extra);
       return;
+    case "sleeping":
+      transition(sessionId, { type: "sleep" }, extra);
+      return;
     default: {
       const _exhaustive: never = status;
       return _exhaustive;

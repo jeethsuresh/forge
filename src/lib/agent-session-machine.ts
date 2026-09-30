@@ -28,6 +28,7 @@ export type SessionEvent =
   | { type: "operator_stop"; reason: OperatorStopReason }
   | { type: "kill"; reason: AgentKillReason }
   | { type: "fail"; errorMessage: string }
+  | { type: "sleep" }
   | { type: "archive" };
 
 export type SessionPatch = {
@@ -69,6 +70,8 @@ function nextStatus(event: SessionEvent): AgentSessionStatus {
       return "failed";
     case "fail":
       return "failed";
+    case "sleep":
+      return "sleeping";
     case "archive":
       return "failed";
     default: {
@@ -102,6 +105,8 @@ function extrasForEvent(event: SessionEvent): SessionPatch {
       };
     case "fail":
       return { completedAt: now, errorMessage: event.errorMessage };
+    case "sleep":
+      return { completedAt: null };
     case "archive":
       return { archivedAt: now, completedAt: now };
     case "queue":
@@ -174,5 +179,6 @@ export function shouldFailStoppedContainer(input: {
   if (input.sessionStatus === "deploying") return false;
   if (input.sessionStatus === "running") return false;
   if (input.sessionStatus === "pending") return false;
+  if (input.sessionStatus === "sleeping") return false;
   return false;
 }

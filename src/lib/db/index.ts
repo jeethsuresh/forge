@@ -313,6 +313,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_branch_workspaces_project_branch
   ON branch_workspaces(project_id, branch);
 CREATE INDEX IF NOT EXISTS idx_branch_workspaces_project_id
   ON branch_workspaces(project_id);
+
+CREATE TABLE IF NOT EXISTS merge_deploy_jobs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+  branch TEXT NOT NULL,
+  status TEXT NOT NULL,
+  pre_merge_sha TEXT,
+  error_message TEXT,
+  enqueued_at INTEGER NOT NULL,
+  started_at INTEGER,
+  completed_at INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_merge_deploy_jobs_project_status
+  ON merge_deploy_jobs(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_merge_deploy_jobs_session_id
+  ON merge_deploy_jobs(session_id);
 `;
 
 sqlite.exec(INIT_SQL);
@@ -353,6 +371,23 @@ addColumnIfMissing("deployments", "deploy_target", "TEXT");
 addColumnIfMissing("git_repositories", "clone_token", "TEXT");
 
 sqlite.exec(`
+CREATE TABLE IF NOT EXISTS merge_deploy_jobs (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+  branch TEXT NOT NULL,
+  status TEXT NOT NULL,
+  pre_merge_sha TEXT,
+  error_message TEXT,
+  enqueued_at INTEGER NOT NULL,
+  started_at INTEGER,
+  completed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_merge_deploy_jobs_project_status
+  ON merge_deploy_jobs(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_merge_deploy_jobs_session_id
+  ON merge_deploy_jobs(session_id);
+
 CREATE TABLE IF NOT EXISTS git_repositories (
   id TEXT PRIMARY KEY,
   slug TEXT NOT NULL UNIQUE,

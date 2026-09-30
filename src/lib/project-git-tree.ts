@@ -269,6 +269,42 @@ export async function rebaseProjectBranch(
   log(`Rebased ${branch} onto ${ontoBranch}.`);
 }
 
+export async function readBranchTipSha(
+  clonePath: string,
+  branch: string,
+): Promise<string> {
+  const resolvedPath = resolveClonePath(clonePath);
+  await ensureLocalBranch(resolvedPath, branch);
+  await checkoutLocalBranch(resolvedPath, branch);
+  const { stdout } = await execGit(["rev-parse", "HEAD"], { cwd: resolvedPath });
+  const sha = stdout.trim();
+  if (!sha) {
+    throw new Error(`Could not read HEAD for ${branch}`);
+  }
+  return sha;
+}
+
+export async function resetWatchBranchToSha(
+  clonePath: string,
+  branch: string,
+  sha: string,
+  onLog?: (line: string) => void,
+): Promise<void> {
+  const resolvedPath = resolveClonePath(clonePath);
+  const log = onLog ?? (() => {});
+  await ensureLocalBranch(resolvedPath, branch);
+  await checkoutLocalBranch(resolvedPath, branch);
+  log(`Rolling back ${branch} to ${shortSha(sha)}`);
+  try {
+    await execGit(["reset", "--hard", sha], { cwd: resolvedPath });
+    await execGit(["push", "--force-with-lease", "origin", branch], {
+      cwd: resolvedPath,
+    });
+  } catch (err) {
+    throw new Error(formatGitError(err));
+  }
+}
+
 export async function mergeProjectBranch(
   clonePath: string,
   sourceBranch: string,

@@ -98,7 +98,15 @@ export type AgentSessionStatus =
   | "pending"
   | "running"
   | "deploying"
+  | "sleeping"
   | "completed"
+  | "failed"
+  | "cancelled";
+
+export type MergeDeployJobStatus =
+  | "queued"
+  | "processing"
+  | "succeeded"
   | "failed"
   | "cancelled";
 
@@ -431,6 +439,23 @@ export const secretRequests = sqliteTable("secret_requests", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 });
 
+export const mergeDeployJobs = sqliteTable("merge_deploy_jobs", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  sessionId: text("session_id")
+    .notNull()
+    .references(() => agentSessions.id, { onDelete: "cascade" }),
+  branch: text("branch").notNull(),
+  status: text("status").$type<MergeDeployJobStatus>().notNull(),
+  preMergeSha: text("pre_merge_sha"),
+  errorMessage: text("error_message"),
+  enqueuedAt: integer("enqueued_at", { mode: "timestamp" }).notNull(),
+  startedAt: integer("started_at", { mode: "timestamp" }),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+});
+
 export const opsApiActions = sqliteTable("ops_api_actions", {
   id: text("id").primaryKey(),
   actionDescription: text("action_description").notNull(),
@@ -466,4 +491,5 @@ export type Secret = typeof secrets.$inferSelect;
 export type SecretRequest = typeof secretRequests.$inferSelect;
 export type ForgeUpdate = typeof forgeUpdates.$inferSelect;
 export type ReleasePin = typeof releasePins.$inferSelect;
+export type MergeDeployJob = typeof mergeDeployJobs.$inferSelect;
 export type OpsApiAction = typeof opsApiActions.$inferSelect;
