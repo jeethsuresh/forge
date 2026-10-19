@@ -229,7 +229,10 @@ require_any_agent_backend() {
   local cursor_ok=0
   local codex_ok=0
   local local_ok=0
-  if [[ -x "${FORGE_CURSOR_AGENT_DIR:-}/cursor-agent" || -x "${FORGE_CURSOR_AGENT_DIR:-}/agent" ]]; then
+  # Host CLI dirs are bind-mounted at /opt/cursor-agent inside the updater sidecar.
+  # -x on the host path fails there because that path is not mounted in the sidecar.
+  if [[ -x "${FORGE_CURSOR_AGENT_DIR:-}/cursor-agent" || -x "${FORGE_CURSOR_AGENT_DIR:-}/agent" \
+    || -x /opt/cursor-agent/cursor-agent || -x /opt/cursor-agent/agent ]]; then
     if [[ -n "${FORGE_CURSOR_API_KEY:-${CURSOR_API_KEY:-}}" || -n "${FORGE_CURSOR_CONFIG_DIR:-}" ]]; then
       cursor_ok=1
     fi
@@ -251,17 +254,24 @@ require_any_agent_backend() {
     fi
   fi
 
-  if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then
-    FORGE_CURSOR_AGENT_DIR="$(agent_stub_dir cursor)"
-    export FORGE_CURSOR_AGENT_DIR
-  fi
-  if [[ -z "${FORGE_CURSOR_CONFIG_DIR:-}" ]]; then
-    FORGE_CURSOR_CONFIG_DIR="$(agent_stub_dir cursor-config)"
-    export FORGE_CURSOR_CONFIG_DIR
-  fi
-  if [[ -z "${FORGE_CODEX_DIR:-}" ]]; then
-    FORGE_CODEX_DIR="$(agent_stub_dir codex)"
-    export FORGE_CODEX_DIR
+  if [[ "${FORGE_UPDATER:-}" == "1" ]]; then
+    # Podman bind-mounts these paths on the host. Stub dirs under the
+    # in-container source checkout do not exist on the host, so leave unset
+    # backends empty and let compose fall back to a real host directory.
+    :
+  else
+    if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then
+      FORGE_CURSOR_AGENT_DIR="$(agent_stub_dir cursor)"
+      export FORGE_CURSOR_AGENT_DIR
+    fi
+    if [[ -z "${FORGE_CURSOR_CONFIG_DIR:-}" ]]; then
+      FORGE_CURSOR_CONFIG_DIR="$(agent_stub_dir cursor-config)"
+      export FORGE_CURSOR_CONFIG_DIR
+    fi
+    if [[ -z "${FORGE_CODEX_DIR:-}" ]]; then
+      FORGE_CODEX_DIR="$(agent_stub_dir codex)"
+      export FORGE_CODEX_DIR
+    fi
   fi
   persist_host_mount_paths
 }

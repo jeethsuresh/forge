@@ -37,6 +37,10 @@ describe("shell harness Layer B", () => {
     runHarness("npm-ci-retry.sh");
   });
 
+  it("updater deploy does not bind in-container codex stub dirs", () => {
+    runHarness("updater-agent-backend.sh");
+  });
+
   it(
     "agent container uses host workspace binds and local forge-agent image",
     () => {

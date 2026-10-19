@@ -59,7 +59,7 @@ services:
       - forge-data:/data
       - ${FORGE_CURSOR_AGENT_DIR:-./data/agent-stubs/cursor}:/opt/cursor-agent:ro,z
       - ${FORGE_CURSOR_CONFIG_DIR:-./data/agent-stubs/cursor-config}:/opt/cursor-config:ro,z
-      - ${FORGE_CODEX_DIR:-./data/agent-stubs/codex}:/opt/codex:ro,z
+      - ${FORGE_CODEX_DIR:-${FORGE_CURSOR_CONFIG_DIR:-./data/agent-stubs/codex}}:/opt/codex:ro,z
       - ${DOCKER_SOCKET:?Set DOCKER_SOCKET or redeploy with ./deploy.sh}:/var/run/docker.sock
     restart: unless-stopped
 
