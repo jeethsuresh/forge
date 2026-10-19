@@ -24,7 +24,11 @@ export async function POST(
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  const body = (await request.json()) as { name?: string; prompt?: string };
+  const body = (await request.json()) as {
+    name?: string;
+    prompt?: string;
+    backend?: string;
+  };
   const branchName = body.name?.trim() ?? "";
   const prompt = body.prompt?.trim() ?? "";
 
@@ -38,11 +42,17 @@ export async function POST(
 
   try {
     await createAgentBranch(id, branchName);
-    const { sessionId, queued } = await createAgentSession(id, branchName, prompt);
+    const { sessionId, queued } = await createAgentSession(id, branchName, prompt, {
+      backend: body.backend,
+    });
     return NextResponse.json({ branch: branchName, sessionId, queued }, { status: queued ? 202 : 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create branch";
-    const status = message.includes("already active") ? 409 : 500;
+    const status = message.includes("already active")
+      ? 409
+      : /backend|not available|not found on the host|not set/i.test(message)
+        ? 400
+        : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

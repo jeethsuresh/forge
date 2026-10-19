@@ -35,6 +35,54 @@ function lastAgentQuestionText(
   return null;
 }
 
+function BackendSelect({
+  value,
+  onChange,
+  backends,
+  disabled,
+}: {
+  value: string;
+  onChange: (id: "cursor" | "codex" | "local") => void;
+  backends: Array<{
+    id: "cursor" | "codex" | "local";
+    displayName: string;
+    available: boolean;
+  }>;
+  disabled?: boolean;
+}) {
+  const options =
+    backends.length > 0
+      ? backends
+      : [
+          { id: "cursor" as const, displayName: "Cursor", available: true },
+          { id: "codex" as const, displayName: "Codex", available: true },
+          { id: "local" as const, displayName: "Local", available: true },
+        ];
+  return (
+    <label className="mb-3 block">
+      <span className="mb-1.5 block text-xs font-medium text-[var(--forge-faint)]">
+        Backend
+      </span>
+      <select
+        data-testid="agent-backend-select"
+        value={value}
+        disabled={disabled}
+        onChange={(e) =>
+          onChange(e.target.value as "cursor" | "codex" | "local")
+        }
+        className="min-h-11 w-full rounded-lg border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.35)] px-2.5 text-sm text-[var(--forge-bright)]"
+      >
+        {options.map((b) => (
+          <option key={b.id} value={b.id} disabled={!b.available}>
+            {b.displayName}
+            {b.available ? "" : " (unavailable)"}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export function AgentWorkspace({
   projectId,
   watchBranch,
@@ -112,6 +160,9 @@ export function AgentWorkspace({
     idleBranches,
     completedAgentCount,
     statusBanner,
+    backend,
+    setBackend,
+    availableBackends,
     startOrContinueSession,
     createNewBranchAndAgent,
     sendMessage,
@@ -279,6 +330,12 @@ export function AgentWorkspace({
                   {b.isDeployBranch && (
                     <span className="text-[10px] uppercase text-[var(--forge-faint)]">
                       deploy
+                    </span>
+                  )}
+                  {session?.backend && (
+                    <span className="rounded border border-[var(--forge-line)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--forge-muted)]">
+                      {session.backend}
+                      {session.thinkingLevel ? ` · ${session.thinkingLevel}` : ""}
                     </span>
                   )}
                   {session?.sessionSourceLabel && (
@@ -509,6 +566,12 @@ export function AgentWorkspace({
                 className="w-full rounded-lg border border-[var(--forge-line-strong)] bg-[rgba(0,0,0,0.35)] px-3 py-2.5 font-mono text-sm text-[var(--forge-bright)] placeholder:text-[var(--forge-faint)] focus:border-orange-500 focus:outline-none"
               />
             </label>
+            <BackendSelect
+              value={backend}
+              onChange={setBackend}
+              backends={availableBackends}
+              disabled={loading}
+            />
             <label className="mb-3 block flex-1">
               <span className="mb-1.5 block text-xs font-medium text-[var(--forge-faint)]">
                 Initial instruction
@@ -840,6 +903,12 @@ export function AgentWorkspace({
                   a new initial prompt.
                 </p>
               </div>
+              <BackendSelect
+                value={backend}
+                onChange={setBackend}
+                backends={availableBackends}
+                disabled={loading}
+              />
               <textarea
                 value={recreatePrompt}
                 onChange={(e) => setRecreatePrompt(e.target.value)}
@@ -973,6 +1042,14 @@ export function AgentWorkspace({
                   : "Start a new agent on this branch."}
               </p>
               <form onSubmit={startOrContinueSession} className="flex flex-1 flex-col">
+                {!selectedSessionMeta && (
+                  <BackendSelect
+                    value={backend}
+                    onChange={setBackend}
+                    backends={availableBackends}
+                    disabled={loading}
+                  />
+                )}
                 <textarea
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}

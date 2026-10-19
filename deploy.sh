@@ -50,7 +50,7 @@ done
 start_podman_api_service
 
 export_docker_socket
-require_cursor_agent
+require_any_agent_backend
 # Resolve FORGE_CONTAINER_NAME (and related env) before removing the old container.
 export_compose_env
 

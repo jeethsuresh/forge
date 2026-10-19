@@ -21,6 +21,7 @@ describe("forge-host-mounts", () => {
     }
     delete process.env.FORGE_CURSOR_AGENT_DIR;
     delete process.env.FORGE_CURSOR_CONFIG_DIR;
+    delete process.env.FORGE_CODEX_DIR;
     rmSync(tempDir, { recursive: true, force: true });
   });
 
@@ -37,6 +38,7 @@ describe("forge-host-mounts", () => {
       "/home/user/.local/share/cursor-agent/versions/1.0.0",
     );
     expect(mounts?.cursorConfigDir).toBe("/home/user/.config/cursor");
+    expect(mounts?.codexDir).toBe("");
     expect(mounts?.updatedAt).toBeTruthy();
   });
 
@@ -50,6 +52,7 @@ describe("forge-host-mounts", () => {
     expect(resolveForgeHostMounts()).toEqual({
       cursorAgentDir: "/env/agent",
       cursorConfigDir: "/env/config",
+      codexDir: undefined,
     });
   });
 
@@ -61,6 +64,17 @@ describe("forge-host-mounts", () => {
     expect(resolveForgeHostMounts()).toEqual({
       cursorAgentDir: "/persisted/agent",
       cursorConfigDir: "/persisted/config",
+      codexDir: undefined,
     });
+  });
+
+  it("round-trips an optional Codex host dir", async () => {
+    const { writeForgeHostMounts, readForgeHostMounts } = await import(
+      "@/lib/forge-host-mounts"
+    );
+    writeForgeHostMounts("", "", "/home/user/.npm-global/lib/node_modules/@openai/codex");
+    const mounts = readForgeHostMounts();
+    expect(mounts?.codexDir).toContain("codex");
+    expect(mounts?.cursorAgentDir).toBe("");
   });
 });

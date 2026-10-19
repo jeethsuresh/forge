@@ -71,7 +71,7 @@ if has_compose_file; then
   docker build --network host \
     -f docker/agent/Dockerfile \
     -t "${FORGE_AGENT_IMAGE:-forge-agent:latest}" \
-    docker/agent
+    .
   docker build --network host \
     -f docker/branch/Dockerfile \
     -t "${FORGE_BRANCH_IMAGE:-forge-branch:latest}" \

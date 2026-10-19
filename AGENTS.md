@@ -19,6 +19,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - **Functional users (`fmu.*`):** Global settings → MCP agents mints named machine secrets for external MCP clients. These are full Ops credentials (and therefore git HTTP), not clone tokens. In-container agents keep using `fos.*`.
 - When `gitRepositoryId` is set, deploy jobs and agent containers clone from Forge (not GitHub).
 
+## Agent backends
+
+Forge agent sessions pick **Cursor**, **Codex**, or a **local** OpenAI-compatible model in the Agents start form (Global settings → Agent backends). Thinking is always extra-high / `xhigh`, then high. Follow-up turns stay on the session backend. Do not assume the coding agent is Cursor.
+
 ## Agent workflow (mandatory)
 
 - **Run `./test.sh` before finishing any task** that touches code or config. Do not end the turn with failing or unrun tests.

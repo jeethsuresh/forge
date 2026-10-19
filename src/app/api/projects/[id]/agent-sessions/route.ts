@@ -16,6 +16,7 @@ import {
   reconcileInterruptedDeployments,
 } from "@/lib/deploy-reconcile";
 import { getActiveSessionForProject, isAgentSessionActive } from "@/lib/agent-state";
+import { listAvailableBackendInfo } from "@/lib/agent-backends/registry";
 
 async function requireLogin() {
   const session = await getSession();
@@ -54,6 +55,7 @@ export async function GET(
     activeSession: activeSession ?? null,
     hasActiveSession: isAgentSessionActive(id),
     deployedCommitSha: deployedCommitShaForProject(project),
+    availableBackends: listAvailableBackendInfo(),
   });
 }
 
@@ -72,7 +74,11 @@ export async function POST(
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  const body = (await request.json()) as { prompt?: string; branch?: string };
+  const body = (await request.json()) as {
+    prompt?: string;
+    branch?: string;
+    backend?: string;
+  };
   if (!body.prompt?.trim()) {
     return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
   }
@@ -85,11 +91,16 @@ export async function POST(
       id,
       body.branch.trim(),
       body.prompt.trim(),
+      { backend: body.backend },
     );
     return NextResponse.json({ sessionId, queued }, { status: queued ? 202 : 201 });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create session";
-    const status = message.includes("already active") ? 409 : 500;
+    const status = message.includes("already active")
+      ? 409
+      : /backend|not available|not found on the host|not set/i.test(message)
+        ? 400
+        : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

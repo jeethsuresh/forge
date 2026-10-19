@@ -85,6 +85,10 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   branch TEXT NOT NULL,
   status TEXT NOT NULL,
+  backend TEXT NOT NULL DEFAULT 'cursor',
+  backend_session_id TEXT,
+  resume_backend_session_id TEXT,
+  thinking_level TEXT,
   cursor_session_id TEXT,
   initial_prompt TEXT NOT NULL,
   logs TEXT NOT NULL DEFAULT '',
@@ -276,6 +280,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_secrets_scope_project_name
   ON secrets(scope, project_id, name);
 CREATE INDEX IF NOT EXISTS idx_secrets_project_id ON secrets(project_id);
 
+CREATE TABLE IF NOT EXISTS agent_backend_settings (
+  backend TEXT PRIMARY KEY,
+  model TEXT NOT NULL DEFAULT '',
+  base_url TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER
+);
+
 CREATE TABLE IF NOT EXISTS secret_requests (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
@@ -376,6 +387,10 @@ function addColumnIfMissing(
 
 addColumnIfMissing("agent_sessions", "commit_sha", "TEXT");
 addColumnIfMissing("agent_sessions", "resume_cursor_session_id", "TEXT");
+addColumnIfMissing("agent_sessions", "backend", "TEXT NOT NULL DEFAULT 'cursor'");
+addColumnIfMissing("agent_sessions", "backend_session_id", "TEXT");
+addColumnIfMissing("agent_sessions", "resume_backend_session_id", "TEXT");
+addColumnIfMissing("agent_sessions", "thinking_level", "TEXT");
 addColumnIfMissing("agent_sessions", "failed_turn_start_seq", "INTEGER");
 addColumnIfMissing("agent_sessions", "source", "TEXT NOT NULL DEFAULT 'manual'");
 addColumnIfMissing("agent_sessions", "archived_at", "INTEGER");

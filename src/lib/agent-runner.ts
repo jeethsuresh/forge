@@ -78,6 +78,15 @@ import { getProjectForgefile } from "@/lib/forgefile-project";
 import type { Forgefile } from "@/lib/forgefile-types";
 import { transition, type SessionPatch } from "@/lib/agent-session-machine";
 import { commitAgentSessionChanges } from "@/lib/agent-session-lifecycle";
+import { getBackend } from "@/lib/agent-backends/registry";
+import {
+  backendApiKey,
+  getBackendSettings,
+} from "@/lib/agent-backends/settings";
+import {
+  sessionBackendId,
+  sessionResumeId,
+} from "@/lib/agent-backends/session";
 
 /** Sessions with a live agent container. */
 export const activeAgentContainers = new Set<string>();
@@ -305,14 +314,23 @@ export interface BranchAgentInfo {
 
 export function markTurnSucceeded(sessionId: string): void {
   const current = db
-    .select({ cursorSessionId: agentSessions.cursorSessionId })
+    .select({
+      backend: agentSessions.backend,
+      backendSessionId: agentSessions.backendSessionId,
+      cursorSessionId: agentSessions.cursorSessionId,
+    })
     .from(agentSessions)
     .where(eq(agentSessions.id, sessionId))
     .get();
 
+  const vendor =
+    current?.backendSessionId ?? current?.cursorSessionId ?? null;
+  const backend = current?.backend ?? "cursor";
+
   db.update(agentSessions)
     .set({
-      resumeCursorSessionId: current?.cursorSessionId ?? null,
+      resumeBackendSessionId: vendor,
+      resumeCursorSessionId: backend === "cursor" ? vendor : null,
       failedTurnStartSeq: null,
     })
     .where(eq(agentSessions.id, sessionId))
@@ -639,6 +657,7 @@ export function queueAgentSession(
   projectId: string,
   branch: string,
   prompt: string,
+  backend?: string | null,
 ): { sessionId: string; queued: true } {
   const trimmedPrompt = prompt.trim();
   const existing = getSessionForBranch(projectId, branch);
@@ -670,6 +689,7 @@ export function queueAgentSession(
       branch,
       status: "queued",
       source: "manual",
+      backend: sessionBackendId({ backend }),
       initialPrompt: trimmedPrompt,
       logs: `[${new Date().toISOString()}] Queued behind the active agent on another branch.\n`,
       startedAt: new Date(),
@@ -712,10 +732,25 @@ export async function runAgentTurnContainer(
   );
   await pauseBranchWorkspace(project.id, session.branch);
   const creds = gitHubCredentials();
-  const apiKey = process.env.FORGE_CURSOR_API_KEY ?? process.env.CURSOR_API_KEY;
+  const backendId = sessionBackendId(session);
+  const backend = getBackend(backendId);
+  const settings = getBackendSettings(backendId);
+  const thinking = backend.resolveThinking(settings.model);
+  const apiKey = backendApiKey(backendId);
+
+  db.update(agentSessions)
+    .set({ thinkingLevel: thinking.level })
+    .where(eq(agentSessions.id, sessionId))
+    .run();
 
   activeAgentContainers.add(sessionId);
-  appendSessionLog(sessionId, "Starting agent container (no docker.sock)…");
+  appendSessionLog(
+    sessionId,
+    `Starting ${backend.displayName} agent container (thinking=${thinking.level}${thinking.modelId ? `, model=${thinking.modelId}` : ""})…`,
+  );
+  if (thinking.note) {
+    appendSessionLog(sessionId, thinking.note);
+  }
 
   try {
     const result = await runAgentContainerWithRestart({
@@ -726,6 +761,13 @@ export async function runAgentTurnContainer(
           .from(agentSessions)
           .where(eq(agentSessions.id, sessionId))
           .get();
+        const resumeId = sessionResumeId(latest ?? session);
+        const spec = backend.containerSpec({
+          resumeSessionId: resumeId,
+          thinking,
+          settings,
+          apiKey,
+        });
         const { containerId } = await startAgentContainer({
           sessionId,
           projectId: project.id,
@@ -742,15 +784,14 @@ export async function runAgentTurnContainer(
             : undefined,
           heartbeatIntervalSec: AGENT_HEARTBEAT_INTERVAL_SEC,
           agentPrompt: effectivePrompt,
-          cursorApiKey: apiKey,
+          cursorApiKey: backendId === "cursor" ? apiKey ?? undefined : undefined,
           packagesJson: resolveAgentPackagesJson(project.id),
           workspaceBind: existsSync(bindPath) ? bindPath : undefined,
-          cursorSessionId:
-            latest?.resumeCursorSessionId ??
-            latest?.cursorSessionId ??
-            session.resumeCursorSessionId ??
-            session.cursorSessionId ??
-            undefined,
+          cursorSessionId: backendId === "cursor" ? resumeId ?? undefined : undefined,
+          backend: backendId,
+          backendEnv: spec.env,
+          backendBinds: spec.binds,
+          agentBin: spec.agentBin,
         });
         appendSessionLog(
           sessionId,
@@ -868,6 +909,8 @@ async function compactAgentLearnings(
     failedTurnStartSeq: session.failedTurnStartSeq,
     resumeCursorSessionId: session.resumeCursorSessionId,
     cursorSessionId: session.cursorSessionId,
+    resumeBackendSessionId: session.resumeBackendSessionId,
+    backendSessionId: session.backendSessionId,
   };
   compactingSessions.add(sessionId);
   try {

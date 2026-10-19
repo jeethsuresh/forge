@@ -17,7 +17,7 @@ if ! docker image inspect forge-agent:latest >/dev/null 2>&1; then
   docker build --network host \
     -f "$REPO_ROOT/docker/agent/Dockerfile" \
     -t forge-agent:latest \
-    "$REPO_ROOT/docker/agent"
+    "$REPO_ROOT"
 fi
 
 TMP="$(mktemp -d)"

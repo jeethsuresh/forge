@@ -30,6 +30,8 @@ import {
 import { projectRemoteUrl } from "@/lib/project-git-remote";
 import { createBranchWorkspace, destroyBranchWorkspace, ensureBranchWorkspace } from "@/lib/branch-workspace";
 import { setAgentContainerKillReason } from "@/lib/agent-container";
+import { resolveRequestedBackend } from "@/lib/agent-backends/registry";
+import type { AgentBackendId } from "@/lib/agent-backends/types";
 import { transition } from "@/lib/agent-session-machine";
 import { buildAgentRestartPrompt } from "@/lib/agent-restart-transcript";
 import {
@@ -145,11 +147,16 @@ export async function createAgentSession(
   options?: {
     source?: AgentSessionSource;
     ticketId?: string | null;
+    backend?: string | null;
+    requireAvailable?: boolean;
   },
 ): Promise<{ sessionId: string; queued: boolean }> {
   const trimmedBranch = branch.trim();
   if (!trimmedBranch) throw new Error("Branch is required");
   if (!prompt.trim()) throw new Error("Prompt is required");
+  const backend: AgentBackendId = resolveRequestedBackend(options?.backend, {
+    requireAvailable: options?.requireAvailable,
+  });
 
   const project = db
     .select()
@@ -168,7 +175,7 @@ export async function createAgentSession(
   );
 
   if (shouldQueueAgentSession(projectId, trimmedBranch)) {
-    return queueAgentSession(projectId, trimmedBranch, prompt.trim());
+    return queueAgentSession(projectId, trimmedBranch, prompt.trim(), backend);
   }
 
   assertNoConflictingActiveSession(projectId, trimmedBranch);
@@ -210,6 +217,7 @@ export async function createAgentSession(
       status: "idle",
       source: options?.source ?? "manual",
       ticketId: options?.ticketId ?? null,
+      backend,
       initialPrompt: prompt.trim(),
       logs: "",
       startedAt: new Date(),
@@ -299,6 +307,7 @@ export async function createRecoveryAgentSession(
       branch: trimmedBranch,
       status: "pending",
       source: "recovery",
+      backend: resolveRequestedBackend(null),
       initialPrompt: prompt.trim(),
       logs: "",
       startedAt: new Date(),
@@ -365,6 +374,7 @@ export async function createRebaseRecoveryAgentSession(
       branch: trimmedBranch,
       status: "pending",
       source: "rebase-recovery",
+      backend: resolveRequestedBackend(null),
       initialPrompt: prompt.trim(),
       logs: "",
       startedAt: new Date(),
@@ -824,6 +834,7 @@ export async function recreateAgentSession(
   projectId: string,
   branch: string,
   prompt: string,
+  options?: { backend?: string | null; requireAvailable?: boolean },
 ): Promise<{ sessionId: string; queued: boolean; archivedSessionId: string | null }> {
   const trimmedBranch = branch.trim();
   const trimmedPrompt = prompt.trim();
@@ -834,7 +845,10 @@ export async function recreateAgentSession(
     projectId,
     trimmedBranch,
   );
-  const created = await createAgentSession(projectId, trimmedBranch, trimmedPrompt);
+  const created = await createAgentSession(projectId, trimmedBranch, trimmedPrompt, {
+    backend: options?.backend,
+    requireAvailable: options?.requireAvailable,
+  });
   return { ...created, archivedSessionId };
 }
 
@@ -852,7 +866,10 @@ export async function restartAgentSession(
     events,
     contextCompact: session.contextCompact,
   });
-  return recreateAgentSession(session.projectId, session.branch, prompt);
+  return recreateAgentSession(session.projectId, session.branch, prompt, {
+    backend: session.backend,
+    requireAvailable: false,
+  });
 }
 
 
