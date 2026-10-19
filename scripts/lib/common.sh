@@ -241,8 +241,14 @@ require_any_agent_backend() {
     local_ok=1
   fi
   if [[ "$cursor_ok" -eq 0 && "$codex_ok" -eq 0 && "$local_ok" -eq 0 ]]; then
-    echo "No agent backend is usable. Install the Cursor or Codex CLI, or set FORGE_LOCAL_AGENT_BASE_URL and FORGE_LOCAL_AGENT_MODEL." >&2
-    exit 1
+    if [[ -f "${FORGE_HOST_MOUNTS_FILE:-/data/forge-host-mounts.json}" ]]; then
+      # Updater sidecar: host CLI paths live in the mounts file and are bind-mounted
+      # by spawnUpdater. The in-container env often has stub dirs without binaries.
+      cursor_ok=1
+    else
+      echo "No agent backend is usable. Install the Cursor or Codex CLI, or set FORGE_LOCAL_AGENT_BASE_URL and FORGE_LOCAL_AGENT_MODEL." >&2
+      exit 1
+    fi
   fi
 
   if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then
