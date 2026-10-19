@@ -291,6 +291,34 @@ describe("agent container lifecycle", () => {
     );
   });
 
+  it("does not mount Cursor when the backend is not cursor", () => {
+    const prevAgent = process.env.FORGE_CURSOR_AGENT_DIR;
+    process.env.FORGE_CURSOR_AGENT_DIR =
+      "/home/test/.local/share/cursor-agent/versions/x";
+    try {
+      const args = buildAgentContainerRunArgs({
+        sessionId: "sess-1",
+        projectId: "proj-1",
+        branch: "main",
+        cloneUrl: "https://github.com/owner/repo.git",
+        opsBaseUrl: "http://127.0.0.1:3456",
+        opsToken: "fos.x",
+        backend: "codex",
+        backendEnv: { FORGE_AGENT_BACKEND: "codex" },
+        backendBinds: ["/opt/host-codex:/opt/codex:ro,z"],
+        agentBin: "/opt/codex/codex",
+      });
+      expect(args.some((a) => a.includes("/opt/cursor-agent"))).toBe(false);
+      expect(args).toContain("/opt/host-codex:/opt/codex:ro,z");
+      expect(args.some((a) => a.includes("FORGE_AGENT_BACKEND=codex"))).toBe(
+        true,
+      );
+    } finally {
+      if (prevAgent === undefined) delete process.env.FORGE_CURSOR_AGENT_DIR;
+      else process.env.FORGE_CURSOR_AGENT_DIR = prevAgent;
+    }
+  });
+
   it("buildAgentContainerRunArgs mounts the host Cursor agent directory", () => {
     const prevFile = process.env.FORGE_HOST_MOUNTS_FILE;
     const prevAgent = process.env.FORGE_CURSOR_AGENT_DIR;

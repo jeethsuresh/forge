@@ -279,6 +279,9 @@ export const deployments = sqliteTable("deployments", {
   completedAt: integer("completed_at", { mode: "timestamp" }),
 });
 
+export type AgentBackendId = "cursor" | "codex" | "local";
+export type AgentThinkingLevel = "xhigh" | "high" | "none";
+
 export const agentSessions = sqliteTable("agent_sessions", {
   id: text("id").primaryKey(),
   projectId: text("project_id")
@@ -286,6 +289,10 @@ export const agentSessions = sqliteTable("agent_sessions", {
     .references(() => projects.id, { onDelete: "cascade" }),
   branch: text("branch").notNull(),
   status: text("status").$type<AgentSessionStatus>().notNull(),
+  backend: text("backend").$type<AgentBackendId>().notNull().default("cursor"),
+  backendSessionId: text("backend_session_id"),
+  resumeBackendSessionId: text("resume_backend_session_id"),
+  thinkingLevel: text("thinking_level").$type<AgentThinkingLevel>(),
   cursorSessionId: text("cursor_session_id"),
   resumeCursorSessionId: text("resume_cursor_session_id"),
   failedTurnStartSeq: integer("failed_turn_start_seq"),
@@ -396,6 +403,13 @@ export const agentContainers = sqliteTable("agent_containers", {
 
 export type SecretScope = "global" | "project";
 
+export const agentBackendSettings = sqliteTable("agent_backend_settings", {
+  backend: text("backend").$type<AgentBackendId>().primaryKey(),
+  model: text("model").notNull().default(""),
+  baseUrl: text("base_url").notNull().default(""),
+  updatedAt: integer("updated_at", { mode: "timestamp" }),
+});
+
 export const secrets = sqliteTable(
   "secrets",
   {
@@ -459,6 +473,7 @@ export type ServiceDirectoryRow = typeof serviceDirectory.$inferSelect;
 export type ContainerLogRow = typeof containerLogs.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
 export type AgentSession = typeof agentSessions.$inferSelect;
+export type AgentBackendSetting = typeof agentBackendSettings.$inferSelect;
 export type AgentEvent = typeof agentEvents.$inferSelect;
 export type AgentContainer = typeof agentContainers.$inferSelect;
 export type BranchWorkspace = typeof branchWorkspaces.$inferSelect;

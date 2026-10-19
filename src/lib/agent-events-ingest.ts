@@ -4,6 +4,9 @@ import { db } from "@/lib/db";
 import { agentEvents, agentSessions } from "@/lib/db/schema";
 import { recordAgentActivity } from "@/lib/agent-heartbeat";
 import { parseStreamEventLine } from "@/lib/agent-stream";
+import { getBackend } from "@/lib/agent-backends/registry";
+import { sessionBackendId, thinkingLevelOrNull } from "@/lib/agent-backends/session";
+import type { ThinkingLevel } from "@/lib/agent-backends/types";
 
 function nextEventSeq(sessionId: string): number {
   const row = db
@@ -37,12 +40,44 @@ export function ingestAgentEvents(
     let payload: string;
 
     if (typeof event.line === "string" && event.line.trim()) {
-      const parsed = parseStreamEventLine(event.line);
+      const current = db
+        .select({
+          backend: agentSessions.backend,
+        })
+        .from(agentSessions)
+        .where(eq(agentSessions.id, sessionId))
+        .get();
+      const backendId = sessionBackendId(current ?? {});
+      const vendor = getBackend(backendId).parseVendorLine(event.line);
+      const line = vendor?.line ?? event.line;
+      if (vendor?.eventType) eventType = vendor.eventType;
+      const parsed = parseStreamEventLine(line);
       if (parsed?.type) eventType = parsed.type;
-      payload = event.line;
-      if (parsed?.type === "system" && parsed.subtype === "init" && parsed.session_id) {
+      payload = line;
+
+      const vendorSessionId =
+        vendor?.vendorSessionId?.trim() ||
+        (parsed?.type === "system" &&
+        parsed.subtype === "init" &&
+        typeof parsed.session_id === "string"
+          ? parsed.session_id.trim()
+          : "");
+      const thinking = thinkingLevelFromIngestText(
+        typeof parsed?.text === "string" ? parsed.text : payload,
+      );
+      if (vendorSessionId || thinking) {
+        const patch: {
+          backendSessionId?: string;
+          cursorSessionId?: string;
+          thinkingLevel?: ThinkingLevel;
+        } = {};
+        if (vendorSessionId) {
+          patch.backendSessionId = vendorSessionId;
+          if (backendId === "cursor") patch.cursorSessionId = vendorSessionId;
+        }
+        if (thinking) patch.thinkingLevel = thinking;
         db.update(agentSessions)
-          .set({ cursorSessionId: parsed.session_id })
+          .set(patch)
           .where(eq(agentSessions.id, sessionId))
           .run();
       }
@@ -72,4 +107,10 @@ export function ingestAgentEvents(
     recordAgentActivity(sessionId);
   }
   return count;
+}
+
+function thinkingLevelFromIngestText(text: string): ThinkingLevel | null {
+  if (/thinking=none/i.test(text)) return thinkingLevelOrNull("none");
+  if (/retrying with high/i.test(text)) return thinkingLevelOrNull("high");
+  return null;
 }

@@ -42,7 +42,7 @@ docker_runtime_ready() {
 }
 
 persist_host_mount_paths() {
-  if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then
+  if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" && -z "${FORGE_CODEX_DIR:-}" ]]; then
     return 0
   fi
   local dir
@@ -58,6 +58,7 @@ path = os.environ["FORGE_HOST_MOUNTS_FILE"]
 payload = {
     "cursorAgentDir": os.environ.get("FORGE_CURSOR_AGENT_DIR", "").strip(),
     "cursorConfigDir": os.environ.get("FORGE_CURSOR_CONFIG_DIR", "").strip(),
+    "codexDir": os.environ.get("FORGE_CODEX_DIR", "").strip(),
     "updatedAt": datetime.now(timezone.utc).isoformat(),
 }
 with open(path, "w", encoding="utf-8") as f:
@@ -79,13 +80,16 @@ with open(path, encoding="utf-8") as f:
     data = json.load(f)
 agent = (data.get("cursorAgentDir") or "").strip()
 config = (data.get("cursorConfigDir") or "").strip()
+codex = (data.get("codexDir") or "").strip()
 if agent:
     print(f"export FORGE_CURSOR_AGENT_DIR={shlex.quote(agent)}")
 if config:
     print(f"export FORGE_CURSOR_CONFIG_DIR={shlex.quote(config)}")
+if codex:
+    print(f"export FORGE_CODEX_DIR={shlex.quote(codex)}")
 PY
   )"
-  [[ -n "${FORGE_CURSOR_AGENT_DIR:-}" ]]
+  [[ -n "${FORGE_CURSOR_AGENT_DIR:-}" || -n "${FORGE_CODEX_DIR:-}" ]]
 }
 
 ensure_cursor_mount_env() {
@@ -191,6 +195,69 @@ resolve_cursor_agent_dir() {
   fi
 
   echo ""
+}
+
+resolve_codex_dir() {
+  if [[ -n "${FORGE_CODEX_DIR:-}" ]]; then
+    echo "$FORGE_CODEX_DIR"
+    return
+  fi
+  local bin
+  bin="$(command -v codex 2>/dev/null || true)"
+  if [[ -n "$bin" ]]; then
+    local resolved
+    resolved="$(readlink -f "$bin" 2>/dev/null || true)"
+    dirname "${resolved:-$bin}"
+    return
+  fi
+  echo ""
+}
+
+agent_stub_dir() {
+  local dir="${ROOT_DIR}/data/agent-stubs/${1}"
+  mkdir -p "$dir"
+  echo "$dir"
+}
+
+require_any_agent_backend() {
+  ensure_cursor_mount_env
+  if [[ -z "${FORGE_CODEX_DIR:-}" ]]; then
+    FORGE_CODEX_DIR="$(resolve_codex_dir)"
+    export FORGE_CODEX_DIR
+  fi
+
+  local cursor_ok=0
+  local codex_ok=0
+  local local_ok=0
+  if [[ -x "${FORGE_CURSOR_AGENT_DIR:-}/cursor-agent" || -x "${FORGE_CURSOR_AGENT_DIR:-}/agent" ]]; then
+    if [[ -n "${FORGE_CURSOR_API_KEY:-${CURSOR_API_KEY:-}}" || -n "${FORGE_CURSOR_CONFIG_DIR:-}" ]]; then
+      cursor_ok=1
+    fi
+  fi
+  if [[ -x "${FORGE_CODEX_DIR:-}/codex" && -n "${OPENAI_API_KEY:-${CODEX_API_KEY:-}}" ]]; then
+    codex_ok=1
+  fi
+  if [[ -n "${FORGE_LOCAL_AGENT_BASE_URL:-}" && -n "${FORGE_LOCAL_AGENT_MODEL:-}" ]]; then
+    local_ok=1
+  fi
+  if [[ "$cursor_ok" -eq 0 && "$codex_ok" -eq 0 && "$local_ok" -eq 0 ]]; then
+    echo "No agent backend is usable. Install the Cursor or Codex CLI, or set FORGE_LOCAL_AGENT_BASE_URL and FORGE_LOCAL_AGENT_MODEL." >&2
+    exit 1
+  fi
+
+  if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then
+    FORGE_CURSOR_AGENT_DIR="$(agent_stub_dir cursor)"
+    export FORGE_CURSOR_AGENT_DIR
+  fi
+  if [[ -z "${FORGE_CURSOR_CONFIG_DIR:-}" ]]; then
+    FORGE_CURSOR_CONFIG_DIR="$(agent_stub_dir cursor-config)"
+    export FORGE_CURSOR_CONFIG_DIR
+  fi
+  if [[ -z "${FORGE_CODEX_DIR:-}" ]]; then
+    FORGE_CODEX_DIR="$(agent_stub_dir codex)"
+    export FORGE_CODEX_DIR
+  fi
+  persist_host_mount_paths
 }
 
 require_cursor_agent() {

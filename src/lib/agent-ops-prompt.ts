@@ -191,6 +191,7 @@ export function forgeOpsApiCatalog(baseUrl: string) {
           branch: "string (required)",
           prompt: "string (required)",
           createBranch: "boolean?",
+          backend: "cursor|codex|local?",
         },
       },
       {

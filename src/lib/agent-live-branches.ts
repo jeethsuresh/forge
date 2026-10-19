@@ -7,18 +7,13 @@ import {
 } from "@/lib/db/schema";
 import { listActiveSessionsForProject } from "@/lib/agent-state";
 
+export { filterLiveBranchesWithAgents } from "@/lib/agent-live-branches-shared";
+
 export interface LiveBranchInfo {
   name: string;
   sessionId: string | null;
   sessionStatus: AgentSessionStatus | null;
   containerStatus: BranchWorkspaceStatus | null;
-}
-
-/** Branches with an active agent session (excludes checkout-only containers). */
-export function filterLiveBranchesWithAgents<
-  T extends { sessionId: string | null },
->(branches: T[]): T[] {
-  return branches.filter((b) => b.sessionId != null);
 }
 
 export function listLiveBranches(projectId: string): LiveBranchInfo[] {

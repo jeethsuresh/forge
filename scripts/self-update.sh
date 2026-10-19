@@ -242,8 +242,19 @@ compose_inline() {
     compose_file="$FORGE_COMPOSE_FILE"
   fi
   if [[ -z "${FORGE_CURSOR_AGENT_DIR:-}" ]]; then
-    echo "Cursor agent host mount path is missing. Redeploy Forge from the host with ./deploy.sh." >&2
-    exit 1
+    FORGE_CURSOR_AGENT_DIR="${ROOT_DIR:-/opt/forge}/data/agent-stubs/cursor"
+    mkdir -p "$FORGE_CURSOR_AGENT_DIR"
+    export FORGE_CURSOR_AGENT_DIR
+  fi
+  if [[ -z "${FORGE_CURSOR_CONFIG_DIR:-}" ]]; then
+    FORGE_CURSOR_CONFIG_DIR="${ROOT_DIR:-/opt/forge}/data/agent-stubs/cursor-config"
+    mkdir -p "$FORGE_CURSOR_CONFIG_DIR"
+    export FORGE_CURSOR_CONFIG_DIR
+  fi
+  if [[ -z "${FORGE_CODEX_DIR:-}" ]]; then
+    FORGE_CODEX_DIR="${ROOT_DIR:-/opt/forge}/data/agent-stubs/codex"
+    mkdir -p "$FORGE_CODEX_DIR"
+    export FORGE_CODEX_DIR
   fi
   if declare -F load_forge_runtime_env >/dev/null; then
     load_forge_runtime_env || true

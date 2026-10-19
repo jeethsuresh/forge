@@ -48,6 +48,42 @@ export function decryptSecretValue(ciphertext: string): string {
   return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
 }
 
+export function readGlobalSecret(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const row = db
+    .select()
+    .from(secrets)
+    .where(
+      and(
+        eq(secrets.scope, "global"),
+        isNull(secrets.projectId),
+        eq(secrets.name, trimmed),
+      ),
+    )
+    .get();
+  if (!row) return null;
+  try {
+    return decryptSecretValue(row.ciphertext);
+  } catch {
+    return null;
+  }
+}
+
+export function deleteGlobalSecret(name: string): void {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  db.delete(secrets)
+    .where(
+      and(
+        eq(secrets.scope, "global"),
+        isNull(secrets.projectId),
+        eq(secrets.name, trimmed),
+      ),
+    )
+    .run();
+}
+
 export function isDeniedSecretName(name: string): boolean {
   const normalized = name.trim().toUpperCase();
   if (!normalized) return true;

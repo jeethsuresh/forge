@@ -20,7 +20,11 @@ export async function POST(
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
-  const body = (await request.json()) as { branch?: string; prompt?: string };
+  const body = (await request.json()) as {
+    branch?: string;
+    prompt?: string;
+    backend?: string;
+  };
   const branch = body.branch?.trim() ?? "";
   const prompt = body.prompt?.trim() ?? "";
   if (!branch) {
@@ -31,7 +35,9 @@ export async function POST(
   }
 
   try {
-    const result = await recreateAgentSession(id, branch, prompt);
+    const result = await recreateAgentSession(id, branch, prompt, {
+      backend: body.backend,
+    });
     return NextResponse.json(result, {
       status: result.queued ? 202 : 201,
     });

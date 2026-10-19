@@ -542,6 +542,7 @@ async function spawnUpdater(
   const hostMounts = resolveForgeHostMounts();
   const cursorAgentDir = hostMounts.cursorAgentDir;
   const cursorConfigDir = hostMounts.cursorConfigDir;
+  const codexDir = hostMounts.codexDir;
 
   const hostSocket = hostDockerSocket();
   const deployBranch =
@@ -594,6 +595,10 @@ async function spawnUpdater(
   if (cursorConfigDir) {
     args.push("-e", `FORGE_CURSOR_CONFIG_DIR=${cursorConfigDir}`);
     args.push("-v", `${cursorConfigDir}:/opt/cursor-config:ro,z`);
+  }
+  if (codexDir) {
+    args.push("-e", `FORGE_CODEX_DIR=${codexDir}`);
+    args.push("-v", `${codexDir}:/opt/codex:ro,z`);
   }
 
   args.push(imageRef, "bash", UPDATER_SCRIPT, "--update-id", updateId);

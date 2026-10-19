@@ -30,7 +30,16 @@ export interface AgentSession {
   killReason?: string | null;
   contextCompact?: string | null;
   compactingLearnings?: boolean;
+  backend?: "cursor" | "codex" | "local" | string | null;
+  thinkingLevel?: "xhigh" | "high" | "none" | string | null;
 }
+
+export type AvailableBackendInfo = {
+  id: "cursor" | "codex" | "local";
+  displayName: string;
+  available: boolean;
+  reason: string | null;
+};
 
 export type StatusBanner =
   | { kind: "working"; text: string }
@@ -66,7 +75,8 @@ export interface AgentSessionsResponse {
   activeSession: AgentSession | null;
   hasActiveSession: boolean;
   deployedCommitSha?: string | null;
-}
+  availableBackends?: AvailableBackendInfo[];
+};
 
 export interface SessionDetailResponse {
   session: AgentSession;

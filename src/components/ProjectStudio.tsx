@@ -15,7 +15,7 @@ import { mergePolledProjectDetail } from "@/lib/project-detail-client";
 import { ForgeSelfUpdateEditor } from "@/components/ForgeSelfUpdateEditor";
 import { ActiveDeployLogsPanel } from "@/components/ActiveDeployLogsPanel";
 import { isContainerRunningState } from "@/lib/container-runtime";
-import { filterLiveBranchesWithAgents } from "@/lib/agent-live-branches";
+import { filterLiveBranchesWithAgents } from "@/lib/agent-live-branches-shared";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import { resolveActiveDeployLogView } from "@/lib/active-deploy-logs";
 import type { ProjectCaddySettings } from "@/lib/project-routing-shared";

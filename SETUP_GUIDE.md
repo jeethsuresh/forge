@@ -11,9 +11,9 @@ Local `npm run dev` is in the README **Setup** section. This guide is the produc
 - Node.js 20+
 - Git
 - Docker or Podman, available as the `docker` CLI (on Fedora this is often Podman)
-- Cursor agent CLI on the host, so `~/.local/bin/agent` exists
+- At least one agent backend on the host: Cursor CLI (`~/.local/bin/agent`), Codex CLI (`codex` on PATH), or a local OpenAI-compatible API (`FORGE_LOCAL_AGENT_BASE_URL` + `FORGE_LOCAL_AGENT_MODEL`)
 
-`./deploy.sh` exits if it cannot find the agent binary (`~/.local/bin/agent`, or the newest `~/.local/share/cursor-agent/versions/*/cursor-agent`). It also needs credentials: run `agent login` on the host, or set `FORGE_CURSOR_API_KEY` in `.env`.
+`./deploy.sh` exits if no backend is usable. For Cursor, install the CLI and run `agent login` or set `FORGE_CURSOR_API_KEY`. For Codex, install the CLI and set `OPENAI_API_KEY`. For local models, set the base URL and model in `.env` or later in Global settings → Agent backends.
 
 `./deploy.sh` starts a user systemd unit, `podman-forge-api.service`, listening on `tcp://127.0.0.1:18765`. That TCP API is how the Forge container talks to Podman. Enable lingering so it survives logout:
 
@@ -37,13 +37,15 @@ Edit `.env` before the first boot:
 |---|---|
 | `FORGE_SESSION_SECRET` | Session encryption. Use 32 or more random characters. |
 | `FORGE_ADMIN_USERNAME` / `FORGE_ADMIN_PASSWORD` | First dashboard login. Defaults are `admin` / `admin`. |
-| `FORGE_CURSOR_API_KEY` | Required only when `agent login` was not run on the host. |
+| `FORGE_CURSOR_API_KEY` | Cursor backend, when `agent login` was not run on the host. |
+| `OPENAI_API_KEY` / `CODEX_API_KEY` | Codex backend. |
+| `FORGE_LOCAL_AGENT_BASE_URL` / `FORGE_LOCAL_AGENT_MODEL` | Local OpenAI-compatible backend (Ollama, llama.cpp, LM Studio). |
 | `FORGE_GITHUB_TOKEN` | Private GitHub clones and one-shot GitHub imports. |
 | `FORGE_SELF_REPO` | `owner/repo` of this Forge checkout. Startup creates the Forge project row and clones that repo to `/data/forge-source`, which later UI updates need. |
 | `FORGE_SELF_BRANCH` | Branch for that checkout. Default `main`. |
 | `FORGE_GIT_USER_NAME` / `FORGE_GIT_USER_EMAIL` | Identity for commits agents make. |
 
-Leave `FORGE_CURSOR_AGENT_DIR`, `FORGE_CURSOR_CONFIG_DIR`, and `DOCKER_SOCKET` unset. `./deploy.sh` detects them and writes the host paths to `/data/forge-host-mounts.json` so later self-updates can remount the agent CLI.
+Leave `FORGE_CURSOR_AGENT_DIR`, `FORGE_CURSOR_CONFIG_DIR`, `FORGE_CODEX_DIR`, and `DOCKER_SOCKET` unset. `./deploy.sh` detects CLIs and writes host paths to `/data/forge-host-mounts.json` so later self-updates can remount them. Missing CLIs use stub directories so Compose never creates anonymous volumes.
 
 Then:
 

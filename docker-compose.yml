@@ -29,6 +29,11 @@ services:
       CURSOR_API_KEY: ${CURSOR_API_KEY:-}
       FORGE_CURSOR_AGENT_DIR: ${FORGE_CURSOR_AGENT_DIR:-}
       FORGE_CURSOR_CONFIG_DIR: ${FORGE_CURSOR_CONFIG_DIR:-}
+      FORGE_CODEX_DIR: ${FORGE_CODEX_DIR:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CODEX_API_KEY: ${CODEX_API_KEY:-}
+      FORGE_LOCAL_AGENT_BASE_URL: ${FORGE_LOCAL_AGENT_BASE_URL:-}
+      FORGE_LOCAL_AGENT_MODEL: ${FORGE_LOCAL_AGENT_MODEL:-}
       FORGE_HOST_MOUNTS_FILE: /data/forge-host-mounts.json
       FORGE_AGENT_BIN: /usr/local/bin/agent
       FORGE_GIT_USER_NAME: ${FORGE_GIT_USER_NAME:-Forge Agent}
@@ -52,8 +57,9 @@ services:
       DOCKER_HOST: ${DOCKER_HOST:-tcp://127.0.0.1:${FORGE_PODMAN_API_PORT:-18765}}
     volumes:
       - forge-data:/data
-      - ${FORGE_CURSOR_AGENT_DIR:?Set FORGE_CURSOR_AGENT_DIR or redeploy with ./deploy.sh}:/opt/cursor-agent:ro,z
-      - ${FORGE_CURSOR_CONFIG_DIR:?Set FORGE_CURSOR_CONFIG_DIR or redeploy with ./deploy.sh}:/opt/cursor-config:ro,z
+      - ${FORGE_CURSOR_AGENT_DIR:-./data/agent-stubs/cursor}:/opt/cursor-agent:ro,z
+      - ${FORGE_CURSOR_CONFIG_DIR:-./data/agent-stubs/cursor-config}:/opt/cursor-config:ro,z
+      - ${FORGE_CODEX_DIR:-./data/agent-stubs/codex}:/opt/codex:ro,z
       - ${DOCKER_SOCKET:?Set DOCKER_SOCKET or redeploy with ./deploy.sh}:/var/run/docker.sock
     restart: unless-stopped
 

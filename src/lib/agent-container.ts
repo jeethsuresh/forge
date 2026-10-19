@@ -53,6 +53,10 @@ export type StartAgentContainerOpts = {
   cursorApiKey?: string;
   packagesJson?: string;
   cursorSessionId?: string;
+  backend?: string;
+  backendEnv?: Record<string, string>;
+  backendBinds?: string[];
+  agentBin?: string;
   /**
    * Workspace path bind-mounted at /workspace/repo.
    * May be a Forge-container path (e.g. /data/repos/…); rewritten to the host
@@ -332,8 +336,14 @@ export function buildAgentContainerRunArgs(
   if (opts.cursorSessionId?.trim()) {
     env.FORGE_CURSOR_SESSION_ID = opts.cursorSessionId.trim();
   }
+  if (opts.backend?.trim()) env.FORGE_AGENT_BACKEND = opts.backend.trim();
+  if (opts.backendEnv) {
+    Object.assign(env, opts.backendEnv);
+  }
 
-  if (hostMounts.cursorAgentDir) {
+  if (opts.agentBin?.trim()) {
+    env.FORGE_AGENT_BIN = opts.agentBin.trim();
+  } else if (hostMounts.cursorAgentDir && (opts.backend ?? "cursor") === "cursor") {
     env.FORGE_AGENT_BIN = resolveCursorAgentBinInMount(hostMounts.cursorAgentDir);
   }
 
@@ -394,7 +404,8 @@ export function buildAgentContainerRunArgs(
     args.push("-v", promptBind);
   }
 
-  if (hostMounts.cursorAgentDir) {
+  const backend = opts.backend?.trim() || "cursor";
+  if (backend === "cursor" && hostMounts.cursorAgentDir) {
     const agentBind = `${hostMounts.cursorAgentDir}:/opt/cursor-agent:ro,z`;
     if (mountArgTargetsDockerSock(agentBind)) {
       throw new Error(
@@ -402,6 +413,19 @@ export function buildAgentContainerRunArgs(
       );
     }
     args.push("-v", agentBind);
+  }
+
+  for (const bind of opts.backendBinds ?? []) {
+    const trimmed = bind.trim();
+    if (!trimmed) continue;
+    if (mountArgTargetsDockerSock(trimmed)) {
+      throw new Error(
+        `Refusing backend bind that looks like a container socket: ${trimmed}`,
+      );
+    }
+    if (!args.includes(trimmed)) {
+      args.push("-v", trimmed);
+    }
   }
 
   // Do not bind-mount host ~/.config/cursor into the agent. Cursor CLI chmods

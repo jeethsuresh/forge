@@ -119,6 +119,47 @@ describe("agent event ingest", () => {
     expect(events[0]?.eventType).toBe("assistant");
     expect(events[1]?.eventType).toBe("system");
   });
+
+  it("translates Codex vendor lines and records thinking=none", () => {
+    const { sessionId } = seedProjectSession();
+    db.update(agentSessions)
+      .set({ backend: "codex" })
+      .where(eq(agentSessions.id, sessionId))
+      .run();
+
+    ingestAgentEvents(sessionId, [
+      {
+        line: JSON.stringify({ type: "thread.started", thread_id: "th_codex" }),
+      },
+      {
+        line: JSON.stringify({
+          type: "system",
+          subtype: "info",
+          text: "thinking=none (model does not support reasoning)",
+        }),
+      },
+    ]);
+
+    const session = db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.id, sessionId))
+      .get();
+    expect(session?.backendSessionId).toBe("th_codex");
+    expect(session?.cursorSessionId).toBeNull();
+    expect(session?.thinkingLevel).toBe("none");
+
+    const events = db
+      .select()
+      .from(agentEvents)
+      .where(eq(agentEvents.sessionId, sessionId))
+      .all();
+    expect(JSON.parse(events[0]?.payload ?? "{}")).toMatchObject({
+      type: "system",
+      subtype: "init",
+      session_id: "th_codex",
+    });
+  });
 });
 
 describe("bootstrap ops allowlist", () => {

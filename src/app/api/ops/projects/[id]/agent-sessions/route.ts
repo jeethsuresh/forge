@@ -8,6 +8,7 @@ import {
 } from "@/lib/agent-runner";
 import { deployedCommitShaForProject } from "@/lib/project-deploy-update";
 import { getActiveSessionForProject, isAgentSessionActive } from "@/lib/agent-state";
+import { listAvailableBackendInfo } from "@/lib/agent-backends/registry";
 import {
   reconcileAbandonedDeployingSessions,
   reconcileInterruptedDeployments,
@@ -50,6 +51,7 @@ export async function GET(
     activeSession: activeSession ?? null,
     hasActiveSession: isAgentSessionActive(id),
     deployedCommitSha: deployedCommitShaForProject(project),
+    availableBackends: listAvailableBackendInfo(),
   });
 }
 
@@ -105,7 +107,10 @@ export async function POST(
     if (createBranch) {
       await createAgentBranch(id, branch);
     }
-    const { sessionId, queued } = await createAgentSession(id, branch, prompt);
+    const backend = typeof body.backend === "string" ? body.backend.trim() : "";
+    const { sessionId, queued } = await createAgentSession(id, branch, prompt, {
+      backend: backend || null,
+    });
     return jsonWithAudit(
       { sessionId, branch, queued, createdBranch: createBranch },
       { status: queued ? 202 : 201 },

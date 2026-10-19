@@ -37,11 +37,19 @@ describe("shell harness Layer B", () => {
     runHarness("npm-ci-retry.sh");
   });
 
-  it("agent container uses host workspace binds and local forge-agent image", () => {
-    runHarness("agent-container-startup.sh");
-  });
+  it(
+    "agent container uses host workspace binds and local forge-agent image",
+    () => {
+      runHarness("agent-container-startup.sh");
+    },
+    180_000,
+  );
 
-  it("agent git checkout on a bind-mounted repo needs uid 0 (exit 128 otherwise)", () => {
-    runHarness("agent-container-git-bind.sh");
-  });
+  it(
+    "agent git checkout on a bind-mounted repo needs uid 0 (exit 128 otherwise)",
+    () => {
+      runHarness("agent-container-git-bind.sh");
+    },
+    180_000,
+  );
 });

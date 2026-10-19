@@ -120,18 +120,34 @@ run_agent() {
   else
     prompt="${FORGE_AGENT_PROMPT:-Continue the Forge agent session.}"
   fi
-  if [[ ! -x "${AGENT_BIN}" ]]; then
+  if [[ ! -x "${AGENT_BIN}" && ! -f "${AGENT_BIN}" ]]; then
     post_event "{\"type\":\"system\",\"subtype\":\"error\",\"text\":\"Agent binary missing at ${AGENT_BIN}\"}"
     echo "Agent binary not found at ${AGENT_BIN}" >&2
     exit 127
   fi
-  local resume_args=()
-  if [[ -n "${FORGE_CURSOR_SESSION_ID:-}" ]]; then
-    resume_args=(--resume "${FORGE_CURSOR_SESSION_ID}")
+  local extra_args=()
+  if [[ -n "${FORGE_AGENT_ARGS_JSON:-}" ]]; then
+    mapfile -t extra_args < <(
+      FORGE_AGENT_ARGS_JSON="${FORGE_AGENT_ARGS_JSON}" python3 - <<'PY'
+import json, os
+raw = os.environ.get("FORGE_AGENT_ARGS_JSON") or "[]"
+try:
+    args = json.loads(raw)
+except json.JSONDecodeError:
+    args = []
+if isinstance(args, list):
+    for item in args:
+        print(item)
+PY
+    )
+  elif [[ -n "${FORGE_CURSOR_SESSION_ID:-}" ]]; then
+    extra_args=(--resume "${FORGE_CURSOR_SESSION_ID}")
+    extra_args=(-p --force --output-format stream-json --stream-partial-output "${extra_args[@]}")
+  else
+    extra_args=(-p --force --output-format stream-json --stream-partial-output)
   fi
   # Stream JSON lines to Ops event ingest (UI must not depend on docker logs).
-  "${AGENT_BIN}" -p --force --output-format stream-json --stream-partial-output \
-    "${resume_args[@]}" "${prompt}" \
+  "${AGENT_BIN}" "${extra_args[@]}" "${prompt}" \
     | while IFS= read -r line; do
         [[ -z "${line}" ]] && continue
         # Escape for JSON string embedding

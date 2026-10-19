@@ -53,6 +53,7 @@ export function useAgentWorkspace({
   const [loadedSessionTerminal, setLoadedSessionTerminal] = useState(false);
   const [showNewBranchForm, setShowNewBranchForm] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
+  const [backend, setBackend] = useState<"cursor" | "codex" | "local">("cursor");
 
   const messagesScrollRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -65,6 +66,15 @@ export function useAgentWorkspace({
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
+
+  const availableBackends = useMemo(
+    () => data?.availableBackends ?? [],
+    [data?.availableBackends],
+  );
+  const readyBackends = availableBackends.filter((b) => b.available);
+  const selectedBackend = readyBackends.some((b) => b.id === backend)
+    ? backend
+    : (readyBackends[0]?.id ?? backend);
 
   const branches = useMemo(() => data?.branches ?? [], [data?.branches]);
   const sessions = useMemo(() => data?.sessions ?? [], [data?.sessions]);
@@ -405,6 +415,7 @@ export function useAgentWorkspace({
         body: JSON.stringify({
           branch: selectedBranch,
           prompt: prompt.trim(),
+          backend: selectedBackend,
         }),
       });
       if (!res.ok) {
@@ -440,6 +451,7 @@ export function useAgentWorkspace({
         body: JSON.stringify({
           name: branchName,
           prompt: prompt.trim(),
+          backend: selectedBackend,
         }),
       });
       if (!res.ok) {
@@ -908,6 +920,7 @@ export function useAgentWorkspace({
           body: JSON.stringify({
             branch: selectedBranch,
             prompt: recreatePrompt.trim(),
+            backend: selectedBackend,
           }),
         },
       );
@@ -1069,6 +1082,9 @@ export function useAgentWorkspace({
     setShowNewBranchForm,
     newBranchName,
     setNewBranchName,
+    backend: selectedBackend,
+    setBackend,
+    availableBackends,
     messagesScrollRef,
     eventSourceRef,
     lastStreamSeqRef,

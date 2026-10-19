@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  filterLiveBranchesWithAgents,
-  type LiveBranchInfo,
-} from "@/lib/agent-live-branches";
+import { filterLiveBranchesWithAgents } from "@/lib/agent-live-branches-shared";
+import type { LiveBranchInfo } from "@/lib/agent-live-branches";
 
 describe("filterLiveBranchesWithAgents", () => {
   it("returns empty when only checkout containers exist (no agent sessions)", () => {
