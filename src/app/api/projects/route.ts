@@ -9,6 +9,7 @@ import { isDeploymentActive } from "@/lib/deployer";
 import { getComposeContainerStatus, projectHasComposeFile } from "@/lib/docker";
 import { deriveRuntimeStatus } from "@/lib/project-status";
 import { composeProjectName } from "@/lib/compose-project-name";
+import { projectHasInProgressTicket } from "@/lib/tickets";
 import { projectComposeSlug } from "@/lib/projects";
 import {
   findForgeProject,
@@ -132,6 +133,7 @@ export async function GET() {
         runtimeStatus,
         isForge: isForgeProject(project),
         hasLiveAgent: projectHasLiveAgent(project.id),
+        hasInProgressTicket: projectHasInProgressTicket(project.id),
         workingTreeDirty: false,
         gitRepositoryId: project.gitRepositoryId,
         gitSlug: gitRepo?.slug ?? null,

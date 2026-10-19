@@ -7,6 +7,7 @@ import { CaddySettingsEditor } from "@/components/CaddySettingsEditor";
 import { GitSshKeysSettings } from "@/components/GitSshKeysSettings";
 import { FunctionalUsersSettings } from "@/components/FunctionalUsersSettings";
 import { MigrationSettings } from "@/components/MigrationSettings";
+import { TicketQueueSettings } from "@/components/TicketQueueSettings";
 import { ThemeAppearance } from "@/components/ThemeAppearance";
 import { PageHeader, TabButton, TabList } from "@/components/ui";
 
@@ -17,6 +18,7 @@ type SettingsTab =
   | "logs"
   | "git-ssh"
   | "mcp-agents"
+  | "ticket-queue"
   | "migrate";
 
 export function GlobalSettings() {
@@ -27,7 +29,7 @@ export function GlobalSettings() {
       <div className="mx-auto max-w-4xl">
         <PageHeader
           title="Global settings"
-          subtitle="Appearance, routing, live Caddy config, access logs, git SSH keys, MCP agents, and migration"
+          subtitle="Appearance, routing, live Caddy config, access logs, git SSH keys, MCP agents, ticket queue, and migration"
         />
 
         <TabList className="mb-6">
@@ -68,6 +70,12 @@ export function GlobalSettings() {
             MCP agents
           </TabButton>
           <TabButton
+            active={activeTab === "ticket-queue"}
+            onClick={() => setActiveTab("ticket-queue")}
+          >
+            Ticket queue
+          </TabButton>
+          <TabButton
             active={activeTab === "migrate"}
             onClick={() => setActiveTab("migrate")}
           >
@@ -87,6 +95,8 @@ export function GlobalSettings() {
           <GitSshKeysSettings />
         ) : activeTab === "mcp-agents" ? (
           <FunctionalUsersSettings />
+        ) : activeTab === "ticket-queue" ? (
+          <TicketQueueSettings />
         ) : (
           <MigrationSettings />
         )}

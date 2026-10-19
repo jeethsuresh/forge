@@ -29,6 +29,7 @@ interface ProjectSummary {
   isForge?: boolean;
   latestDeployment: { status: string } | null;
   hasLiveAgent?: boolean;
+  hasInProgressTicket?: boolean;
   workingTreeDirty?: boolean;
 }
 
@@ -76,6 +77,7 @@ function ProjectNavBlock({
       latestDeployStatus: project.latestDeployment?.status ?? null,
       hasAttention: attentionForProject(fleet) !== null,
       agentLive: Boolean(project.hasLiveAgent),
+      ticketInProgress: Boolean(project.hasInProgressTicket),
       workingTreeDirty: Boolean(project.workingTreeDirty),
     };
   }, [project]);
@@ -136,7 +138,8 @@ function ProjectNavBlock({
                         tone={tones[mode]}
                         pulse={
                           (mode === "deploy" && project.isDeploying) ||
-                          (mode === "agents" && Boolean(project.hasLiveAgent))
+                          (mode === "agents" && Boolean(project.hasLiveAgent)) ||
+                          (mode === "tickets" && Boolean(project.hasInProgressTicket))
                         }
                       />
                     ) : (

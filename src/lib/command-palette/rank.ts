@@ -160,9 +160,9 @@ export function buildStaticPaletteItems(): PaletteItem[] {
       kind: "settings",
       title: "Global settings",
       subtitle: "Routing, Caddy, access logs, migration",
-      keywords: ["settings", "caddy", "routing", "logs", "migrate", "import"],
+      keywords: ["settings", "caddy", "routing", "logs", "migrate", "import", "tickets", "queue"],
       href: "/settings",
-      docs: "Configure project routing, live Caddy routes, access logs, and one-way migration from another Forge install.",
+      docs: "Configure project routing, live Caddy routes, access logs, ticket queue, and one-way migration from another Forge install.",
     },
     {
       id: "nav:new-project",
@@ -227,6 +227,16 @@ export function projectPaletteItems(project: {
       keywords: [label, "agent", "session", "chat"],
       href: projectModeHref(project.id, "agents"),
       docs: `Open agent sessions for ${label}.`,
+      projectId: project.id,
+    },
+    {
+      id: `project:${project.id}:tickets`,
+      kind: "action",
+      title: `Tickets · ${label}`,
+      subtitle: "Open Tickets",
+      keywords: [label, "ticket", "kanban", "board", "queue"],
+      href: projectModeHref(project.id, "tickets"),
+      docs: `Open the ticket board for ${label}.`,
       projectId: project.id,
     },
     {

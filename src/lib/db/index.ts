@@ -313,6 +313,43 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_branch_workspaces_project_branch
   ON branch_workspaces(project_id, branch);
 CREATE INDEX IF NOT EXISTS idx_branch_workspaces_project_id
   ON branch_workspaces(project_id);
+
+CREATE TABLE IF NOT EXISTS tickets (
+  id TEXT PRIMARY KEY,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  number INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'todo',
+  queue_rank INTEGER NOT NULL,
+  claimed_by_kind TEXT,
+  claimed_by_session_id TEXT,
+  claimed_by_actor TEXT,
+  claimed_at INTEGER,
+  branch TEXT,
+  agent_session_id TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  completed_at INTEGER
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_project_number
+  ON tickets(project_id, number);
+CREATE INDEX IF NOT EXISTS idx_tickets_project_id ON tickets(project_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_status ON tickets(status);
+CREATE INDEX IF NOT EXISTS idx_tickets_queue_rank ON tickets(queue_rank);
+
+CREATE TABLE IF NOT EXISTS ticket_dependencies (
+  ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  depends_on_ticket_id TEXT NOT NULL REFERENCES tickets(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_dependencies_edge
+  ON ticket_dependencies(ticket_id, depends_on_ticket_id);
+CREATE INDEX IF NOT EXISTS idx_ticket_dependencies_ticket
+  ON ticket_dependencies(ticket_id);
+CREATE INDEX IF NOT EXISTS idx_ticket_dependencies_depends
+  ON ticket_dependencies(depends_on_ticket_id);
 `;
 
 sqlite.exec(INIT_SQL);
@@ -345,6 +382,7 @@ addColumnIfMissing("agent_sessions", "archived_at", "INTEGER");
 addColumnIfMissing("agent_sessions", "restart_count", "INTEGER NOT NULL DEFAULT 0");
 addColumnIfMissing("agent_sessions", "last_exit_code", "INTEGER");
 addColumnIfMissing("agent_sessions", "context_compact", "TEXT");
+addColumnIfMissing("agent_sessions", "ticket_id", "TEXT");
 addColumnIfMissing("projects", "deploy_env_json", "TEXT NOT NULL DEFAULT '[]'");
 addColumnIfMissing("projects", "host_port", "INTEGER");
 addColumnIfMissing("projects", "caddy_route_json", "TEXT");

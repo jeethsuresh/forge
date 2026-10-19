@@ -42,6 +42,7 @@ describe("agent session activity helpers", () => {
     expect(agentSessionSourceLabel("manual")).toBe("Manual");
     expect(agentSessionSourceLabel("recovery")).toBe("Deploy recovery");
     expect(agentSessionSourceLabel("rebase-recovery")).toBe("Rebase recovery");
+    expect(agentSessionSourceLabel("ticket")).toBe("Ticket");
   });
 
   it("treats idle and queued as inactive and non-blocking", () => {

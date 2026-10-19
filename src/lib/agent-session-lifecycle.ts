@@ -1,7 +1,13 @@
 import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { agentSessions, projects, type AgentSessionStatus, type Project } from "@/lib/db/schema";
+import {
+  agentSessions,
+  projects,
+  type AgentSessionSource,
+  type AgentSessionStatus,
+  type Project,
+} from "@/lib/db/schema";
 import {
   failedTurnEventSeq,
   findFailedTurnPrompt,
@@ -136,6 +142,10 @@ export async function createAgentSession(
   projectId: string,
   branch: string,
   prompt: string,
+  options?: {
+    source?: AgentSessionSource;
+    ticketId?: string | null;
+  },
 ): Promise<{ sessionId: string; queued: boolean }> {
   const trimmedBranch = branch.trim();
   if (!trimmedBranch) throw new Error("Branch is required");
@@ -173,7 +183,14 @@ export async function createAgentSession(
 
     if (existing.status === "idle" || isInactiveAgentSessionStatus(existing.status)) {
       db.update(agentSessions)
-        .set({ initialPrompt: prompt.trim() })
+        .set({
+          initialPrompt: prompt.trim(),
+          source: options?.source ?? existing.source,
+          ticketId:
+            options?.ticketId !== undefined
+              ? options.ticketId
+              : existing.ticketId,
+        })
         .where(eq(agentSessions.id, existing.id))
         .run();
       await startAgentWithUserMessage(existing.id, prompt.trim());
@@ -191,7 +208,8 @@ export async function createAgentSession(
       projectId,
       branch: trimmedBranch,
       status: "idle",
-      source: "manual",
+      source: options?.source ?? "manual",
+      ticketId: options?.ticketId ?? null,
       initialPrompt: prompt.trim(),
       logs: "",
       startedAt: new Date(),

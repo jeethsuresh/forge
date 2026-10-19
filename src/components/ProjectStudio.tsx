@@ -15,7 +15,7 @@ import { mergePolledProjectDetail } from "@/lib/project-detail-client";
 import { ForgeSelfUpdateEditor } from "@/components/ForgeSelfUpdateEditor";
 import { ActiveDeployLogsPanel } from "@/components/ActiveDeployLogsPanel";
 import { isContainerRunningState } from "@/lib/container-runtime";
-import { filterLiveBranchesWithAgents } from "@/lib/agent-live-branches";
+import { filterLiveBranchesWithAgents } from "@/lib/filter-live-branches";
 import { APP_DISPLAY_NAME } from "@/lib/app-name";
 import { resolveActiveDeployLogView } from "@/lib/active-deploy-logs";
 import type { ProjectCaddySettings } from "@/lib/project-routing-shared";
@@ -29,6 +29,7 @@ import { ProjectArtifacts } from "@/components/ProjectArtifacts";
 import { ProjectStudioSettings } from "@/components/ProjectStudioSettings";
 import { ProjectStudioOverview } from "@/components/ProjectStudioOverview";
 import { ComposeStudio } from "@/components/ComposeStudio";
+import { ProjectTicketsBoard } from "@/components/ProjectTicketsBoard";
 import {
   DEPLOYMENTS_PER_PAGE,
   projectPollIntervalMs,
@@ -835,6 +836,10 @@ export function ProjectStudio({ mode }: { mode: ProjectMode }) {
       ) : activeTab === "compose" ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <ComposeStudio projectId={id} />
+        </div>
+      ) : activeTab === "tickets" ? (
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <ProjectTicketsBoard projectId={id} />
         </div>
       ) : (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">

@@ -10,6 +10,7 @@ export type ModeStatusSignals = {
   hasAttention: boolean;
   agentLive: boolean;
   workingTreeDirty: boolean;
+  ticketInProgress?: boolean;
 };
 
 export type ModeStatusMap = Record<ProjectMode, SemanticTone>;
@@ -31,6 +32,7 @@ export function modeStatuses(signals: ModeStatusSignals): ModeStatusMap {
         : runtimeTone(signals.runtimeStatus),
     deploy: deployModeTone(signals),
     compose: "neutral",
+    tickets: signals.ticketInProgress ? "info" : "neutral",
     agents: signals.agentLive ? "info" : "neutral",
     changes: signals.workingTreeDirty ? "warning" : "neutral",
     settings: "neutral",

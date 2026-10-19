@@ -39,6 +39,10 @@ describe("resolveProjectModeFromPath", () => {
       projectId: "abc",
       mode: "compose",
     });
+    expect(resolveProjectModeFromPath("/projects/abc/tickets")).toEqual({
+      projectId: "abc",
+      mode: "tickets",
+    });
     expect(resolveProjectModeFromPath("/settings")).toBeNull();
   });
 });

@@ -11,7 +11,11 @@ export function isRebaseRecoveryPrompt(prompt: string): boolean {
   return prompt.startsWith(REBASE_RECOVERY_PROMPT_PREFIX);
 }
 
-export type AgentSessionSource = "manual" | "recovery" | "rebase-recovery";
+export type AgentSessionSource =
+  | "manual"
+  | "recovery"
+  | "rebase-recovery"
+  | "ticket";
 
 export interface RebaseRecoveryContext {
   projectId: string;
@@ -28,7 +32,8 @@ export function resolveAgentSessionSource(session: {
   if (
     session.source === "recovery" ||
     session.source === "rebase-recovery" ||
-    session.source === "manual"
+    session.source === "manual" ||
+    session.source === "ticket"
   ) {
     return session.source;
   }
@@ -60,19 +65,37 @@ export function isRecoveryAbortedByUser(session: {
 }
 
 export function agentSessionSourceLabel(source: AgentSessionSource): string {
-  if (source === "recovery") return "Deploy recovery";
-  if (source === "rebase-recovery") return "Rebase recovery";
-  return "Manual";
+  switch (source) {
+    case "recovery":
+      return "Deploy recovery";
+    case "rebase-recovery":
+      return "Rebase recovery";
+    case "ticket":
+      return "Ticket";
+    case "manual":
+      return "Manual";
+    default: {
+      const _exhaustive: never = source;
+      return _exhaustive;
+    }
+  }
 }
 
 export function agentSessionSourceBadgeClass(source: AgentSessionSource): string {
-  if (source === "recovery") {
-    return "border-amber-400/30 bg-amber-400/10 text-amber-200";
+  switch (source) {
+    case "recovery":
+      return "border-amber-400/30 bg-amber-400/10 text-amber-200";
+    case "rebase-recovery":
+      return "border-sky-400/30 bg-sky-400/10 text-sky-200";
+    case "ticket":
+      return "border-violet-400/30 bg-violet-400/10 text-violet-200";
+    case "manual":
+      return "border-orange-400/20 bg-orange-400/10 text-orange-300";
+    default: {
+      const _exhaustive: never = source;
+      return _exhaustive;
+    }
   }
-  if (source === "rebase-recovery") {
-    return "border-sky-400/30 bg-sky-400/10 text-sky-200";
-  }
-  return "border-orange-400/20 bg-orange-400/10 text-orange-300";
 }
 
 /** Session is waiting for the user to send a first message — does not block deploys. */

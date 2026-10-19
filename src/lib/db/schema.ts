@@ -102,7 +102,15 @@ export type AgentSessionStatus =
   | "failed"
   | "cancelled";
 
-export type AgentSessionSource = "manual" | "recovery" | "rebase-recovery";
+export type AgentSessionSource =
+  | "manual"
+  | "recovery"
+  | "rebase-recovery"
+  | "ticket";
+
+export type TicketStatus = "todo" | "in_progress" | "done";
+
+export type TicketClaimedByKind = "internal" | "ops";
 
 export type ForgeUpdateStatus =
   | "pending"
@@ -291,6 +299,7 @@ export const agentSessions = sqliteTable("agent_sessions", {
   failedTurnStartSeq: integer("failed_turn_start_seq"),
   initialPrompt: text("initial_prompt").notNull(),
   source: text("source").$type<AgentSessionSource>().notNull().default("manual"),
+  ticketId: text("ticket_id"),
   logs: text("logs").notNull().default(""),
   errorMessage: text("error_message"),
   deploymentId: text("deployment_id"),
@@ -417,6 +426,51 @@ export const secrets = sqliteTable(
   ],
 );
 
+export const tickets = sqliteTable(
+  "tickets",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    status: text("status").$type<TicketStatus>().notNull().default("todo"),
+    queueRank: integer("queue_rank").notNull(),
+    claimedByKind: text("claimed_by_kind").$type<TicketClaimedByKind>(),
+    claimedBySessionId: text("claimed_by_session_id"),
+    claimedByActor: text("claimed_by_actor"),
+    claimedAt: integer("claimed_at", { mode: "timestamp" }),
+    branch: text("branch"),
+    agentSessionId: text("agent_session_id"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    uniqueIndex("idx_tickets_project_number").on(table.projectId, table.number),
+  ],
+);
+
+export const ticketDependencies = sqliteTable(
+  "ticket_dependencies",
+  {
+    ticketId: text("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    dependsOnTicketId: text("depends_on_ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    uniqueIndex("idx_ticket_dependencies_edge").on(
+      table.ticketId,
+      table.dependsOnTicketId,
+    ),
+  ],
+);
+
 export const secretRequests = sqliteTable("secret_requests", {
   id: text("id").primaryKey(),
   sessionId: text("session_id")
@@ -459,6 +513,8 @@ export type ServiceDirectoryRow = typeof serviceDirectory.$inferSelect;
 export type ContainerLogRow = typeof containerLogs.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;
 export type AgentSession = typeof agentSessions.$inferSelect;
+export type Ticket = typeof tickets.$inferSelect;
+export type TicketDependency = typeof ticketDependencies.$inferSelect;
 export type AgentEvent = typeof agentEvents.$inferSelect;
 export type AgentContainer = typeof agentContainers.$inferSelect;
 export type BranchWorkspace = typeof branchWorkspaces.$inferSelect;

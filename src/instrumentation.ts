@@ -49,6 +49,14 @@ export async function register() {
     startAgentKillPolicyTicker();
 
     try {
+      const { scheduleTicketDrain } = await import("@/lib/ticket-scheduler");
+      scheduleTicketDrain();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[forge] Ticket scheduler on startup failed: ${message}`);
+    }
+
+    try {
       const { migrateGithubOriginProjects } = await import(
         "@/lib/git-migrate-origin"
       );

@@ -21,12 +21,19 @@ describe("modeStatuses", () => {
     });
     expect(tones.deploy).toBe("warning");
     expect(tones.agents).toBe("info");
+    expect(tones.tickets).toBe("neutral");
     expect(tones.changes).toBe("warning");
   });
 
   it("marks overview warning when attention is set", () => {
     expect(modeStatuses({ ...base, hasAttention: true }).overview).toBe(
       "warning",
+    );
+  });
+
+  it("marks tickets info when a ticket is in progress", () => {
+    expect(modeStatuses({ ...base, ticketInProgress: true }).tickets).toBe(
+      "info",
     );
   });
 });

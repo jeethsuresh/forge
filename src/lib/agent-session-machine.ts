@@ -9,6 +9,7 @@ import {
   operatorStopError,
   type OperatorStopReason,
 } from "@/lib/agent-session-events";
+import { notifyTicketSessionTerminal } from "@/lib/ticket-session-hooks";
 
 export type { OperatorStopReason };
 export {
@@ -150,6 +151,11 @@ export function transition(
     .set(patch)
     .where(eq(agentSessions.id, sessionId))
     .run();
+
+  const next = patch.status ?? row.status;
+  if (next && TERMINAL.has(next)) {
+    notifyTicketSessionTerminal(sessionId);
+  }
 }
 
 /** Non-status field updates (cursor id, deployment id, commit sha). */

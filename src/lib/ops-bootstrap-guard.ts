@@ -68,6 +68,14 @@ export function isBootstrapOpsPathAllowed(
     return true;
   }
 
+  // Tickets: claim/complete/followup even during bootstrap
+  if (/\/api\/ops\/projects\/[^/]+\/tickets(?:\/|$)/.test(path)) {
+    return m === "GET" || m === "POST" || m === "PATCH";
+  }
+  if (path === "/api/ops/tickets" && m === "GET") return true;
+  if (path === "/api/ops/tickets/queue" && m === "GET") return true;
+  if (path === "/api/ops/tickets/claim-next" && m === "POST") return true;
+
   return false;
 }
 

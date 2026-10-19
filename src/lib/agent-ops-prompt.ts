@@ -264,6 +264,99 @@ export function forgeOpsApiCatalog(baseUrl: string) {
           sourceBranch: "string (required)",
         },
       },
+      {
+        method: "GET",
+        path: "/api/ops/tickets",
+        description:
+          "List tickets. Session tokens are limited to their project; global/fmu see all.",
+      },
+      {
+        method: "GET",
+        path: "/api/ops/tickets/queue",
+        description: "Open tickets in internal-worker queue order",
+      },
+      {
+        method: "PATCH",
+        path: "/api/ops/tickets/queue",
+        description:
+          "Reorder the global internal-worker queue. Global and fmu.* tokens only.",
+        body: {
+          actionDescription: "string (required)",
+          orderedIds: "string[] (required)",
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/ops/tickets/claim-next",
+        description:
+          "Claim the next ready ticket (lowest queue rank, deps done, unclaimed). Optional projectId filter.",
+        body: {
+          actionDescription: "string (required)",
+          projectId: "string?",
+        },
+      },
+      {
+        method: "GET",
+        path: "/api/ops/projects/{projectId}/tickets",
+        description: "List tickets on a project kanban",
+      },
+      {
+        method: "POST",
+        path: "/api/ops/projects/{projectId}/tickets",
+        description: "Create a ticket (title required, optional description and dependsOnTicketIds)",
+        body: {
+          actionDescription: "string (required)",
+          title: "string (required)",
+          description: "string?",
+          dependsOnTicketIds: "string[]?",
+        },
+      },
+      {
+        method: "GET",
+        path: "/api/ops/projects/{projectId}/tickets/{ticketId}",
+        description: "Ticket detail including blockers, followups, and claimer",
+      },
+      {
+        method: "PATCH",
+        path: "/api/ops/projects/{projectId}/tickets/{ticketId}",
+        description: "Update ticket title and/or description",
+        body: {
+          actionDescription: "string (required)",
+          title: "string?",
+          description: "string?",
+        },
+      },
+      {
+        method: "POST",
+        path: "/api/ops/projects/{projectId}/tickets/{ticketId}/pickup",
+        description:
+          "Claim a ready ticket and move it to in_progress. Fails if blocked or already claimed.",
+        body: { actionDescription: "string (required)" },
+      },
+      {
+        method: "POST",
+        path: "/api/ops/projects/{projectId}/tickets/{ticketId}/complete",
+        description:
+          "Mark an in-progress ticket done. Caller must be the claimer, or unrestricted Ops.",
+        body: { actionDescription: "string (required)" },
+      },
+      {
+        method: "POST",
+        path: "/api/ops/projects/{projectId}/tickets/{ticketId}/release",
+        description: "Return an in-progress ticket to todo and clear the claim",
+        body: { actionDescription: "string (required)" },
+      },
+      {
+        method: "POST",
+        path: "/api/ops/projects/{projectId}/tickets/{ticketId}/followup",
+        description:
+          "Create a followup ticket that depends on this one. Parent may then be completed.",
+        body: {
+          actionDescription: "string (required)",
+          title: "string (required)",
+          description: "string?",
+        },
+      },
     ],
   };
 }
@@ -413,6 +506,40 @@ Full endpoint catalog: \`GET ${baseUrl}/api/ops\`
 ## Rebase recovery
 
 When rebasing, if the rebase command fails, create a special agent session in a new branch (off of the base branch) and attempt to rebase the divergent branch onto it. Once that's done, the agent should be able to remove the old branch, and rename the new branch to the old branch name for continuity.
+
+## Tickets
+
+Project kanban tickets are claimable work items. A ticket can only be worked by one agent at a time. Pickup moves it to in progress; complete moves it to done. Process exit does **not** complete a ticket — you must POST complete. Create followups before completing if more work remains. Do not pick up a ticket whose dependencies are unfinished.
+
+**List project tickets**
+\`\`\`bash
+curl -sS -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  "${baseUrl}/api/ops/projects/${projectId}/tickets"
+\`\`\`
+
+**Claim a ticket**
+\`\`\`bash
+curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  -d '{"actionDescription":"Picking up ticket to implement the described work."}' \\
+  "${baseUrl}/api/ops/projects/${projectId}/tickets/{ticketId}/pickup"
+\`\`\`
+
+**Create a followup, then complete**
+\`\`\`bash
+curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  -d '{"actionDescription":"Recording leftover work as a followup ticket.","title":"Followup title"}' \\
+  "${baseUrl}/api/ops/projects/${projectId}/tickets/{ticketId}/followup"
+curl -sS -X POST -H "Authorization: Bearer $FORGE_OPS_API_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -H "X-Forge-Agent-Session-Id: ${sessionId}" \\
+  -d '{"actionDescription":"Completing the ticket after the described work landed."}' \\
+  "${baseUrl}/api/ops/projects/${projectId}/tickets/{ticketId}/complete"
+\`\`\`
 
 **Finalize rebase recovery** (after conflicts are resolved and tests pass)
 \`\`\`bash
